@@ -7,6 +7,8 @@ import type { ClustersResponse, RancherCustomCluster } from "../rancherTypes";
 import type {
   StoreDetail,
   StoreSummary,
+  StoreTemplateInfo,
+  StoreTemplatesResponse,
   StoreWorkerGroup,
   StoreWorkerToggle,
   StoresListResponse,
@@ -124,6 +126,26 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
   const [createError, setCreateError] = useState("");
   const [equipmentCheck, setEquipmentCheck] = useState<RancherCustomCluster | null>(null);
   const [equipmentChecking, setEquipmentChecking] = useState(false);
+  const [storeTemplates, setStoreTemplates] = useState<StoreTemplateInfo[]>([]);
+
+  const createTemplateHint = useMemo(() => {
+    const stack = newDistro === "pam" ? "pam" : "horustech";
+    const tpl = storeTemplates.find((t) => t.distro === newDistro);
+    const dbTpl = storeTemplates.find((t) => t.distro === "db");
+    if (tpl && !tpl.available) {
+      return `Falta la plantilla ${tpl.templatePath} en el repositorio. Sincroniza Git o revisa la rama.`;
+    }
+    const stationPath = tpl?.templatePath ?? `templates/poslite/${stack}/fleet.yaml`;
+    let dbPath = dbTpl?.primaryTemplatePath ?? "templates/poslite/db/fleet.yaml";
+    if (dbTpl?.source === "reference") {
+      dbPath = `${dbTpl.templatePath} (referencia; falta ${dbTpl.primaryTemplatePath})`;
+    } else if (dbTpl?.source === "builtin" || (dbTpl && !dbTpl.available)) {
+      dbPath = "plantilla mínima integrada (sin db en el repo)";
+    } else if (dbTpl?.available) {
+      dbPath = dbTpl.templatePath;
+    }
+    return `Se copiará ${stationPath} y ${dbPath}, sustituyendo <id-tienda> y <tag-imagen> (${newChannel}).`;
+  }, [newDistro, newChannel, storeTemplates]);
 
   const loadStores = useCallback(async () => {
     setLoading(true);
@@ -312,6 +334,18 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
     const t = window.setTimeout(() => void checkEquipmentForNewStore(), 400);
     return () => window.clearTimeout(t);
   }, [createOpen, checkEquipmentForNewStore]);
+
+  useEffect(() => {
+    if (!createOpen || !configured) return;
+    void (async () => {
+      try {
+        const r = await api<StoreTemplatesResponse>("/api/atlas-stores/store-templates");
+        setStoreTemplates(r.templates ?? []);
+      } catch {
+        setStoreTemplates([]);
+      }
+    })();
+  }, [createOpen, configured]);
 
   async function onCreateStore(e: FormEvent) {
     e.preventDefault();
@@ -836,6 +870,7 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
                   <option value="unstable">unstable</option>
                 </select>
               </label>
+              <p className="text-[11px] leading-relaxed text-zinc-500">{createTemplateHint}</p>
             </div>
             {equipmentChecking ? (
               <p className="mt-3 flex items-center gap-2 text-xs text-zinc-500">

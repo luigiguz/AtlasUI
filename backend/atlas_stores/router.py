@@ -16,6 +16,7 @@ from atlas_stores.equipment import (
 )
 from atlas_stores.git_repo import StoresRepoError, git_commit_and_push, git_pull, resolve_repo_root
 from atlas_stores.settings_store import load_stores_settings, save_stores_settings
+from atlas_stores.templates import StoreTemplateError, list_store_templates
 from atlas_stores.yaml_store import create_store, list_stores, load_store, save_store
 
 router = APIRouter(prefix="/api/atlas-stores", tags=["atlas-stores"])
@@ -177,6 +178,26 @@ def put_store(
     return {"ok": True, "store": safe, "publishMessage": git_msg}
 
 
+@router.get("/store-templates")
+def get_store_templates(
+    _user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    settings = load_stores_settings()
+    if not settings.get("repo_url"):
+        return {
+            "ok": True,
+            "configured": False,
+            "templates": [],
+            "message": "Configura la URL Git de atlas-stores.",
+        }
+    try:
+        root = resolve_repo_root(settings)
+        templates = list_store_templates(root)
+    except StoresRepoError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "configured": True, "templates": templates}
+
+
 @router.post("/stores")
 def post_create_store(
     body: CreateStoreBody,
@@ -208,6 +229,8 @@ def post_create_store(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except FileExistsError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
+    except StoreTemplateError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except StoresRepoError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except ValueError as e:
@@ -223,10 +246,12 @@ def post_create_store(
         equipment.get("name"),
         user.get("username"),
     )
+    template_used = f"templates/poslite/{distro}/fleet.yaml"
     return {
         "ok": True,
         "store": safe,
         "publishMessage": git_msg,
+        "templateSource": template_used,
         "equipment": {
             "name": equipment.get("name"),
             "displayName": equipment.get("displayName"),

@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from atlas_stores.templates import new_store_files
+from atlas_stores.templates import new_store_files_from_repo
 
 STACK_DB = "db"
 STACK_HORUSTECH = "horustech"
@@ -508,7 +508,12 @@ def create_store(
     if folder.exists():
         raise FileExistsError(f"Ya existe la carpeta de tienda: {folder_name}")
 
-    files = new_store_files(store_id=store_id, distro=distro_l, image_channel=image_channel)
+    files = new_store_files_from_repo(
+        repo_root,
+        store_id=store_id,
+        distro=distro_l,
+        image_channel=image_channel,
+    )
     for rel, content in files.items():
         path = folder / rel
         path.parent.mkdir(parents=True, exist_ok=True)

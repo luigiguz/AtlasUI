@@ -66,3 +66,22 @@ export type StoreDetailResponse = {
   ok: boolean;
   store: StoreDetail;
 };
+
+export type StoreTemplateInfo = {
+  distro: string;
+  label: string;
+  stackDir: string;
+  templatePath: string;
+  available: boolean;
+  source?: "template" | "reference" | "builtin";
+  primaryTemplatePath?: string;
+  fallbackTemplatePath?: string;
+  referenceStore?: string;
+};
+
+export type StoreTemplatesResponse = {
+  ok: boolean;
+  configured?: boolean;
+  message?: string;
+  templates: StoreTemplateInfo[];
+};
