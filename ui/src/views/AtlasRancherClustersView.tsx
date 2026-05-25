@@ -78,6 +78,10 @@ type Props = {
   canEditLabels?: boolean;
 };
 
+const AUTO_REFRESH_STORAGE_KEY = "atlas-rancher-auto-refresh";
+/** Intervalo de polling (30–60 s); valor por defecto intermedio. */
+const AUTO_REFRESH_INTERVAL_MS = 45_000;
+
 type SortKey = "name" | "store" | "distro" | "application" | "state" | "kubernetes";
 type SortDir = "asc" | "desc";
 
@@ -575,7 +579,18 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
   const [source, setSource] = useState("");
   const [rancherUrl, setRancherUrl] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [rancherConfigured, setRancherConfigured] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(() => {
+    try {
+      return localStorage.getItem(AUTO_REFRESH_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
+  const [, setRefreshClock] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersPanelRef = useRef<HTMLDivElement>(null);
@@ -623,9 +638,14 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
     });
   }
 
-  const loadClusters = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const loadClusters = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    if (silent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+      setError("");
+    }
     try {
       const data = await api<ClustersResponse>("/api/atlas-rancher/custom-clusters");
       const list = (data.clusters ?? []).map((c) => ({
@@ -640,27 +660,73 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
       setClusters(list);
       setSource(data.source ?? "");
       setRancherUrl(data.rancherUrl ?? "");
-      if (data.configured === false && data.message) {
+      const configured = data.configured !== false;
+      setRancherConfigured(configured);
+      setLastRefreshedAt(Date.now());
+      if (!silent && data.configured === false && data.message) {
         setError(data.message);
+      } else if (!silent) {
+        setError("");
       }
     } catch (e) {
-      setClusters([]);
-      const msg = e instanceof Error ? e.message : "No se pudieron cargar los clusters.";
-      if (/failed to fetch|networkerror/i.test(msg)) {
-        setError(
-          "No se pudo contactar el API (api-atlas-vpn.verkku.com). Suele ser 502 en el túnel o API sin desplegar la última versión. Comprueba que atlas-api esté en marcha y vuelve a desplegar."
-        );
-      } else {
-        setError(msg);
+      if (!silent) {
+        setClusters([]);
+        const msg = e instanceof Error ? e.message : "No se pudieron cargar los clusters.";
+        if (/failed to fetch|networkerror/i.test(msg)) {
+          setError(
+            "No se pudo contactar el API (api-atlas-vpn.verkku.com). Suele ser 502 en el túnel o API sin desplegar la última versión. Comprueba que atlas-api esté en marcha y vuelve a desplegar."
+          );
+        } else {
+          setError(msg);
+        }
       }
     } finally {
-      setLoading(false);
+      if (silent) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     void loadClusters();
   }, [loadClusters]);
+
+  useEffect(() => {
+    if (!autoRefresh || !rancherConfigured) return;
+    if (editingCluster || settingsOpen) return;
+
+    const id = window.setInterval(() => {
+      void loadClusters({ silent: true });
+    }, AUTO_REFRESH_INTERVAL_MS);
+
+    return () => window.clearInterval(id);
+  }, [
+    autoRefresh,
+    rancherConfigured,
+    editingCluster,
+    settingsOpen,
+    loadClusters,
+  ]);
+
+  useEffect(() => {
+    if (!lastRefreshedAt) return;
+    const id = window.setInterval(() => setRefreshClock((n) => n + 1), 5000);
+    return () => window.clearInterval(id);
+  }, [lastRefreshedAt]);
+
+  function toggleAutoRefresh() {
+    setAutoRefresh((on) => {
+      const next = !on;
+      try {
+        localStorage.setItem(AUTO_REFRESH_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!canAdmin || !settingsOpen) return;
@@ -787,15 +853,40 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
               {settingsOpen ? "Cerrar conexión" : "Conexión Rancher"}
             </button>
           ) : null}
+          <label
+            className={
+              autoRefresh
+                ? "inline-flex cursor-pointer items-center gap-2 rounded-xl border border-cf-orange/40 bg-cf-orange/10 px-3 py-1.5 text-xs text-zinc-200"
+                : "inline-flex cursor-pointer items-center gap-2 rounded-xl border border-cf-line bg-cf-panel px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-500"
+            }
+            title={`Actualizar automáticamente cada ${AUTO_REFRESH_INTERVAL_MS / 1000} segundos`}
+          >
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={toggleAutoRefresh}
+              className="rounded border-cf-line text-cf-orange focus:ring-cf-orange/30"
+            />
+            Auto {AUTO_REFRESH_INTERVAL_MS / 1000}s
+          </label>
           <button
             type="button"
             onClick={() => void loadClusters()}
             disabled={loading}
             className="inline-flex items-center gap-1.5 rounded-lg border border-cf-orange/50 bg-cf-orange/10 px-3 py-1.5 text-xs font-medium text-cf-orange hover:bg-cf-orange/20 disabled:opacity-50"
           >
-            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            {loading || refreshing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
             Actualizar
           </button>
+          {lastRefreshedAt && rancherConfigured ? (
+            <span className="text-[11px] tabular-nums text-zinc-600" title="Última sincronización con Rancher">
+              {refreshing ? "Sincronizando…" : `Hace ${Math.max(0, Math.round((Date.now() - lastRefreshedAt) / 1000))}s`}
+            </span>
+          ) : null}
         </div>
       </div>
 
