@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import ssl
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 from atlas_core.env import atlas_env
 from atlas_rancher.labels import (
@@ -24,6 +28,8 @@ STEVE_PROVISIONING_CLUSTERS = "v1/provisioning.cattle.io.clusters"
 STEVE_COLLECTION_CUSTOM = "provisioning.cattle.io.customclusters"
 STEVE_COLLECTION_CLUSTER = "provisioning.cattle.io.clusters"
 RANCHER_HTTP_TIMEOUT_S = 12.0
+RANCHER_POD_COUNT_TIMEOUT_S = 8.0
+POD_COUNT_MAX_WORKERS = 4
 # Cloudflare (p. ej. atlas.asptienda.com) suele bloquear Python-urllib; usar firma de navegador.
 _DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -128,6 +134,10 @@ def _rancher_request(
         ) from e
     except urllib.error.URLError as e:
         raise RancherApiError(f"No se pudo conectar con Rancher: {e.reason}") from e
+    except TimeoutError as e:
+        raise RancherApiError(
+            f"Timeout al consultar Rancher ({timeout_s}s en {path})."
+        ) from e
 
     if not raw:
         return {}
@@ -429,12 +439,12 @@ def list_custom_cluster_pods(
 
     pods_path = f"k8s/clusters/{mgmt_id}/v1/pods/{app_ns}?pagesize=500"
     try:
-        payload = rancher_get(settings, pods_path)
+        payload = rancher_get(settings, pods_path, timeout_s=RANCHER_POD_COUNT_TIMEOUT_S)
     except RancherApiError as e:
         if e.status != 404:
             raise
         pods_path = f"k8s/clusters/{mgmt_id}/v1/pods?pagesize=500"
-        payload = rancher_get(settings, pods_path)
+        payload = rancher_get(settings, pods_path, timeout_s=RANCHER_POD_COUNT_TIMEOUT_S)
 
     items = _collect_items(payload) or []
     pods: list[dict[str, Any]] = []
@@ -452,14 +462,66 @@ def list_custom_cluster_pods(
     return pods_path, mgmt_id, application, pods
 
 
+def _count_pods_in_management_cluster(
+    settings: dict[str, str | bool],
+    *,
+    mgmt_id: str,
+    application: str,
+) -> int:
+    app_ns = _k8s_namespace_for_application(application)
+    pods_path = f"k8s/clusters/{mgmt_id}/v1/pods/{app_ns}?pagesize=500"
+    try:
+        payload = rancher_get(settings, pods_path, timeout_s=RANCHER_POD_COUNT_TIMEOUT_S)
+    except RancherApiError as e:
+        if e.status != 404:
+            raise
+        pods_path = f"k8s/clusters/{mgmt_id}/v1/pods?pagesize=500"
+        payload = rancher_get(settings, pods_path, timeout_s=RANCHER_POD_COUNT_TIMEOUT_S)
+    items = _collect_items(payload) or []
+    count = 0
+    for i in items:
+        if not isinstance(i, dict):
+            continue
+        meta = _as_dict(i.get("metadata"))
+        if not meta.get("name"):
+            continue
+        raw_ns = str(meta.get("namespace") or "")
+        if _pod_matches_application_namespace(raw_ns, application):
+            count += 1
+    return count
+
+
 def count_custom_cluster_pods(
     settings: dict[str, str | bool],
     *,
     namespace: str,
     name: str,
     steve_collection: str,
+    cluster: dict[str, Any] | None = None,
 ) -> int | None:
     """Cuenta pods en el namespace del label application. None si no aplica o falla."""
+    application = normalize_application(
+        str((cluster or {}).get("application") or "")
+    )
+    if not application and cluster is None:
+        application = ""
+    if not application:
+        return None
+
+    mgmt_id = str((cluster or {}).get("managementClusterId") or "").strip()
+    if mgmt_id:
+        try:
+            return _count_pods_in_management_cluster(
+                settings, mgmt_id=mgmt_id, application=application
+            )
+        except Exception as e:
+            log.debug(
+                "pod count (mgmt) failed %s/%s: %s",
+                namespace,
+                name,
+                e,
+            )
+
     try:
         _, _, _, pods = list_custom_cluster_pods(
             settings,
@@ -468,28 +530,57 @@ def count_custom_cluster_pods(
             steve_collection=steve_collection,
         )
         return len(pods)
-    except RancherConfigError:
+    except Exception as e:
+        log.debug("pod count failed %s/%s: %s", namespace, name, e)
         return None
-    except RancherApiError:
-        return None
+
+
+def list_pod_counts_for_clusters(
+    settings: dict[str, str | bool],
+    clusters: list[dict[str, Any]],
+) -> dict[str, int | None]:
+    """Cuenta pods por cluster en paralelo; nunca lanza al llamador."""
+
+    def _count_one(item: dict[str, Any]) -> tuple[str, int | None]:
+        cid = str(item.get("id") or "")
+        application = str(item.get("application") or "").strip()
+        if not application:
+            return cid, None
+        steve = str(item.get("steveCollection") or STEVE_COLLECTION_CUSTOM)
+        n = count_custom_cluster_pods(
+            settings,
+            namespace=str(item.get("namespace") or ""),
+            name=str(item.get("name") or ""),
+            steve_collection=steve,
+            cluster=item,
+        )
+        return cid, n
+
+    counts: dict[str, int | None] = {}
+    if not clusters:
+        return counts
+
+    workers = min(POD_COUNT_MAX_WORKERS, len(clusters))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(_count_one, c) for c in clusters]
+        for fut in as_completed(futures):
+            try:
+                cid, n = fut.result()
+                if cid:
+                    counts[cid] = n
+            except Exception as e:
+                log.debug("pod count worker failed: %s", e)
+    return counts
 
 
 def enrich_clusters_with_pod_counts(
     settings: dict[str, str | bool],
     clusters: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    counts = list_pod_counts_for_clusters(settings, clusters)
     for cluster in clusters:
-        application = str(cluster.get("application") or "").strip()
-        if not application:
-            cluster["podCount"] = None
-            continue
-        steve = str(cluster.get("steveCollection") or STEVE_COLLECTION_CUSTOM)
-        cluster["podCount"] = count_custom_cluster_pods(
-            settings,
-            namespace=str(cluster.get("namespace") or ""),
-            name=str(cluster.get("name") or ""),
-            steve_collection=steve,
-        )
+        cid = str(cluster.get("id") or "")
+        cluster["podCount"] = counts.get(cid)
     return clusters
 
 

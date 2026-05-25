@@ -15,6 +15,7 @@ from atlas_rancher.client import (
     enrich_clusters_with_pod_counts,
     list_custom_cluster_pods,
     list_custom_clusters,
+    list_pod_counts_for_clusters,
     update_custom_cluster_labels,
 )
 from atlas_rancher.settings_store import load_rancher_settings, save_rancher_settings
@@ -98,7 +99,12 @@ def get_custom_clusters(
     try:
         source, clusters = list_custom_clusters(settings)
         if include_pod_counts:
-            clusters = enrich_clusters_with_pod_counts(settings, clusters)
+            try:
+                clusters = enrich_clusters_with_pod_counts(settings, clusters)
+            except Exception:
+                log.exception("include_pod_counts failed; returning clusters without counts")
+                for cluster in clusters:
+                    cluster.setdefault("podCount", None)
     except RancherConfigError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except RancherApiError as e:
@@ -117,6 +123,34 @@ def get_custom_clusters(
         "count": len(clusters),
         "clusters": clusters,
     }
+
+
+@router.get("/custom-clusters/pod-counts")
+def get_custom_cluster_pod_counts(
+    _user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    """Conteos de pods por cluster (en paralelo). No bloquea el listado principal."""
+    settings = load_rancher_settings()
+    if not settings["url"] or not settings["token"]:
+        raise HTTPException(
+            400,
+            "Configura la conexión a Rancher antes de consultar conteos de pods.",
+        )
+    try:
+        _, clusters = list_custom_clusters(settings)
+        counts = list_pod_counts_for_clusters(settings, clusters)
+    except RancherConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RancherApiError as e:
+        status = 503 if e.status is None or e.status >= 500 else 502
+        raise HTTPException(status_code=status, detail=str(e)) from e
+    except Exception as e:
+        log.exception("custom-cluster pod-counts failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al consultar conteos de pods.",
+        ) from e
+    return {"ok": True, "counts": counts}
 
 
 @router.patch("/custom-clusters/{namespace}/{name}/labels")

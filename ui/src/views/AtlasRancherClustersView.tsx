@@ -55,6 +55,8 @@ type Props = {
 
 /** Actualización automática de la lista (estados en Rancher). */
 const AUTO_REFRESH_INTERVAL_MS = 15_000;
+/** Conteos de pods: petición aparte (más lenta; no bloquea la tabla). */
+const POD_COUNTS_REFRESH_INTERVAL_MS = 60_000;
 
 type SortKey = "name" | "store" | "distro" | "application" | "state" | "kubernetes" | "pods";
 type SortDir = "asc" | "desc";
@@ -232,7 +234,8 @@ function sortClusters(
   );
 }
 
-function formatPodCount(count: number | null | undefined): string {
+function formatPodCount(count: number | null | undefined, loading?: boolean): string {
+  if (loading && count == null) return "…";
   if (count == null) return "—";
   return String(count);
 }
@@ -594,6 +597,7 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
   const [cfgSaving, setCfgSaving] = useState(false);
   const [cfgMsg, setCfgMsg] = useState("");
   const [editingCluster, setEditingCluster] = useState<RancherCustomCluster | null>(null);
+  const [podCountsLoading, setPodCountsLoading] = useState(false);
 
   function mergeClusterUpdate(updated: RancherCustomCluster) {
     setClusters((list) =>
@@ -632,9 +636,7 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
       setError("");
     }
     try {
-      const data = await api<ClustersResponse>(
-        "/api/atlas-rancher/custom-clusters?include_pod_counts=true"
-      );
+      const data = await api<ClustersResponse>("/api/atlas-rancher/custom-clusters");
       const list = (data.clusters ?? []).map((c) => ({
         ...c,
         application: normalizeApplication(c.application ?? c.labels?.application ?? ""),
@@ -677,9 +679,36 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
     }
   }, []);
 
+  const loadPodCounts = useCallback(async () => {
+    if (!rancherConfigured) return;
+    setPodCountsLoading(true);
+    try {
+      const r = await api<{ ok: boolean; counts: Record<string, number | null> }>(
+        "/api/atlas-rancher/custom-clusters/pod-counts"
+      );
+      const counts = r.counts ?? {};
+      setClusters((list) => {
+        if (list.length === 0) return list;
+        return list.map((c) => ({
+          ...c,
+          podCount: Object.prototype.hasOwnProperty.call(counts, c.id) ? counts[c.id] : c.podCount,
+        }));
+      });
+    } catch {
+      /* no bloquear la tabla si fallan los conteos */
+    } finally {
+      setPodCountsLoading(false);
+    }
+  }, [rancherConfigured]);
+
   useEffect(() => {
     void loadClusters();
   }, [loadClusters]);
+
+  useEffect(() => {
+    if (!rancherConfigured || !lastRefreshedAt) return;
+    void loadPodCounts();
+  }, [lastRefreshedAt, rancherConfigured, loadPodCounts]);
 
   useEffect(() => {
     if (!rancherConfigured) return;
@@ -691,6 +720,17 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
 
     return () => window.clearInterval(id);
   }, [rancherConfigured, editingCluster, loadClusters]);
+
+  useEffect(() => {
+    if (!rancherConfigured || clusters.length === 0) return;
+
+    const id = window.setInterval(() => {
+      if (document.hidden || editingCluster) return;
+      void loadPodCounts();
+    }, POD_COUNTS_REFRESH_INTERVAL_MS);
+
+    return () => window.clearInterval(id);
+  }, [rancherConfigured, editingCluster, loadPodCounts]);
 
   useEffect(() => {
     if (!lastRefreshedAt) return;
@@ -1053,7 +1093,7 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
                                     : "Sin label application"
                                 }
                               >
-                                {formatPodCount(c.podCount)}
+                                {formatPodCount(c.podCount, podCountsLoading)}
                               </td>
                               {canEditLabels ? (
                                 <td className="px-4 py-3">
