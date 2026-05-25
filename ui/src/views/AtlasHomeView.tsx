@@ -122,9 +122,11 @@ export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, on
               <Cloud className="mt-0.5 h-5 w-5 shrink-0 text-sky-400" aria-hidden />
               <div className="min-w-0">
                 <p className="text-sm text-zinc-200">
-                  {syncOk && syncMsg ? `Última sync: ${syncMsg}` : "Configura credenciales y sincroniza túneles."}
+                  {syncOk && syncMsg
+                    ? `${syncMsg} · sincronización automática cada 15 s`
+                    : "Configura credenciales en Ajustes; los túneles se sincronizan solos."}
                 </p>
-                {lastSyncAt ? <p className="mt-1 text-[11px] text-zinc-500">Hora: {lastSyncAt}</p> : null}
+                {lastSyncAt ? <p className="mt-1 text-[11px] text-zinc-500">Última sync: {lastSyncAt}</p> : null}
                 <button
                   type="button"
                   onClick={() => onNavigate("cf")}
