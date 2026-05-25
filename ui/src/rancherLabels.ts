@@ -33,3 +33,14 @@ export function isValidPosliteDistro(distro: string): boolean {
   const d = normalizeDistro(distro);
   return (POSLITE_DISTROS as readonly string[]).includes(d);
 }
+
+/** Estado visible en tabla y filtros (Ready, Disconnected, …). */
+export function normalizeState(raw: string): string {
+  const s = raw.trim().toLowerCase();
+  if (!s) return "";
+  if (s.includes("ready") || s === "active") return "Ready";
+  if (s.includes("disconnect")) return "Disconnected";
+  if (s.includes("error") || s.includes("fail")) return "Error";
+  if (s.includes("provision") || s.includes("pending") || s.includes("reconcil")) return "Provisioning";
+  return raw.trim().charAt(0).toUpperCase() + raw.trim().slice(1).toLowerCase();
+}
