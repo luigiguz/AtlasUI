@@ -1,6 +1,16 @@
 import { motion } from "framer-motion";
-import { ArrowDown, ArrowUp, ArrowUpDown, Loader2, RefreshCw, Search, Server, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Filter,
+  Loader2,
+  RefreshCw,
+  Search,
+  Server,
+  X,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { api } from "../apiClient";
 import {
@@ -198,7 +208,7 @@ function ClusterSearchInput({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="relative min-w-0 flex-1 lg:max-w-md">
+    <div className="relative min-w-0 flex-1">
       <Search
         className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
         aria-hidden
@@ -226,7 +236,7 @@ function ClusterSearchInput({
   );
 }
 
-function FilterChip({
+function FilterField({
   label,
   value,
   onChange,
@@ -239,21 +249,13 @@ function FilterChip({
   options: string[];
   allLabel?: string;
 }) {
-  const active = Boolean(value);
   return (
-    <div
-      className={
-        active
-          ? "inline-flex items-center gap-1 rounded-full border border-cf-orange/40 bg-cf-orange/10 py-1 pl-2.5 pr-1"
-          : "inline-flex items-center gap-1 rounded-full border border-cf-line/70 bg-black/25 py-1 pl-2.5 pr-1"
-      }
-    >
-      <span className="text-[11px] font-medium text-zinc-500">{label}</span>
+    <label className="block text-xs text-zinc-500">
+      {label}
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="max-w-[8.5rem] cursor-pointer border-0 bg-transparent py-0.5 pr-6 text-xs font-medium text-zinc-200 outline-none focus:ring-0"
-        aria-label={`Filtrar por ${label}`}
+        className="mt-1 w-full rounded-lg border border-cf-line bg-black/40 px-2.5 py-2 text-sm text-zinc-100"
       >
         <option value={FILTER_ALL}>{allLabel}</option>
         {options.map((o) => (
@@ -262,7 +264,7 @@ function FilterChip({
           </option>
         ))}
       </select>
-    </div>
+    </label>
   );
 }
 
@@ -273,6 +275,8 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const filtersPanelRef = useRef<HTMLDivElement>(null);
   const [colFilters, setColFilters] = useState<ColumnFilters>(EMPTY_FILTERS);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({
     key: "name",
@@ -423,13 +427,35 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
     }
   }
 
-  const hasActiveFilters =
-    searchQuery.trim() !== "" || Object.values(colFilters).some((v) => v !== FILTER_ALL);
+  const activeColumnFilterCount = useMemo(
+    () => Object.values(colFilters).filter((v) => v !== FILTER_ALL).length,
+    [colFilters]
+  );
+
+  const hasActiveFilters = searchQuery.trim() !== "" || activeColumnFilterCount > 0;
 
   function clearAllFilters() {
     setSearchQuery("");
     setColFilters(EMPTY_FILTERS);
   }
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (filtersPanelRef.current && !filtersPanelRef.current.contains(e.target as Node)) {
+        setFiltersOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFiltersOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [filtersOpen]);
 
   return (
     <motion.div
@@ -449,7 +475,7 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
           <motion.div layout>
             <h1 className="text-lg font-semibold text-zinc-100">Custom clusters</h1>
             <p className="text-xs text-zinc-500">
-              Busca por texto o acota con los filtros. Clic en un encabezado para ordenar.
+              Busca por texto; usa Filtros para acotar. Clic en un encabezado para ordenar.
               {rancherUrl ? (
                 <>
                   {" "}
@@ -584,42 +610,91 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
           </motion.div>
         ) : (
           <>
-            <div className="space-y-3 border-b border-cf-line/50 bg-gradient-to-b from-white/[0.04] to-transparent px-4 py-3">
-              <ClusterSearchInput value={searchQuery} onChange={setSearchQuery} />
+            <div
+              ref={filtersPanelRef}
+              className="relative border-b border-cf-line/50 bg-gradient-to-b from-white/[0.04] to-transparent px-4 py-3"
+            >
               <div className="flex flex-wrap items-center gap-2">
-                <span className="mr-1 text-[11px] font-medium uppercase tracking-wide text-zinc-600">
+                <ClusterSearchInput value={searchQuery} onChange={setSearchQuery} />
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen((o) => !o)}
+                  aria-expanded={filtersOpen}
+                  aria-haspopup="dialog"
+                  className={
+                    filtersOpen || activeColumnFilterCount > 0
+                      ? "inline-flex shrink-0 items-center gap-2 rounded-xl border border-cf-orange/45 bg-cf-orange/10 px-3.5 py-2 text-sm font-medium text-zinc-100 ring-1 ring-cf-orange/25"
+                      : "inline-flex shrink-0 items-center gap-2 rounded-xl border border-cf-line bg-cf-panel/90 px-3.5 py-2 text-sm font-medium text-zinc-200 hover:border-zinc-500"
+                  }
+                >
+                  <Filter className="h-4 w-4 text-zinc-400" aria-hidden />
                   Filtros
-                </span>
-                <FilterChip
-                  label="Distribución"
-                  value={colFilters.distro}
-                  onChange={(v) => setColFilter("distro", v)}
-                  options={distroOptions}
-                />
-                <FilterChip
-                  label="Aplicación"
-                  value={colFilters.application}
-                  onChange={(v) => setColFilter("application", v)}
-                  options={applicationOptions}
-                  allLabel="Todas"
-                />
-                <FilterChip
-                  label="Estado"
-                  value={colFilters.state}
-                  onChange={(v) => setColFilter("state", v)}
-                  options={stateOptions}
-                />
-                <FilterChip
-                  label="Kubernetes"
-                  value={colFilters.kubernetes}
-                  onChange={(v) => setColFilter("kubernetes", v)}
-                  options={kubernetesOptions}
-                />
-                <span className="ml-auto shrink-0 rounded-full bg-black/30 px-2.5 py-1 text-xs tabular-nums text-zinc-400 ring-1 ring-cf-line/50">
-                  {displayedClusters.length}
-                  <span className="text-zinc-600"> / {clusters.length}</span>
-                </span>
+                  {activeColumnFilterCount > 0 ? (
+                    <span className="rounded-full bg-cf-orange/25 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-cf-orange">
+                      {activeColumnFilterCount}
+                    </span>
+                  ) : null}
+                </button>
+                <p className="ml-auto shrink-0 text-xs tabular-nums text-zinc-500">
+                  {displayedClusters.length} de {clusters.length}
+                </p>
               </div>
+
+              {filtersOpen ? (
+                <div
+                  role="dialog"
+                  aria-label="Filtros de clusters"
+                  className="absolute right-4 top-full z-30 mt-2 w-[min(20rem,calc(100%-2rem))] rounded-xl border border-cf-line bg-[#111418] p-4 shadow-2xl ring-1 ring-white/10"
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-sm font-medium text-zinc-200">Filtros</span>
+                    <button
+                      type="button"
+                      onClick={() => setFiltersOpen(false)}
+                      className="rounded p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-300"
+                      aria-label="Cerrar filtros"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="grid gap-3">
+                    <FilterField
+                      label="Distribución"
+                      value={colFilters.distro}
+                      onChange={(v) => setColFilter("distro", v)}
+                      options={distroOptions}
+                    />
+                    <FilterField
+                      label="Aplicación"
+                      value={colFilters.application}
+                      onChange={(v) => setColFilter("application", v)}
+                      options={applicationOptions}
+                      allLabel="Todas"
+                    />
+                    <FilterField
+                      label="Estado"
+                      value={colFilters.state}
+                      onChange={(v) => setColFilter("state", v)}
+                      options={stateOptions}
+                    />
+                    <FilterField
+                      label="Kubernetes"
+                      value={colFilters.kubernetes}
+                      onChange={(v) => setColFilter("kubernetes", v)}
+                      options={kubernetesOptions}
+                    />
+                  </div>
+                  {activeColumnFilterCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setColFilters(EMPTY_FILTERS)}
+                      className="mt-3 w-full rounded-lg border border-cf-line py-2 text-xs text-zinc-400 hover:border-zinc-500 hover:text-zinc-300"
+                    >
+                      Quitar filtros de columna
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             {displayedClusters.length === 0 ? (
               <motion.div layout className="p-10 text-center text-sm text-zinc-500">
