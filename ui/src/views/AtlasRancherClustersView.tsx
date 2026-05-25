@@ -150,56 +150,63 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   );
 }
 
-function ColumnHeader({
+function SortableTh({
   label,
   sortKey,
   sort,
   onSort,
-  filterValue,
-  onFilterChange,
-  filterOptions,
-  filterable = true,
+  className = "",
 }: {
   label: string;
   sortKey: SortKey;
   sort: { key: SortKey; dir: SortDir } | null;
   onSort: (key: SortKey) => void;
-  filterValue?: string;
-  onFilterChange?: (v: string) => void;
-  filterOptions?: string[];
-  filterable?: boolean;
+  className?: string;
 }) {
   const active = sort?.key === sortKey;
   return (
-    <th className="px-2 py-2 align-top">
-      <div className="flex min-w-[5.5rem] flex-col gap-1.5">
-        <button
-          type="button"
-          onClick={() => onSort(sortKey)}
-          className="flex items-center gap-1 text-left text-xs font-medium uppercase tracking-wide text-zinc-500 hover:text-zinc-300"
-        >
-          <span>{label}</span>
-          <SortIcon active={active} dir={active ? sort!.dir : "asc"} />
-        </button>
-        {filterable && onFilterChange && filterOptions ? (
-          <select
-            value={filterValue ?? FILTER_ALL}
-            onChange={(e) => onFilterChange(e.target.value)}
-            className="w-full rounded border border-cf-line/80 bg-black/40 px-1.5 py-1 text-[11px] font-normal normal-case tracking-normal text-zinc-300"
-            aria-label={`Filtrar ${label}`}
-          >
-            <option value={FILTER_ALL}>Todos</option>
-            {filterOptions.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span className="text-[10px] text-zinc-600">Orden A‑Z / Z‑A</span>
-        )}
-      </div>
+    <th className={`px-4 py-3 ${className}`}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-zinc-500 hover:text-zinc-300"
+      >
+        {label}
+        <SortIcon active={active} dir={active ? sort!.dir : "asc"} />
+      </button>
     </th>
+  );
+}
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+  allLabel = "Todos",
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  allLabel?: string;
+}) {
+  return (
+    <label className="block min-w-[7rem] flex-1 text-xs text-zinc-500">
+      {label}
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 w-full rounded-lg border border-cf-line bg-black/30 px-2.5 py-1.5 text-sm text-zinc-100"
+      >
+        <option value={FILTER_ALL}>{allLabel}</option>
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -378,7 +385,7 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
           <motion.div layout>
             <h1 className="text-lg font-semibold text-zinc-100">Custom clusters</h1>
             <p className="text-xs text-zinc-500">
-              Ordena y filtra por columna. Distribución Poslite: Pam y Horustech.
+              Clic en un encabezado para ordenar. Filtros en la barra superior de la tabla.
               {rancherUrl ? (
                 <>
                   {" "}
@@ -418,13 +425,6 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
           </button>
         </div>
       </div>
-
-      {clusters.length > 0 ? (
-        <p className="text-xs tabular-nums text-zinc-500">
-          {displayedClusters.length} de {clusters.length} cluster{clusters.length !== 1 ? "s" : ""}
-          {sort ? ` · orden: ${sort.key} ${sort.dir === "asc" ? "↑" : "↓"}` : ""}
-        </p>
-      ) : null}
 
       {canAdmin && settingsOpen ? (
         <form
@@ -518,91 +518,95 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
             No hay Custom clusters visibles.
             {canAdmin ? " Configura la conexión a Rancher y pulsa Actualizar." : null}
           </motion.div>
-        ) : displayedClusters.length === 0 ? (
-          <motion.div layout className="p-10 text-center text-sm text-zinc-500">
-            Ningún cluster coincide con los filtros seleccionados.
-          </motion.div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[800px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-cf-line/60 bg-black/20">
-                  <ColumnHeader
-                    label="Nombre"
-                    sortKey="name"
-                    sort={sort}
-                    onSort={toggleSort}
-                    filterable={false}
-                  />
-                  <ColumnHeader
-                    label="Tienda"
-                    sortKey="store"
-                    sort={sort}
-                    onSort={toggleSort}
-                    filterValue={colFilters.store}
-                    onFilterChange={(v) => setColFilter("store", v)}
-                    filterOptions={storeOptions}
-                  />
-                  <ColumnHeader
-                    label="Distribución"
-                    sortKey="distro"
-                    sort={sort}
-                    onSort={toggleSort}
-                    filterValue={colFilters.distro}
-                    onFilterChange={(v) => setColFilter("distro", v)}
-                    filterOptions={distroOptions}
-                  />
-                  <ColumnHeader
-                    label="Aplicación"
-                    sortKey="application"
-                    sort={sort}
-                    onSort={toggleSort}
-                    filterValue={colFilters.application}
-                    onFilterChange={(v) => setColFilter("application", v)}
-                    filterOptions={applicationOptions}
-                  />
-                  <ColumnHeader
-                    label="Estado"
-                    sortKey="state"
-                    sort={sort}
-                    onSort={toggleSort}
-                    filterValue={colFilters.state}
-                    onFilterChange={(v) => setColFilter("state", v)}
-                    filterOptions={stateOptions}
-                  />
-                  <ColumnHeader
-                    label="Kubernetes"
-                    sortKey="kubernetes"
-                    sort={sort}
-                    onSort={toggleSort}
-                    filterValue={colFilters.kubernetes}
-                    onFilterChange={(v) => setColFilter("kubernetes", v)}
-                    filterOptions={kubernetesOptions}
-                  />
-                </tr>
-              </thead>
-              <tbody>
-                {displayedClusters.map((c) => (
-                  <tr
-                    key={c.id}
-                    className="border-b border-cf-line/40 last:border-0 hover:bg-white/[0.02]"
-                  >
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-zinc-100">{clusterDisplayName(c)}</span>
-                      {c.displayName && c.displayName !== c.name ? (
-                        <span className="mt-0.5 block text-xs text-zinc-600">{c.name}</span>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3 text-zinc-400">{c.store || "—"}</td>
-                    <td className="px-4 py-3 text-zinc-400">{c.distro || "—"}</td>
-                    <td className="px-4 py-3 text-zinc-400">{c.application || "—"}</td>
-                    <td className={`px-4 py-3 ${stateTone(c.state)}`}>{c.state || "—"}</td>
-                    <td className="px-4 py-3 text-zinc-400">{c.kubernetesVersion || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="flex flex-wrap items-end gap-3 border-b border-cf-line/50 bg-black/25 px-3 py-3">
+              <FilterSelect
+                label="Tienda"
+                value={colFilters.store}
+                onChange={(v) => setColFilter("store", v)}
+                options={storeOptions}
+              />
+              <FilterSelect
+                label="Distribución"
+                value={colFilters.distro}
+                onChange={(v) => setColFilter("distro", v)}
+                options={distroOptions}
+              />
+              <FilterSelect
+                label="Aplicación"
+                value={colFilters.application}
+                onChange={(v) => setColFilter("application", v)}
+                options={applicationOptions}
+                allLabel="Todas"
+              />
+              <FilterSelect
+                label="Estado"
+                value={colFilters.state}
+                onChange={(v) => setColFilter("state", v)}
+                options={stateOptions}
+              />
+              <FilterSelect
+                label="Kubernetes"
+                value={colFilters.kubernetes}
+                onChange={(v) => setColFilter("kubernetes", v)}
+                options={kubernetesOptions}
+              />
+              <p className="ml-auto shrink-0 pb-1.5 text-xs tabular-nums text-zinc-500">
+                {displayedClusters.length} / {clusters.length}
+              </p>
+            </div>
+            {displayedClusters.length === 0 ? (
+              <motion.div layout className="p-10 text-center text-sm text-zinc-500">
+                Ningún cluster coincide con los filtros seleccionados.
+              </motion.div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[800px] text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-cf-line/60 text-xs uppercase tracking-wide text-zinc-500">
+                      <SortableTh label="Nombre" sortKey="name" sort={sort} onSort={toggleSort} />
+                      <SortableTh label="Tienda" sortKey="store" sort={sort} onSort={toggleSort} />
+                      <SortableTh label="Distribución" sortKey="distro" sort={sort} onSort={toggleSort} />
+                      <SortableTh
+                        label="Aplicación"
+                        sortKey="application"
+                        sort={sort}
+                        onSort={toggleSort}
+                      />
+                      <SortableTh label="Estado" sortKey="state" sort={sort} onSort={toggleSort} />
+                      <SortableTh
+                        label="Kubernetes"
+                        sortKey="kubernetes"
+                        sort={sort}
+                        onSort={toggleSort}
+                      />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayedClusters.map((c) => (
+                      <tr
+                        key={c.id}
+                        className="border-b border-cf-line/40 last:border-0 hover:bg-white/[0.02]"
+                      >
+                        <td className="px-4 py-3">
+                          <span className="font-medium text-zinc-100">{clusterDisplayName(c)}</span>
+                          {c.displayName && c.displayName !== c.name ? (
+                            <span className="mt-0.5 block text-xs text-zinc-600">{c.name}</span>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-3 text-zinc-400">{c.store || "—"}</td>
+                        <td className="px-4 py-3 text-zinc-400">{c.distro || "—"}</td>
+                        <td className="px-4 py-3 text-zinc-400">{c.application || "—"}</td>
+                        <td className={`px-4 py-3 ${stateTone(c.state)}`}>{c.state || "—"}</td>
+                        <td className="px-4 py-3 text-zinc-400">{c.kubernetesVersion || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
         {source && !loading ? (
           <p className="border-t border-cf-line/40 px-4 py-2 text-[11px] text-zinc-600">
