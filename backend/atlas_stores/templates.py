@@ -171,6 +171,18 @@ def list_store_templates(repo_root: Path) -> list[dict[str, Any]]:
     return items
 
 
+def create_template_sources(repo_root: Path, distro: str) -> dict[str, Any]:
+    """Rutas de plantilla que se usarán al crear una tienda."""
+    root = Path(repo_root)
+    db_meta = _db_template_meta(root)
+    _, station_rel = DISTRO_STACK[distro.strip().lower()]
+    return {
+        "db": db_meta.get("templatePath", ""),
+        "dbSource": db_meta.get("source", ""),
+        "station": str(station_rel).replace("\\", "/"),
+    }
+
+
 def new_store_files_from_repo(
     repo_root: Path,
     *,

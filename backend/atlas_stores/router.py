@@ -17,10 +17,35 @@ from atlas_stores.equipment import (
 from atlas_stores.git_repo import StoresRepoError, git_commit_and_push, git_pull, resolve_repo_root
 from atlas_stores.settings_store import load_stores_settings, save_stores_settings
 from atlas_stores.templates import StoreTemplateError, list_store_templates
-from atlas_stores.yaml_store import create_store, list_stores, load_store, save_store
+from atlas_stores.yaml_store import create_store, list_stores, load_store, preview_create_store, save_store
 
 router = APIRouter(prefix="/api/atlas-stores", tags=["atlas-stores"])
 log = logging.getLogger(__name__)
+
+
+def _commit_actor_suffix(user: dict[str, Any]) -> str:
+    """Sufijo con usuario Atlas que publica (sesión JWT)."""
+    name = str(user.get("username") or "").strip()
+    return f" [{name}]" if name else ""
+
+
+def _create_store_commit_message(
+    *,
+    store_id: str,
+    folder_name: str,
+    user: dict[str, Any],
+) -> str:
+    folder = folder_name.strip() or store_id
+    return f"Atlas: nueva tienda {store_id}{_commit_actor_suffix(user)} ({folder})"
+
+
+def _save_store_commit_message(
+    *,
+    base: str,
+    folder_name: str,
+    user: dict[str, Any],
+) -> str:
+    return f"{base.strip()}{_commit_actor_suffix(user)} ({folder_name})"
 
 
 class StoresSettingsBody(BaseModel):
@@ -130,6 +155,60 @@ def get_stores(
     }
 
 
+@router.post("/stores/preview")
+def post_store_create_preview(
+    body: CreateStoreBody,
+    user: dict[str, Any] = Depends(require_roles("admin", "operator")),
+) -> dict[str, Any]:
+    """Resumen de configuración antes de commit/push (no escribe archivos)."""
+    settings = load_stores_settings()
+    store_id = (body.store_id or body.folder_name).strip()
+    if not store_id:
+        raise HTTPException(400, "El código de tienda es obligatorio.")
+    distro = body.distro.strip().lower()
+    try:
+        equipment = find_equipment_for_store(store_id, distro=distro)
+        root = resolve_repo_root(settings)
+        preview = preview_create_store(
+            root,
+            folder_name=body.folder_name.strip() or store_id,
+            store_id=store_id,
+            distro=distro,
+            image_channel=body.image_channel.strip() or "stable",
+        )
+    except RancherNotConfiguredError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except EquipmentNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except StoreTemplateError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except StoresRepoError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        log.exception("store preview failed")
+        raise HTTPException(status_code=500, detail="Error al generar el resumen.") from e
+
+    folder = body.folder_name.strip() or store_id
+    return {
+        "ok": True,
+        "preview": preview,
+        "branch": settings.get("branch", "main"),
+        "repoUrl": settings.get("repo_url", ""),
+        "suggestedCommitMessage": _create_store_commit_message(
+            store_id=store_id,
+            folder_name=folder,
+            user=user,
+        ),
+        "equipment": {
+            "name": equipment.get("name"),
+            "displayName": equipment.get("displayName"),
+            "state": equipment.get("state"),
+        },
+    }
+
+
 @router.get("/stores/{folder_name}")
 def get_store_detail(
     folder_name: str,
@@ -162,7 +241,10 @@ def put_store(
         patch = body.model_dump(exclude_none=True, exclude={"commit_message"})
         msg = (body.commit_message or "Atlas: actualizar tienda").strip()
         store = save_store(root, folder_name, patch)
-        git_msg = git_commit_and_push(settings, message=f"{msg} ({folder_name})")
+        git_msg = git_commit_and_push(
+            settings,
+            message=_save_store_commit_message(base=msg, folder_name=folder_name, user=user),
+        )
         safe = {k: v for k, v in store.items() if not str(k).startswith("_")}
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -218,9 +300,14 @@ def post_create_store(
             distro=distro,
             image_channel=body.image_channel.strip() or "stable",
         )
+        folder = body.folder_name.strip() or store_id
         git_msg = git_commit_and_push(
             settings,
-            message=f"Atlas: nueva tienda {store_id} ({body.folder_name})",
+            message=_create_store_commit_message(
+                store_id=store_id,
+                folder_name=folder,
+                user=user,
+            ),
         )
         safe = {k: v for k, v in store.items() if not str(k).startswith("_")}
     except RancherNotConfiguredError as e:

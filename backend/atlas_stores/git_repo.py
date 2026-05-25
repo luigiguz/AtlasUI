@@ -78,10 +78,14 @@ def git_commit_and_push(
         return "No hay cambios pendientes."
 
     _run_git(["commit", "-m", message], cwd=root)
-    if settings.get("auto_push") and str(settings.get("repo_url") or "").strip():
-        _run_git(["push"], cwd=root)
-        return "Cambios publicados (commit + push)."
-    return "Cambios guardados en commit local (push desactivado)."
+    repo_url = str(settings.get("repo_url") or "").strip()
+    if not repo_url:
+        return "Cambios guardados en el workspace (sin URL de repositorio remoto)."
+
+    # El cache en atlas-data es solo workspace; la fuente de verdad es el remoto Git.
+    _run_git(["push"], cwd=root)
+    branch = str(settings.get("branch") or "main").strip() or "main"
+    return f"Cambios publicados en el repositorio remoto (rama {branch})."
 
 
 def _run_git(args: list[str], *, cwd: Path | None) -> str:

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from atlas_stores.templates import new_store_files_from_repo
+from atlas_stores.templates import create_template_sources, new_store_files_from_repo
 
 STACK_DB = "db"
 STACK_HORUSTECH = "horustech"
@@ -490,6 +491,210 @@ def _set_all_image_tags(values: dict[str, Any], tag: str) -> None:
                 walk(x)
 
     walk(values)
+
+
+_PLACEHOLDER_RE = re.compile(r"<[a-zA-Z0-9_-]+>")
+
+
+def _collect_placeholders(obj: Any) -> list[str]:
+    found: set[str] = set()
+
+    def walk(value: Any) -> None:
+        if isinstance(value, str):
+            found.update(_PLACEHOLDER_RE.findall(value))
+        elif isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(obj)
+    return sorted(found)
+
+
+def _preview_warnings(
+    *,
+    folder_exists: bool,
+    folder_name: str,
+    placeholders: list[str],
+    station_values: dict[str, Any],
+    distro: str,
+    chart_versions: dict[str, str],
+    services: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    warnings: list[dict[str, str]] = []
+    if folder_exists:
+        warnings.append(
+            {
+                "level": "error",
+                "code": "folder_exists",
+                "message": f"Ya existe la carpeta stores/poslite/{folder_name} en el repositorio.",
+            }
+        )
+    for ph in placeholders:
+        warnings.append(
+            {
+                "level": "warn",
+                "code": "placeholder",
+                "message": f"Valor pendiente en plantilla: {ph}",
+            }
+        )
+    config = station_values.get("config") if isinstance(station_values.get("config"), dict) else {}
+    if not str(config.get("ierpUrl") or config.get("ierp_url") or "").strip():
+        warnings.append(
+            {
+                "level": "warn",
+                "code": "ierp_url",
+                "message": "URL iERP vacía; configúrala después de crear la tienda.",
+            }
+        )
+    if distro == "horustech" and not str(config.get("horustechIp") or config.get("horustech_ip") or "").strip():
+        warnings.append(
+            {
+                "level": "warn",
+                "code": "horustech_ip",
+                "message": "IP Horustech vacía; necesaria para conexión on-prem.",
+            }
+        )
+    if distro == "pam":
+        if not str(config.get("pamIp") or config.get("pam_ip") or "").strip():
+            warnings.append(
+                {
+                    "level": "warn",
+                    "code": "pam_ip",
+                    "message": "IP PAM vacía; necesaria para conexión on-prem.",
+                }
+            )
+    ht_ver = chart_versions.get(STACK_HORUSTECH) or ""
+    hka = services and any(s.get("key") == "hkaCliPaWebapi" and s.get("enabled") for s in services)
+    if hka and ht_ver and ht_ver < "1.1.3":
+        warnings.append(
+            {
+                "level": "warn",
+                "code": "hka_chart",
+                "message": f"HKA activo con chart {ht_ver}; se recomienda poslite-ht ≥ 1.1.3.",
+            }
+        )
+    enabled = sum(1 for s in services if s.get("enabled"))
+    if services and enabled == 0:
+        warnings.append(
+            {
+                "level": "warn",
+                "code": "no_services",
+                "message": "Ningún servicio de estación está activo en la plantilla.",
+            }
+        )
+    return warnings
+
+
+def preview_create_store(
+    repo_root: Path,
+    *,
+    folder_name: str,
+    store_id: str,
+    distro: str,
+    image_channel: str = "stable",
+) -> dict[str, Any]:
+    """Genera resumen de lo que se publicará sin escribir en disco."""
+    distro_l = distro.strip().lower()
+    if distro_l not in ("horustech", "pam"):
+        raise ValueError("El tipo de estación debe ser horustech o pam.")
+
+    sid = store_id.strip()
+    folder = folder_name.strip() or sid
+    if not sid:
+        raise ValueError("El código de tienda es obligatorio.")
+
+    folder_path = stores_poslite_dir(repo_root) / folder
+    folder_exists = folder_path.exists()
+
+    files = new_store_files_from_repo(
+        repo_root,
+        store_id=sid,
+        distro=distro_l,
+        image_channel=image_channel,
+    )
+    sources = create_template_sources(repo_root, distro_l)
+
+    stacks_data: dict[str, dict[str, Any]] = {}
+    git_paths: list[str] = []
+    file_entries: list[dict[str, Any]] = []
+    placeholders: set[str] = set()
+
+    for rel, doc in files.items():
+        git_path = f"stores/poslite/{folder}/{rel}"
+        git_paths.append(git_path)
+        stack_key = rel.split("/")[0]
+        if not isinstance(doc, dict):
+            continue
+        placeholders.update(_collect_placeholders(doc))
+        parsed = _parse_stack(stack_key, doc)
+        stacks_data[stack_key] = parsed
+        src = sources["db"] if stack_key == STACK_DB else sources["station"]
+        file_entries.append(
+            {
+                "path": git_path,
+                "stack": stack_key,
+                "sourceTemplate": src,
+                "chart": parsed.get("chart") or "",
+                "chartVersion": parsed.get("chartVersion") or "",
+                "bundleVersion": parsed.get("bundleVersion") or "",
+            }
+        )
+
+    labels: dict[str, str] = {"atlas": "true"}
+    for st in stacks_data.values():
+        labels.update(st.get("matchLabels") or {})
+
+    chart_versions = {
+        k: str(v.get("chartVersion") or "")
+        for k, v in stacks_data.items()
+        if v.get("chartVersion")
+    }
+
+    station_stack = stacks_data.get(STACK_HORUSTECH) or stacks_data.get(STACK_PAM)
+    station_values = (station_stack or {}).get("values") or {}
+    services_summary = _summarize_services(station_values)
+    workers_summary = _summarize_workers(station_values)
+    db_stack = stacks_data.get(STACK_DB)
+    db_summary = _summarize_db((db_stack or {}).get("values") or {})
+
+    warn_list = _preview_warnings(
+        folder_exists=folder_exists,
+        folder_name=folder,
+        placeholders=sorted(placeholders),
+        station_values=station_values,
+        distro=distro_l,
+        chart_versions=chart_versions,
+        services=services_summary,
+    )
+    has_errors = any(w["level"] == "error" for w in warn_list)
+
+    return {
+        "storeId": sid,
+        "folderName": folder,
+        "distro": distro_l,
+        "imageChannel": image_channel.strip() or "stable",
+        "namespace": str((station_stack or db_stack or {}).get("namespace") or "poslite"),
+        "clusterLabels": labels,
+        "gitPaths": git_paths,
+        "files": file_entries,
+        "templateSources": sources,
+        "chartVersions": chart_versions,
+        "db": db_summary,
+        "station": {
+            "stack": (station_stack or {}).get("stack") or distro_l,
+            "config": station_values.get("config") if isinstance(station_values.get("config"), dict) else {},
+            "services": services_summary,
+            "workerGroups": workers_summary,
+            "workers": _flatten_worker_groups(workers_summary),
+        },
+        "placeholders": sorted(placeholders),
+        "warnings": warn_list,
+        "canPublish": not has_errors,
+        "folderExists": folder_exists,
+    }
 
 
 def create_store(

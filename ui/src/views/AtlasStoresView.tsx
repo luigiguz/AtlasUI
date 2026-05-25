@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { api } from "../apiClient";
 import type { ClustersResponse, RancherCustomCluster } from "../rancherTypes";
 import type {
+  StoreCreatePreview,
+  StoreCreatePreviewResponse,
   StoreDetail,
   StoreSummary,
   StoreTemplateInfo,
@@ -115,7 +117,6 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
   const [cfgBranch, setCfgBranch] = useState("main");
   const [cfgToken, setCfgToken] = useState("");
   const [cfgAutoPull, setCfgAutoPull] = useState(true);
-  const [cfgAutoPush, setCfgAutoPush] = useState(false);
   const [cfgSaving, setCfgSaving] = useState(false);
 
   const [newFolder, setNewFolder] = useState("");
@@ -127,6 +128,12 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
   const [equipmentCheck, setEquipmentCheck] = useState<RancherCustomCluster | null>(null);
   const [equipmentChecking, setEquipmentChecking] = useState(false);
   const [storeTemplates, setStoreTemplates] = useState<StoreTemplateInfo[]>([]);
+  const [createStep, setCreateStep] = useState<"form" | "review">("form");
+  const [createPreview, setCreatePreview] = useState<StoreCreatePreview | null>(null);
+  const [createPreviewBranch, setCreatePreviewBranch] = useState("main");
+  const [createCommitMessage, setCreateCommitMessage] = useState("");
+  const [createPreviewLoading, setCreatePreviewLoading] = useState(false);
+  const [createPublishing, setCreatePublishing] = useState(false);
 
   const createTemplateHint = useMemo(() => {
     const stack = newDistro === "pam" ? "pam" : "horustech";
@@ -205,7 +212,6 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
         setCfgUrl(s.repo_url ?? "");
         setCfgBranch(s.branch ?? "main");
         setCfgAutoPull(Boolean(s.auto_pull));
-        setCfgAutoPush(Boolean(s.auto_push));
         setCfgToken("");
       } catch {
         /* ignore */
@@ -224,7 +230,7 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
           branch: cfgBranch.trim(),
           git_token: cfgToken.trim(),
           auto_pull: cfgAutoPull,
-          auto_push: cfgAutoPush,
+          auto_push: true,
         }),
       });
       setSettingsOpen(false);
@@ -347,7 +353,16 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
     })();
   }, [createOpen, configured]);
 
-  async function onCreateStore(e: FormEvent) {
+  function resetCreateModal() {
+    setCreateOpen(false);
+    setCreateStep("form");
+    setCreatePreview(null);
+    setCreateCommitMessage("");
+    setCreateError("");
+    setEquipmentCheck(null);
+  }
+
+  async function onReviewCreate(e: FormEvent) {
     e.preventDefault();
     if (!canEdit) return;
     const sid = resolveNewStoreId();
@@ -358,8 +373,9 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
     const eq = equipmentCheck ?? (await checkEquipmentForNewStore());
     if (!eq) return;
     setCreateError("");
+    setCreatePreviewLoading(true);
     try {
-      const r = await api<{ publishMessage?: string; store: StoreDetail }>("/api/atlas-stores/stores", {
+      const r = await api<StoreCreatePreviewResponse>("/api/atlas-stores/stores/preview", {
         method: "POST",
         body: JSON.stringify({
           folder_name: newFolder.trim() || sid,
@@ -368,12 +384,40 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
           image_channel: newChannel,
         }),
       });
-      setCreateOpen(false);
+      setCreatePreview(r.preview);
+      setCreatePreviewBranch(r.branch || "main");
+      setCreateCommitMessage(r.suggestedCommitMessage ?? "");
+      setCreateStep("review");
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "No se pudo generar el resumen.");
+    } finally {
+      setCreatePreviewLoading(false);
+    }
+  }
+
+  async function onConfirmCreate() {
+    if (!canEdit || !createPreview?.canPublish) return;
+    const sid = createPreview.storeId;
+    setCreatePublishing(true);
+    setCreateError("");
+    try {
+      const r = await api<{ publishMessage?: string; store: StoreDetail }>("/api/atlas-stores/stores", {
+        method: "POST",
+        body: JSON.stringify({
+          folder_name: createPreview.folderName,
+          store_id: sid,
+          distro: newDistro,
+          image_channel: newChannel,
+        }),
+      });
+      resetCreateModal();
       setSaveMsg(r.publishMessage ?? "Tienda creada.");
       await loadStores();
       await loadDetail(r.store.folderName);
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : "No se pudo crear la tienda.");
+      setCreateError(err instanceof Error ? err.message : "No se pudo publicar la tienda.");
+    } finally {
+      setCreatePublishing(false);
     }
   }
 
@@ -421,7 +465,12 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
           {canEdit ? (
             <button
               type="button"
-              onClick={() => setCreateOpen(true)}
+              onClick={() => {
+                setCreateStep("form");
+                setCreatePreview(null);
+                setCreateError("");
+                setCreateOpen(true);
+              }}
               disabled={!configured}
               className="inline-flex items-center gap-1 rounded-lg bg-cf-orange/15 px-3 py-1.5 text-xs font-medium text-cf-orange disabled:opacity-50"
             >
@@ -468,10 +517,10 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
             <input type="checkbox" checked={cfgAutoPull} onChange={(e) => setCfgAutoPull(e.target.checked)} />
             Actualizar al leer (pull)
           </label>
-          <label className="mt-1 flex items-center gap-2 text-xs text-zinc-400">
-            <input type="checkbox" checked={cfgAutoPush} onChange={(e) => setCfgAutoPush(e.target.checked)} />
-            Publicar al guardar (push)
-          </label>
+          <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+            Al crear o guardar una tienda, Atlas hace commit y push a la rama configurada en el remoto (GitHub, Azure DevOps,
+            etc.). El clon en el servidor API solo es un workspace temporal; la fuente de verdad es el repositorio Git.
+          </p>
           <button type="submit" disabled={cfgSaving} className="mt-3 rounded-lg bg-cf-orange px-4 py-2 text-xs font-medium text-black disabled:opacity-50">
             {cfgSaving ? "Guardando…" : "Guardar conexión"}
           </button>
@@ -824,74 +873,224 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
       {createOpen ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          onClick={() => {
-            setCreateOpen(false);
-            setCreateError("");
-            setEquipmentCheck(null);
-          }}
+          onClick={() => resetCreateModal()}
         >
-          <form
+          <div
             onClick={(e) => e.stopPropagation()}
-            onSubmit={(e) => void onCreateStore(e)}
-            className="w-full max-w-md rounded-xl border border-cf-line bg-[#111418] p-5"
+            className={`w-full rounded-xl border border-cf-line bg-[#111418] p-5 ${createStep === "review" ? "max-w-2xl max-h-[90vh] overflow-y-auto" : "max-w-md"}`}
           >
             <div className="mb-4 flex justify-between">
-              <h2 className="text-sm font-semibold text-zinc-100">Nueva tienda</h2>
-              <button type="button" onClick={() => setCreateOpen(false)} aria-label="Cerrar">
+              <h2 className="text-sm font-semibold text-zinc-100">
+                {createStep === "review" ? "Resumen antes de publicar" : "Nueva tienda"}
+              </h2>
+              <button type="button" onClick={() => resetCreateModal()} aria-label="Cerrar">
                 <X className="h-4 w-4 text-zinc-500" />
               </button>
             </div>
-            <div className="grid gap-3">
-              <label className="text-xs text-zinc-500">
-                Tienda (código / etiqueta store)
-                <input
-                  value={newStoreId}
-                  onChange={(e) => setNewStoreId(e.target.value)}
-                  className={inputClass}
-                  placeholder={newFolder.trim() || "ej. tratevesarpe"}
-                  required={!newFolder.trim()}
-                />
-              </label>
-              <label className="text-xs text-zinc-500">
-                Carpeta en repositorio (opcional si coincide con tienda)
-                <input value={newFolder} onChange={(e) => setNewFolder(e.target.value)} className={inputClass} placeholder="Igual que tienda si vacío" />
-              </label>
-              <label className="text-xs text-zinc-500">
-                Distribución
-                <select value={newDistro} onChange={(e) => setNewDistro(e.target.value as "horustech" | "pam")} className={inputClass}>
-                  <option value="horustech">Horustech</option>
-                  <option value="pam">PAM</option>
-                </select>
-              </label>
-              <label className="text-xs text-zinc-500">
-                Tag (versión)
-                <select value={newChannel} onChange={(e) => setNewChannel(e.target.value)} className={inputClass}>
-                  <option value="stable">stable</option>
-                  <option value="unstable">unstable</option>
-                </select>
-              </label>
-              <p className="text-[11px] leading-relaxed text-zinc-500">{createTemplateHint}</p>
-            </div>
-            {equipmentChecking ? (
-              <p className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Comprobando equipo en Rancher…
-              </p>
-            ) : equipmentCheck ? (
-              <p className="mt-3 text-xs text-emerald-400/90">
-                Equipo encontrado: {equipmentCheck.displayName || equipmentCheck.name} ({equipmentCheck.state})
-              </p>
-            ) : createError ? (
-              <p className="mt-3 text-xs text-red-300">{createError}</p>
+
+            {createStep === "form" ? (
+              <form onSubmit={(e) => void onReviewCreate(e)}>
+                <div className="grid gap-3">
+                  <label className="text-xs text-zinc-500">
+                    Tienda (código / etiqueta store)
+                    <input
+                      value={newStoreId}
+                      onChange={(e) => setNewStoreId(e.target.value)}
+                      className={inputClass}
+                      placeholder={newFolder.trim() || "ej. tratevesarpe"}
+                      required={!newFolder.trim()}
+                    />
+                  </label>
+                  <label className="text-xs text-zinc-500">
+                    Carpeta en repositorio (opcional si coincide con tienda)
+                    <input
+                      value={newFolder}
+                      onChange={(e) => setNewFolder(e.target.value)}
+                      className={inputClass}
+                      placeholder="Igual que tienda si vacío"
+                    />
+                  </label>
+                  <label className="text-xs text-zinc-500">
+                    Distribución
+                    <select
+                      value={newDistro}
+                      onChange={(e) => setNewDistro(e.target.value as "horustech" | "pam")}
+                      className={inputClass}
+                    >
+                      <option value="horustech">Horustech</option>
+                      <option value="pam">PAM</option>
+                    </select>
+                  </label>
+                  <label className="text-xs text-zinc-500">
+                    Tag (versión)
+                    <select value={newChannel} onChange={(e) => setNewChannel(e.target.value)} className={inputClass}>
+                      <option value="stable">stable</option>
+                      <option value="unstable">unstable</option>
+                    </select>
+                  </label>
+                  <p className="text-[11px] leading-relaxed text-zinc-500">{createTemplateHint}</p>
+                </div>
+                {equipmentChecking ? (
+                  <p className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Comprobando equipo en Rancher…
+                  </p>
+                ) : equipmentCheck ? (
+                  <p className="mt-3 text-xs text-emerald-400/90">
+                    Equipo encontrado: {equipmentCheck.displayName || equipmentCheck.name} ({equipmentCheck.state})
+                  </p>
+                ) : createError ? (
+                  <p className="mt-3 text-xs text-red-300">{createError}</p>
+                ) : null}
+                <button
+                  type="submit"
+                  disabled={!equipmentCheck || equipmentChecking || createPreviewLoading}
+                  className="mt-4 w-full rounded-lg bg-cf-orange py-2 text-xs font-medium text-black disabled:opacity-50"
+                >
+                  {createPreviewLoading ? "Generando resumen…" : "Ver resumen"}
+                </button>
+              </form>
+            ) : createPreview ? (
+              <div className="space-y-4 text-xs">
+                <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
+                  <p className="font-medium text-zinc-300">Identidad y Git</p>
+                  <dl className="mt-2 grid gap-1 text-zinc-400 sm:grid-cols-2">
+                    <div>
+                      <dt className="text-zinc-500">Tienda (store)</dt>
+                      <dd className="text-zinc-200">{createPreview.storeId}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-zinc-500">Carpeta en repo</dt>
+                      <dd className="text-zinc-200">{createPreview.folderName}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-zinc-500">Distribución</dt>
+                      <dd className="text-zinc-200">{distroLabel(createPreview.distro)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-zinc-500">Tag imágenes</dt>
+                      <dd className="text-zinc-200">{createPreview.imageChannel}</dd>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <dt className="text-zinc-500">Rama Git</dt>
+                      <dd className="text-zinc-200">{createPreviewBranch}</dd>
+                    </div>
+                    {createCommitMessage ? (
+                      <div className="sm:col-span-2">
+                        <dt className="text-zinc-500">Mensaje de commit</dt>
+                        <dd className="font-mono text-[11px] text-zinc-200">{createCommitMessage}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                </section>
+
+                <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
+                  <p className="font-medium text-zinc-300">Etiquetas del cluster (Fleet)</p>
+                  <ul className="mt-2 flex flex-wrap gap-2">
+                    {Object.entries(createPreview.clusterLabels).map(([k, v]) => (
+                      <li key={k} className="rounded bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-300">
+                        {k}={v}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+
+                <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
+                  <p className="font-medium text-zinc-300">Archivos que se subirán al repositorio</p>
+                  <ul className="mt-2 space-y-2">
+                    {createPreview.files.map((f) => (
+                      <li key={f.path} className="rounded border border-cf-line/40 bg-black/20 px-2 py-1.5">
+                        <p className="font-mono text-[11px] text-zinc-200">{f.path}</p>
+                        <p className="text-zinc-500">
+                          Plantilla: {f.sourceTemplate} · chart {f.chart} {f.chartVersion}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+
+                <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
+                  <p className="font-medium text-zinc-300">Base de datos</p>
+                  <p className="mt-1 text-zinc-400">
+                    DB {createPreview.db.database || "poslite"} · {createPreview.db.size || "—"} ·{" "}
+                    {createPreview.db.persistenceEnabled ? "persistencia on" : "sin persistencia"}
+                  </p>
+                </section>
+
+                <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
+                  <p className="font-medium text-zinc-300">Estación ({distroLabel(createPreview.distro)})</p>
+                  <p className="mt-1 text-zinc-400">
+                    Servicios activos:{" "}
+                    {(createPreview.station.services ?? []).filter((s) => s.enabled).length} /{" "}
+                    {(createPreview.station.services ?? []).length}
+                  </p>
+                  <ul className="mt-2 max-h-32 overflow-y-auto space-y-0.5 text-zinc-500">
+                    {(createPreview.station.services ?? []).map((s) => (
+                      <li key={s.key}>
+                        {s.enabled ? "✓" : "○"} {s.key} · tag {s.tag}
+                        {s.hostPort != null ? ` · puerto ${s.hostPort}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                  {(createPreview.station.workerGroups?.groups ?? []).map((g) => (
+                    <div key={g.id} className="mt-2">
+                      <p className="text-zinc-500">{g.label}</p>
+                      <ul className="mt-0.5 space-y-0.5 text-zinc-500">
+                        {g.workers.map((w) => (
+                          <li key={w.key}>
+                            {w.enabled ? "✓" : "○"} {workerDisplayName(w.key, g.id)} · {w.tag}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </section>
+
+                {createPreview.warnings.length > 0 ? (
+                  <section className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                    <p className="font-medium text-amber-200/90">Revisar antes de publicar</p>
+                    <ul className="mt-2 space-y-1">
+                      {createPreview.warnings.map((w) => (
+                        <li
+                          key={`${w.code}-${w.message}`}
+                          className={w.level === "error" ? "text-red-300" : "text-amber-200/80"}
+                        >
+                          {w.level === "error" ? "Bloqueante: " : "Aviso: "}
+                          {w.message}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : (
+                  <p className="text-emerald-400/90">No hay avisos bloqueantes. Puedes publicar al repositorio remoto.</p>
+                )}
+
+                {createError ? <p className="text-red-300">{createError}</p> : null}
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateStep("form");
+                      setCreatePreview(null);
+                      setCreateError("");
+                    }}
+                    className="flex-1 rounded-lg border border-cf-line py-2 text-xs text-zinc-300 hover:bg-white/5"
+                  >
+                    Volver
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!createPreview.canPublish || createPublishing}
+                    onClick={() => void onConfirmCreate()}
+                    className="flex-1 rounded-lg bg-cf-orange py-2 text-xs font-medium text-black disabled:opacity-50"
+                  >
+                    {createPublishing ? "Publicando…" : "Confirmar y publicar en Git"}
+                  </button>
+                </div>
+              </div>
             ) : null}
-            <button
-              type="submit"
-              disabled={!equipmentCheck || equipmentChecking}
-              className="mt-4 w-full rounded-lg bg-cf-orange py-2 text-xs font-medium text-black disabled:opacity-50"
-            >
-              Crear y publicar
-            </button>
-          </form>
+          </div>
         </div>
       ) : null}
     </motion.div>

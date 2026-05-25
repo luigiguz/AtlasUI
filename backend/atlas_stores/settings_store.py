@@ -16,7 +16,7 @@ def load_stores_settings() -> dict[str, str | bool]:
         "branch": "main",
         "git_token": "",
         "auto_pull": True,
-        "auto_push": False,
+        "auto_push": True,
     }
     if STORES_SETTINGS_FILE.is_file():
         try:
@@ -28,7 +28,7 @@ def load_stores_settings() -> dict[str, str | bool]:
         file_cfg["branch"] = str(data.get("branch", "main")).strip() or "main"
         file_cfg["git_token"] = str(data.get("git_token", "")).strip()
         file_cfg["auto_pull"] = bool(data.get("auto_pull", True))
-        file_cfg["auto_push"] = bool(data.get("auto_push", False))
+        file_cfg["auto_push"] = bool(data.get("auto_push", True))
 
     repo_url = atlas_env("ATLAS_STORES_REPO_URL") or str(file_cfg["repo_url"])
     branch = atlas_env("ATLAS_STORES_BRANCH") or str(file_cfg["branch"])

@@ -85,3 +85,47 @@ export type StoreTemplatesResponse = {
   message?: string;
   templates: StoreTemplateInfo[];
 };
+
+export type StorePreviewWarning = {
+  level: "error" | "warn";
+  code: string;
+  message: string;
+};
+
+export type StoreCreatePreview = {
+  storeId: string;
+  folderName: string;
+  distro: string;
+  imageChannel: string;
+  namespace: string;
+  clusterLabels: Record<string, string>;
+  gitPaths: string[];
+  files: {
+    path: string;
+    stack: string;
+    sourceTemplate: string;
+    chart: string;
+    chartVersion: string;
+    bundleVersion: string;
+  }[];
+  chartVersions: Record<string, string>;
+  db: StoreDetail["db"];
+  station: StoreDetail["station"];
+  placeholders: string[];
+  warnings: StorePreviewWarning[];
+  canPublish: boolean;
+  folderExists: boolean;
+};
+
+export type StoreCreatePreviewResponse = {
+  ok: boolean;
+  preview: StoreCreatePreview;
+  branch: string;
+  repoUrl?: string;
+  suggestedCommitMessage?: string;
+  equipment: {
+    name?: string;
+    displayName?: string;
+    state?: string;
+  };
+};
