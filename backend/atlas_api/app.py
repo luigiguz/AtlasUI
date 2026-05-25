@@ -40,6 +40,7 @@ from atlas_core.web_auth import (
     session_middleware_config,
 )
 from atlas_rancher.router import router as atlas_rancher_router
+from atlas_stores.router import router as atlas_stores_router
 from atlas_vpn.ssh_terminal_ws import run_ssh_terminal_ws
 from atlas_core.web_tokens import encode_access_token
 from atlas_core.web_users import (
@@ -243,6 +244,7 @@ def create_app() -> FastAPI:
     )
     _configure_openapi(app)
     app.include_router(atlas_rancher_router)
+    app.include_router(atlas_stores_router)
     app.add_middleware(SessionMiddleware, **session_middleware_config())
     app.add_middleware(
         CORSMiddleware,

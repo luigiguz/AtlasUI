@@ -38,6 +38,7 @@ import {
 import { AtlasHomeView } from "./views/AtlasHomeView";
 import { AtlasRancherClustersView } from "./views/AtlasRancherClustersView";
 import { AtlasRancherPodsView } from "./views/AtlasRancherPodsView";
+import { AtlasStoresView } from "./views/AtlasStoresView";
 
 type SiteRow = {
   id: string;
@@ -1040,6 +1041,13 @@ export default function App() {
             syncOk={syncOk}
             lastSyncAt={lastSyncAt}
             onNavigate={setTab}
+          />
+        )}
+
+        {tab === "rancher-stores" && (
+          <AtlasStoresView
+            canAdmin={canAdmin}
+            canEdit={me.role === "admin" || me.role === "operator"}
           />
         )}
 

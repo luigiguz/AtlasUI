@@ -7,6 +7,7 @@ export type AtlasRouteId =
   | "conn"
   | "poslite"
   | "cf"
+  | "rancher-stores"
   | "rancher-clusters"
   | "rancher-pods"
   | "users"
@@ -73,16 +74,23 @@ export function buildAtlasNav(canAdmin: boolean): AtlasNavEntry[] {
       children: [
         {
           kind: "leaf",
+          id: "rancher-stores",
+          route: "rancher-stores",
+          label: "Tiendas",
+          icon: Store,
+        },
+        {
+          kind: "leaf",
           id: "rancher-clusters",
           route: "rancher-clusters",
-          label: "Custom clusters",
+          label: "Equipos",
           icon: Server,
         },
         {
           kind: "leaf",
           id: "rancher-pods",
           route: "rancher-pods",
-          label: "Pods",
+          label: "Servicios en ejecución",
           icon: Box,
         },
       ],
@@ -117,10 +125,12 @@ export function routeMeta(route: AtlasRouteId): { title: string; breadcrumb: str
       return { title: "Poslite", breadcrumb: ["Atlas", "Atlas VPN", "Poslite"] };
     case "cf":
       return { title: "Cloudflare", breadcrumb: ["Atlas", "Atlas VPN", "Cloudflare"] };
+    case "rancher-stores":
+      return { title: "Gestión de Tiendas", breadcrumb: ["Atlas", "Atlas Rancher", "Tiendas"] };
     case "rancher-clusters":
-      return { title: "Custom clusters", breadcrumb: ["Atlas", "Atlas Rancher", "Custom clusters"] };
+      return { title: "Equipos", breadcrumb: ["Atlas", "Atlas Rancher", "Equipos"] };
     case "rancher-pods":
-      return { title: "Pods", breadcrumb: ["Atlas", "Atlas Rancher", "Pods"] };
+      return { title: "Servicios en ejecución", breadcrumb: ["Atlas", "Atlas Rancher", "Servicios"] };
     case "users":
       return { title: "Usuarios", breadcrumb: ["Atlas", "Administración", "Usuarios"] };
     case "about":

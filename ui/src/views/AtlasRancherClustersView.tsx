@@ -833,9 +833,9 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <motion.div layout>
-          <h1 className="text-lg font-semibold text-zinc-100">Custom clusters</h1>
+          <h1 className="text-lg font-semibold text-zinc-100">Equipos</h1>
           <p className="text-xs text-zinc-500">
-            Busca por texto o filtros. La columna Pods muestra la cantidad según el label application; gestión en el menú Pods.
+            Equipos (RPi) registrados en Rancher. La columna Servicios muestra cuántos pods hay; la configuración de software está en Tiendas.
             {rancherUrl ? (
               <>
                 {" "}
@@ -1055,7 +1055,7 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
                           onSort={toggleSort}
                         />
                         <SortableTh
-                          label="Pods"
+                          label="Servicios"
                           sortKey="pods"
                           sort={sort}
                           onSort={toggleSort}

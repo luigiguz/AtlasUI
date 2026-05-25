@@ -21,7 +21,7 @@ ARG CLOUDFLARED_VERSION=2026.5.0
 ARG TARGETARCH
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl gosu \
+    && apt-get install -y --no-install-recommends ca-certificates curl gosu git \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \

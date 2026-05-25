@@ -13,3 +13,6 @@ asyncssh>=2.14.0
 
 # Cliente oficial Cloudflare (útil para scripts/API; la sincronización de AtlasVPN usa REST v4 con el mismo token)
 cloudflare>=3.1.0
+
+# Gestión de tiendas (atlas-stores / fleet.yaml)
+PyYAML>=6.0.0

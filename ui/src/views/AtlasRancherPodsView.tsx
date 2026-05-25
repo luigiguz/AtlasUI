@@ -256,7 +256,7 @@ export function AtlasRancherPodsView({ canAdmin: _canAdmin }: Props) {
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-100">Pods</h1>
+          <h1 className="text-lg font-semibold text-zinc-100">Servicios en ejecución</h1>
           <p className="text-xs text-zinc-500">
             Selecciona un cluster y gestiona los pods de su namespace (label application).
           </p>
