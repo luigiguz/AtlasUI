@@ -29,6 +29,7 @@ import {
 } from "react";
 
 import { API_BASE, api, apiUrl, bearerHeaders, setAccessToken } from "./apiClient";
+import { clearSessionActivity, touchSessionActivity, useIdleLogout } from "./useIdleLogout";
 import { isAtlasVpnRoute, type AtlasRouteId } from "./atlasNav";
 import { AtlasShell } from "./components/AtlasShell";
 import { PoweredByVerkkutech } from "./components/PoweredByVerkkutech";
@@ -790,18 +791,15 @@ export default function App() {
     })();
   }, []);
 
-  useEffect(() => {
-    const h = () => {
-      autoSyncStarted.current = false;
-      setAccessToken(null);
-      setMe(null);
-      setAuthPhase("login");
-      setTab("conn");
-      setSshWebSessions([]);
-      setActiveSshWebId(null);
-    };
-    window.addEventListener("atlas-unauthorized", h);
-    return () => window.removeEventListener("atlas-unauthorized", h);
+  const endSession = useCallback(() => {
+    clearSessionActivity();
+    autoSyncStarted.current = false;
+    setAccessToken(null);
+    setMe(null);
+    setAuthPhase("login");
+    setTab("conn");
+    setSshWebSessions([]);
+    setActiveSshWebId(null);
   }, []);
 
   const doLogout = useCallback(async () => {
@@ -810,14 +808,25 @@ export default function App() {
     } catch {
       /* ignore */
     }
-    setAccessToken(null);
-    autoSyncStarted.current = false;
-    setMe(null);
-    setAuthPhase("login");
-    setTab("conn");
-    setSshWebSessions([]);
-    setActiveSshWebId(null);
-  }, []);
+    endSession();
+  }, [endSession]);
+
+  useIdleLogout(authPhase === "app" && me !== null, () => {
+    void (async () => {
+      try {
+        await api("/api/auth/logout", { method: "POST", body: "{}" });
+      } catch {
+        /* ignore */
+      }
+      endSession();
+    })();
+  });
+
+  useEffect(() => {
+    const h = () => endSession();
+    window.addEventListener("atlas-unauthorized", h);
+    return () => window.removeEventListener("atlas-unauthorized", h);
+  }, [endSession]);
 
   const loadSites = useCallback(async () => {
     try {
@@ -1110,7 +1119,15 @@ export default function App() {
       );
     }
     if (authPhase === "login") {
-      return <AuthLoginPanel onDone={(u) => { setMe(u); setAuthPhase("app"); }} />;
+      return (
+        <AuthLoginPanel
+          onDone={(u) => {
+            touchSessionActivity();
+            setMe(u);
+            setAuthPhase("app");
+          }}
+        />
+      );
     }
     if (!me) {
       return (
@@ -1130,7 +1147,15 @@ export default function App() {
     );
   }
   if (authPhase === "login") {
-    return <AuthLoginPanel onDone={(u) => { setMe(u); setAuthPhase("app"); }} />;
+    return (
+      <AuthLoginPanel
+        onDone={(u) => {
+          touchSessionActivity();
+          setMe(u);
+          setAuthPhase("app");
+        }}
+      />
+    );
   }
   if (!me) {
     return (

@@ -78,9 +78,8 @@ type Props = {
   canEditLabels?: boolean;
 };
 
-const AUTO_REFRESH_STORAGE_KEY = "atlas-rancher-auto-refresh";
-/** Intervalo de polling (30–60 s); valor por defecto intermedio. */
-const AUTO_REFRESH_INTERVAL_MS = 45_000;
+/** Actualización automática de la lista (estados en Rancher). */
+const AUTO_REFRESH_INTERVAL_MS = 15_000;
 
 type SortKey = "name" | "store" | "distro" | "application" | "state" | "kubernetes";
 type SortDir = "asc" | "desc";
@@ -582,13 +581,6 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [rancherConfigured, setRancherConfigured] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(() => {
-    try {
-      return localStorage.getItem(AUTO_REFRESH_STORAGE_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
   const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
   const [, setRefreshClock] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
@@ -694,39 +686,21 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
   }, [loadClusters]);
 
   useEffect(() => {
-    if (!autoRefresh || !rancherConfigured) return;
-    if (editingCluster || settingsOpen) return;
+    if (!rancherConfigured) return;
 
     const id = window.setInterval(() => {
+      if (document.hidden || editingCluster) return;
       void loadClusters({ silent: true });
     }, AUTO_REFRESH_INTERVAL_MS);
 
     return () => window.clearInterval(id);
-  }, [
-    autoRefresh,
-    rancherConfigured,
-    editingCluster,
-    settingsOpen,
-    loadClusters,
-  ]);
+  }, [rancherConfigured, editingCluster, loadClusters]);
 
   useEffect(() => {
     if (!lastRefreshedAt) return;
-    const id = window.setInterval(() => setRefreshClock((n) => n + 1), 5000);
+    const id = window.setInterval(() => setRefreshClock((n) => n + 1), 1000);
     return () => window.clearInterval(id);
   }, [lastRefreshedAt]);
-
-  function toggleAutoRefresh() {
-    setAutoRefresh((on) => {
-      const next = !on;
-      try {
-        localStorage.setItem(AUTO_REFRESH_STORAGE_KEY, next ? "1" : "0");
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  }
 
   useEffect(() => {
     if (!canAdmin || !settingsOpen) return;
@@ -853,22 +827,6 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
               {settingsOpen ? "Cerrar conexión" : "Conexión Rancher"}
             </button>
           ) : null}
-          <label
-            className={
-              autoRefresh
-                ? "inline-flex cursor-pointer items-center gap-2 rounded-xl border border-cf-orange/40 bg-cf-orange/10 px-3 py-1.5 text-xs text-zinc-200"
-                : "inline-flex cursor-pointer items-center gap-2 rounded-xl border border-cf-line bg-cf-panel px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-500"
-            }
-            title={`Actualizar automáticamente cada ${AUTO_REFRESH_INTERVAL_MS / 1000} segundos`}
-          >
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={toggleAutoRefresh}
-              className="rounded border-cf-line text-cf-orange focus:ring-cf-orange/30"
-            />
-            Auto {AUTO_REFRESH_INTERVAL_MS / 1000}s
-          </label>
           <button
             type="button"
             onClick={() => void loadClusters()}
@@ -883,7 +841,7 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
             Actualizar
           </button>
           {lastRefreshedAt && rancherConfigured ? (
-            <span className="text-[11px] tabular-nums text-zinc-600" title="Última sincronización con Rancher">
+            <span className="text-[11px] tabular-nums text-zinc-600">
               {refreshing ? "Sincronizando…" : `Hace ${Math.max(0, Math.round((Date.now() - lastRefreshedAt) / 1000))}s`}
             </span>
           ) : null}
