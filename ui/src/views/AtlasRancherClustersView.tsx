@@ -3,6 +3,8 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  ChevronDown,
+  ChevronRight,
   Filter,
   Loader2,
   Pencil,
@@ -14,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -49,6 +52,28 @@ export type RancherCustomCluster = {
   store: string;
   atlas: string;
   steveCollection?: string;
+  managementClusterId?: string;
+};
+
+export type RancherPod = {
+  name: string;
+  namespace: string;
+  phase: string;
+  node: string;
+  ready: string;
+  restarts: number;
+  podIP: string;
+  createdAt?: string | null;
+};
+
+type PodsResponse = {
+  ok: boolean;
+  source: string;
+  managementClusterId: string;
+  application: string;
+  podNamespace: string;
+  count: number;
+  pods: RancherPod[];
 };
 
 type LabelsPatchResponse = {
@@ -120,6 +145,15 @@ function newFilterRule(field: FilterFieldKey = "name"): FilterRule {
 
 function fieldPlaceholder(field: FilterFieldKey): string {
   return FILTER_FIELDS.find((f) => f.key === field)?.placeholder ?? "";
+}
+
+function podPhaseTone(phase: string): string {
+  const p = phase.toLowerCase();
+  if (p === "running") return "text-emerald-400";
+  if (p === "pending") return "text-amber-400";
+  if (p === "failed" || p === "unknown") return "text-red-400";
+  if (p === "succeeded" || p === "completed") return "text-zinc-400";
+  return "text-zinc-400";
 }
 
 function stateTone(state: string): string {
@@ -573,6 +607,119 @@ function ClusterLabelsModal({
   );
 }
 
+function ClusterPodsPanel({ cluster }: { cluster: RancherCustomCluster }) {
+  const [pods, setPods] = useState<RancherPod[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadPods = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const ns = encodeURIComponent(cluster.namespace);
+      const nm = encodeURIComponent(cluster.name);
+      const steve = encodeURIComponent(
+        cluster.steveCollection || "provisioning.cattle.io.customclusters"
+      );
+      const r = await api<PodsResponse>(
+        `/api/atlas-rancher/custom-clusters/${ns}/${nm}/pods?steve_collection=${steve}`
+      );
+      setPods(r.pods ?? []);
+    } catch (e) {
+      setPods([]);
+      setError(e instanceof Error ? e.message : "No se pudieron cargar los pods.");
+    } finally {
+      setLoading(false);
+    }
+  }, [cluster.namespace, cluster.name, cluster.steveCollection]);
+
+  useEffect(() => {
+    void loadPods();
+  }, [loadPods]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 px-4 py-4 text-sm text-zinc-500">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Cargando pods…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-2 px-4 py-4">
+        <p className="text-sm text-red-300">{error}</p>
+        <button
+          type="button"
+          onClick={() => void loadPods()}
+          className="text-xs text-cf-orange hover:underline"
+        >
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
+  const podNs = cluster.application || "—";
+
+  if (pods.length === 0) {
+    return (
+      <p className="px-4 py-4 text-sm text-zinc-500">
+        No hay pods en el namespace <span className="text-zinc-300">{podNs}</span> (application).
+      </p>
+    );
+  }
+
+  return (
+    <div className="border-t border-cf-line/40 bg-black/20">
+      <div className="flex items-center justify-between gap-2 px-4 py-2">
+        <p className="text-xs text-zinc-500">
+          {pods.length} pod{pods.length !== 1 ? "s" : ""} · namespace{" "}
+          <span className="font-medium text-zinc-300">{podNs}</span>
+          {cluster.managementClusterId ? (
+            <span className="text-zinc-600"> · {cluster.managementClusterId}</span>
+          ) : null}
+        </p>
+        <button
+          type="button"
+          onClick={() => void loadPods()}
+          className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-cf-orange"
+        >
+          <RefreshCw className="h-3 w-3" />
+          Actualizar
+        </button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] text-left text-xs">
+          <thead>
+            <tr className="border-b border-cf-line/50 text-[10px] uppercase tracking-wide text-zinc-600">
+              <th className="px-4 py-2">Pod</th>
+              <th className="px-4 py-2">Estado</th>
+              <th className="px-4 py-2">Ready</th>
+              <th className="px-4 py-2">Nodo</th>
+              <th className="px-4 py-2">Reinicios</th>
+              <th className="px-4 py-2">IP</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pods.map((p) => (
+              <tr key={p.name} className="border-b border-cf-line/30 last:border-0">
+                <td className="px-4 py-2 font-medium text-zinc-200">{p.name}</td>
+                <td className={`px-4 py-2 ${podPhaseTone(p.phase)}`}>{p.phase}</td>
+                <td className="px-4 py-2 text-zinc-400">{p.ready}</td>
+                <td className="px-4 py-2 text-zinc-500">{p.node || "—"}</td>
+                <td className="px-4 py-2 tabular-nums text-zinc-400">{p.restarts}</td>
+                <td className="px-4 py-2 font-mono text-[11px] text-zinc-500">{p.podIP || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Props) {
   const [clusters, setClusters] = useState<RancherCustomCluster[]>([]);
   const [source, setSource] = useState("");
@@ -601,6 +748,10 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
   const [cfgSaving, setCfgSaving] = useState(false);
   const [cfgMsg, setCfgMsg] = useState("");
   const [editingCluster, setEditingCluster] = useState<RancherCustomCluster | null>(null);
+  const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
+
+  const tableColSpan =
+    6 + (canEditLabels ? 1 : 0) + 1;
 
   function mergeClusterUpdate(updated: RancherCustomCluster) {
     setClusters((list) =>
@@ -648,6 +799,7 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
         atlas: c.atlas ?? c.labels?.atlas ?? "",
         state: normalizeState(c.state),
         steveCollection: c.steveCollection,
+        managementClusterId: c.managementClusterId,
       }));
       setClusters(list);
       setSource(data.source ?? "");
@@ -799,7 +951,7 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
         <motion.div layout>
           <h1 className="text-lg font-semibold text-zinc-100">Custom clusters</h1>
           <p className="text-xs text-zinc-500">
-            Busca por texto; usa Filtros para acotar. Clic en un encabezado para ordenar.
+            Busca por texto o filtros. Expande un cluster (▸) para ver sus pods.
             {rancherUrl ? (
               <>
                 {" "}
@@ -1002,6 +1154,7 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
                   <table className="w-full min-w-[800px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-cf-line/60 text-xs uppercase tracking-wide text-zinc-500">
+                        <th className="w-10 px-2 py-3" aria-label="Pods" />
                         <SortableTh label="Nombre" sortKey="name" sort={sort} onSort={toggleSort} />
                         <SortableTh label="Tienda" sortKey="store" sort={sort} onSort={toggleSort} />
                         <SortableTh label="Distribución" sortKey="distro" sort={sort} onSort={toggleSort} />
@@ -1026,37 +1179,69 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
                       </tr>
                     </thead>
                     <tbody>
-                      {displayedClusters.map((c) => (
-                        <tr
-                          key={c.id}
-                          className="border-b border-cf-line/40 last:border-0 hover:bg-white/[0.02]"
-                        >
-                          <td className="px-4 py-3">
-                            <span className="font-medium text-zinc-100">{clusterDisplayName(c)}</span>
-                            {c.displayName && c.displayName !== c.name ? (
-                              <span className="mt-0.5 block text-xs text-zinc-600">{c.name}</span>
+                      {displayedClusters.map((c) => {
+                        const expanded = expandedClusterId === c.id;
+                        return (
+                          <Fragment key={c.id}>
+                            <tr
+                              className={
+                                expanded
+                                  ? "border-b border-cf-line/40 bg-white/[0.03]"
+                                  : "border-b border-cf-line/40 hover:bg-white/[0.02]"
+                              }
+                            >
+                              <td className="px-2 py-3">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedClusterId((id) => (id === c.id ? null : c.id))
+                                  }
+                                  className="rounded p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
+                                  aria-expanded={expanded}
+                                  title={expanded ? "Ocultar pods" : "Ver pods"}
+                                >
+                                  {expanded ? (
+                                    <ChevronDown className="h-4 w-4" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4" />
+                                  )}
+                                </button>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="font-medium text-zinc-100">{clusterDisplayName(c)}</span>
+                                {c.displayName && c.displayName !== c.name ? (
+                                  <span className="mt-0.5 block text-xs text-zinc-600">{c.name}</span>
+                                ) : null}
+                              </td>
+                              <td className="px-4 py-3 text-zinc-400">{c.store || "—"}</td>
+                              <td className="px-4 py-3 text-zinc-400">{c.distro || "—"}</td>
+                              <td className="px-4 py-3 text-zinc-400">{c.application || "—"}</td>
+                              <td className={`px-4 py-3 ${stateTone(c.state)}`}>{c.state || "—"}</td>
+                              <td className="px-4 py-3 text-zinc-400">{c.kubernetesVersion || "—"}</td>
+                              {canEditLabels ? (
+                                <td className="px-4 py-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingCluster(c)}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-2.5 py-1.5 text-xs text-zinc-400 hover:border-cf-orange/40 hover:text-cf-orange"
+                                    title="Editar labels"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                    Editar
+                                  </button>
+                                </td>
+                              ) : null}
+                            </tr>
+                            {expanded ? (
+                              <tr key={`${c.id}-pods`} className="border-b border-cf-line/40">
+                                <td colSpan={tableColSpan} className="p-0">
+                                  <ClusterPodsPanel cluster={c} />
+                                </td>
+                              </tr>
                             ) : null}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-400">{c.store || "—"}</td>
-                          <td className="px-4 py-3 text-zinc-400">{c.distro || "—"}</td>
-                          <td className="px-4 py-3 text-zinc-400">{c.application || "—"}</td>
-                          <td className={`px-4 py-3 ${stateTone(c.state)}`}>{c.state || "—"}</td>
-                          <td className="px-4 py-3 text-zinc-400">{c.kubernetesVersion || "—"}</td>
-                          {canEditLabels ? (
-                            <td className="px-4 py-3">
-                              <button
-                                type="button"
-                                onClick={() => setEditingCluster(c)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-2.5 py-1.5 text-xs text-zinc-400 hover:border-cf-orange/40 hover:text-cf-orange"
-                                title="Editar labels"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                                Editar
-                              </button>
-                            </td>
-                          ) : null}
-                        </tr>
-                      ))}
+                          </Fragment>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

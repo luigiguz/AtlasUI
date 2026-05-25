@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from atlas_core.web_auth import current_user, require_roles
 from atlas_rancher.client import (
     RancherApiError,
     RancherConfigError,
+    list_custom_cluster_pods,
     list_custom_clusters,
     update_custom_cluster_labels,
 )
@@ -163,3 +164,49 @@ def patch_custom_cluster_labels(
         user.get("username"),
     )
     return {"ok": True, "cluster": cluster}
+
+
+@router.get("/custom-clusters/{namespace}/{name}/pods")
+def get_custom_cluster_pods(
+    namespace: str,
+    name: str,
+    steve_collection: str = Query(default="provisioning.cattle.io.customclusters"),
+    _user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    settings = load_rancher_settings()
+    if not settings["url"] or not settings["token"]:
+        raise HTTPException(
+            400,
+            "Configura la conexión a Rancher antes de consultar pods.",
+        )
+    try:
+        source, mgmt_id, application, pods = list_custom_cluster_pods(
+            settings,
+            namespace=namespace,
+            name=name,
+            steve_collection=steve_collection.strip(),
+        )
+    except RancherConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RancherApiError as e:
+        status = 503 if e.status is None or e.status >= 500 else 502
+        if e.status == 404:
+            status = 404
+        elif e.status == 403:
+            status = 403
+        raise HTTPException(status_code=status, detail=str(e)) from e
+    except Exception as e:
+        log.exception("custom-cluster pods failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al consultar pods en Rancher.",
+        ) from e
+    return {
+        "ok": True,
+        "source": source,
+        "managementClusterId": mgmt_id,
+        "application": application,
+        "podNamespace": application,
+        "count": len(pods),
+        "pods": pods,
+    }

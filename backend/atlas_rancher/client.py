@@ -276,7 +276,180 @@ def _normalize_cluster(item: dict[str, Any], *, steve_collection: str) -> dict[s
         "store": _label("store"),
         "atlas": _label("atlas"),
         "steveCollection": steve_collection,
+        "managementClusterId": _management_cluster_id_from_item(item),
     }
+
+
+def _management_cluster_id_from_item(item: dict[str, Any]) -> str:
+    status = _as_dict(item.get("status"))
+    for key in ("clusterName", "managementClusterName", "clusterId"):
+        val = status.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    mgmt = status.get("managementCluster")
+    if isinstance(mgmt, dict):
+        for key in ("name", "id"):
+            val = mgmt.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    meta = _as_dict(item.get("metadata"))
+    labels = _as_dict(meta.get("labels"))
+    for label_key in (
+        "fleet.cattle.io/managed-cluster-name",
+        "cluster-name",
+        "management.cattle.io/cluster-name",
+    ):
+        val = labels.get(label_key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+def _find_management_cluster_id(
+    settings: dict[str, str | bool],
+    provisioning_resource: dict[str, Any],
+    *,
+    prov_name: str,
+) -> str:
+    found = _management_cluster_id_from_item(provisioning_resource)
+    if found:
+        return found
+    prov_name_l = prov_name.strip().lower()
+    if not prov_name_l:
+        return ""
+    try:
+        payload = rancher_get(settings, "v1/management.cattle.io.clusters")
+    except RancherApiError:
+        return ""
+    items = _collect_items(payload) or []
+    for item in items:
+        meta = _as_dict(item.get("metadata"))
+        spec = _as_dict(item.get("spec"))
+        candidates = [
+            str(item.get("id") or ""),
+            str(meta.get("name") or ""),
+            str(spec.get("displayName") or ""),
+            str(spec.get("internalClusterId") or ""),
+        ]
+        for cand in candidates:
+            if cand.strip().lower() == prov_name_l:
+                return str(item.get("id") or meta.get("name") or cand).strip()
+    return ""
+
+
+def _application_from_item(item: dict[str, Any]) -> str:
+    meta = _as_dict(item.get("metadata"))
+    labels = _as_dict(meta.get("labels"))
+    if not labels:
+        labels = _as_dict(item.get("labels"))
+
+    def _label(key: str) -> str:
+        v = labels.get(key)
+        return str(v).strip() if v is not None else ""
+
+    return normalize_application(_label("application"))
+
+
+def _k8s_namespace_for_application(application: str) -> str:
+    """En Verkku el namespace del cluster coincide con el label application (minúsculas)."""
+    return normalize_application(application).lower()
+
+
+def _pod_matches_application_namespace(pod_namespace: str, application: str) -> bool:
+    app_ns = _k8s_namespace_for_application(application)
+    if not app_ns:
+        return False
+    return str(pod_namespace or "").strip().lower() == app_ns
+
+
+def _normalize_pod(item: dict[str, Any], *, application_namespace: str) -> dict[str, Any]:
+    meta = _as_dict(item.get("metadata"))
+    status = _as_dict(item.get("status"))
+    spec = _as_dict(item.get("spec"))
+    phase = str(status.get("phase") or "Unknown")
+    container_statuses = status.get("containerStatuses")
+    if not isinstance(container_statuses, list):
+        container_statuses = []
+    ready_count = 0
+    restart_total = 0
+    for cs in container_statuses:
+        if not isinstance(cs, dict):
+            continue
+        if cs.get("ready"):
+            ready_count += 1
+        try:
+            restart_total += int(cs.get("restartCount") or 0)
+        except (TypeError, ValueError):
+            pass
+    containers = spec.get("containers")
+    total_containers = len(containers) if isinstance(containers, list) else len(container_statuses)
+    return {
+        "name": str(meta.get("name") or ""),
+        "namespace": application_namespace or str(meta.get("namespace") or ""),
+        "phase": phase,
+        "node": str(spec.get("nodeName") or ""),
+        "ready": f"{ready_count}/{total_containers}" if total_containers else "—",
+        "restarts": restart_total,
+        "podIP": str(status.get("podIP") or ""),
+        "createdAt": meta.get("creationTimestamp"),
+    }
+
+
+def list_custom_cluster_pods(
+    settings: dict[str, str | bool],
+    *,
+    namespace: str,
+    name: str,
+    steve_collection: str,
+) -> tuple[str, str, str, list[dict[str, Any]]]:
+    ns = namespace.strip()
+    cluster_name = name.strip()
+    if not ns or not cluster_name:
+        raise RancherConfigError("Namespace y nombre del cluster son obligatorios.")
+
+    collection = steve_collection.strip() or STEVE_COLLECTION_CUSTOM
+    prov_path = _steve_resource_path(collection, ns, cluster_name)
+    prov_resource = rancher_get(settings, prov_path)
+    if not isinstance(prov_resource, dict):
+        raise RancherApiError("Rancher no devolvió el custom cluster.")
+
+    application = _application_from_item(prov_resource)
+    if not application:
+        raise RancherConfigError(
+            "El cluster no tiene label application; Atlas usa application como namespace de pods."
+        )
+    app_ns = _k8s_namespace_for_application(application)
+
+    mgmt_id = _find_management_cluster_id(settings, prov_resource, prov_name=cluster_name)
+    if not mgmt_id:
+        raise RancherConfigError(
+            "No se pudo resolver el cluster de gestión Rancher (status.clusterName). "
+            "Comprueba que el custom cluster esté provisionado y activo."
+        )
+
+    pods_path = f"k8s/clusters/{mgmt_id}/v1/pods/{app_ns}?pagesize=500"
+    try:
+        payload = rancher_get(settings, pods_path)
+    except RancherApiError as e:
+        if e.status != 404:
+            raise
+        pods_path = f"k8s/clusters/{mgmt_id}/v1/pods?pagesize=500"
+        payload = rancher_get(settings, pods_path)
+
+    items = _collect_items(payload) or []
+    pods: list[dict[str, Any]] = []
+    for i in items:
+        if not isinstance(i, dict):
+            continue
+        meta = _as_dict(i.get("metadata"))
+        if not meta.get("name"):
+            continue
+        raw_ns = str(meta.get("namespace") or "")
+        if not _pod_matches_application_namespace(raw_ns, application):
+            continue
+        pods.append(_normalize_pod(i, application_namespace=application))
+    pods.sort(key=lambda p: (p.get("name") or ""))
+    return pods_path, mgmt_id, application, pods
 
 
 def _is_connection_error(err: RancherApiError) -> bool:
