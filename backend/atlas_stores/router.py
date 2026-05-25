@@ -9,6 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from atlas_core.web_auth import current_user, require_roles
+from atlas_stores.equipment import (
+    EquipmentNotFoundError,
+    RancherNotConfiguredError,
+    find_equipment_for_store,
+)
 from atlas_stores.git_repo import StoresRepoError, git_commit_and_push, git_pull, resolve_repo_root
 from atlas_stores.settings_store import load_stores_settings, save_stores_settings
 from atlas_stores.yaml_store import create_store, list_stores, load_store, save_store
@@ -183,13 +188,15 @@ def post_create_store(
     store_id = (body.store_id or body.folder_name).strip()
     if not store_id:
         raise HTTPException(400, "El código de tienda es obligatorio.")
+    distro = body.distro.strip().lower()
     try:
+        equipment = find_equipment_for_store(store_id, distro=distro)
         root = resolve_repo_root(settings)
         store = create_store(
             root,
             folder_name=body.folder_name.strip(),
             store_id=store_id,
-            distro=body.distro.strip().lower(),
+            distro=distro,
             image_channel=body.image_channel.strip() or "stable",
         )
         git_msg = git_commit_and_push(
@@ -197,6 +204,10 @@ def post_create_store(
             message=f"Atlas: nueva tienda {store_id} ({body.folder_name})",
         )
         safe = {k: v for k, v in store.items() if not str(k).startswith("_")}
+    except RancherNotConfiguredError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except EquipmentNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except FileExistsError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     except StoresRepoError as e:
@@ -207,5 +218,20 @@ def post_create_store(
         log.exception("create store failed")
         raise HTTPException(status_code=500, detail="Error al crear la tienda.") from e
 
-    log.info("store created folder=%s user=%s", body.folder_name, user.get("username"))
-    return {"ok": True, "store": safe, "publishMessage": git_msg}
+    log.info(
+        "store created folder=%s store=%s equipment=%s user=%s",
+        body.folder_name,
+        store_id,
+        equipment.get("name"),
+        user.get("username"),
+    )
+    return {
+        "ok": True,
+        "store": safe,
+        "publishMessage": git_msg,
+        "equipment": {
+            "name": equipment.get("name"),
+            "displayName": equipment.get("displayName"),
+            "state": equipment.get("state"),
+        },
+    }

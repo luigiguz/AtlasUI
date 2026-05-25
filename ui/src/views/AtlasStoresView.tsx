@@ -59,6 +59,9 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
   const [newStoreId, setNewStoreId] = useState("");
   const [newDistro, setNewDistro] = useState<"horustech" | "pam">("horustech");
   const [newChannel, setNewChannel] = useState("stable");
+  const [createError, setCreateError] = useState("");
+  const [equipmentCheck, setEquipmentCheck] = useState<RancherCustomCluster | null>(null);
+  const [equipmentChecking, setEquipmentChecking] = useState(false);
 
   const loadStores = useCallback(async () => {
     setLoading(true);
@@ -198,15 +201,75 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
     }
   }
 
+  const resolveNewStoreId = useCallback(
+    () => (newStoreId.trim() || newFolder.trim()).trim(),
+    [newStoreId, newFolder]
+  );
+
+  const checkEquipmentForNewStore = useCallback(async (): Promise<RancherCustomCluster | null> => {
+    const sid = resolveNewStoreId();
+    if (!sid) {
+      setEquipmentCheck(null);
+      setCreateError("");
+      return null;
+    }
+    setEquipmentChecking(true);
+    setCreateError("");
+    try {
+      const clusters = await api<ClustersResponse>("/api/atlas-rancher/custom-clusters");
+      const want = newDistro.toLowerCase();
+      const match = (clusters.clusters ?? []).find((c) => {
+        if ((c.store || "").trim().toLowerCase() !== sid.toLowerCase()) return false;
+        const d = (c.distro || "").trim().toLowerCase();
+        return d === want;
+      });
+      if (!match) {
+        const anyStore = (clusters.clusters ?? []).some(
+          (c) => (c.store || "").trim().toLowerCase() === sid.toLowerCase()
+        );
+        setEquipmentCheck(null);
+        setCreateError(
+          anyStore
+            ? `Hay un equipo para «${sid}», pero con otra distribución. Ajusta etiquetas en Equipos o cambia la distribución aquí.`
+            : `No hay equipo en Rancher con tienda «${sid}». Créalo primero en Equipos con etiqueta store.`
+        );
+        return null;
+      }
+      setEquipmentCheck(match);
+      setCreateError("");
+      return match;
+    } catch {
+      setEquipmentCheck(null);
+      setCreateError("No se pudo verificar el equipo en Rancher.");
+      return null;
+    } finally {
+      setEquipmentChecking(false);
+    }
+  }, [resolveNewStoreId, newDistro]);
+
+  useEffect(() => {
+    if (!createOpen) return;
+    const t = window.setTimeout(() => void checkEquipmentForNewStore(), 400);
+    return () => window.clearTimeout(t);
+  }, [createOpen, checkEquipmentForNewStore]);
+
   async function onCreateStore(e: FormEvent) {
     e.preventDefault();
     if (!canEdit) return;
+    const sid = resolveNewStoreId();
+    if (!sid) {
+      setCreateError("Indica el código de tienda.");
+      return;
+    }
+    const eq = equipmentCheck ?? (await checkEquipmentForNewStore());
+    if (!eq) return;
+    setCreateError("");
     try {
       const r = await api<{ publishMessage?: string; store: StoreDetail }>("/api/atlas-stores/stores", {
         method: "POST",
         body: JSON.stringify({
-          folder_name: newFolder.trim(),
-          store_id: (newStoreId || newFolder).trim(),
+          folder_name: newFolder.trim() || sid,
+          store_id: sid,
           distro: newDistro,
           image_channel: newChannel,
         }),
@@ -216,7 +279,7 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
       await loadStores();
       await loadDetail(r.store.folderName);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo crear la tienda.");
+      setCreateError(err instanceof Error ? err.message : "No se pudo crear la tienda.");
     }
   }
 
@@ -343,9 +406,9 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-cf-line/50 text-xs uppercase text-zinc-500">
-                  <th className="px-4 py-3">Código</th>
-                  <th className="px-4 py-3">Tipo</th>
-                  <th className="px-4 py-3">Canal</th>
+                  <th className="px-4 py-3">Tienda</th>
+                  <th className="px-4 py-3">Distribución</th>
+                  <th className="px-4 py-3">Tag (versión)</th>
                 </tr>
               </thead>
               <tbody>
@@ -433,15 +496,15 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
                     />
                   </label>
                   <label className="text-xs text-zinc-500">
-                    Canal de imagen
+                    Tag (versión)
                     <select
                       value={detail.imageChannel || "stable"}
                       onChange={(e) => setDetail({ ...detail, imageChannel: e.target.value })}
                       className={inputClass}
                       disabled={!canEdit}
                     >
-                      <option value="stable">Estable</option>
-                      <option value="unstable">Prueba (unstable)</option>
+                      <option value="stable">stable</option>
+                      <option value="unstable">unstable</option>
                     </select>
                   </label>
                 </div>
@@ -537,7 +600,14 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
       </div>
 
       {createOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setCreateOpen(false)}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => {
+            setCreateOpen(false);
+            setCreateError("");
+            setEquipmentCheck(null);
+          }}
+        >
           <form
             onClick={(e) => e.stopPropagation()}
             onSubmit={(e) => void onCreateStore(e)}
@@ -551,29 +621,51 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
             </div>
             <div className="grid gap-3">
               <label className="text-xs text-zinc-500">
-                Nombre de carpeta
-                <input value={newFolder} onChange={(e) => setNewFolder(e.target.value)} className={inputClass} required />
+                Tienda (código / etiqueta store)
+                <input
+                  value={newStoreId}
+                  onChange={(e) => setNewStoreId(e.target.value)}
+                  className={inputClass}
+                  placeholder={newFolder.trim() || "ej. tratevesarpe"}
+                  required={!newFolder.trim()}
+                />
               </label>
               <label className="text-xs text-zinc-500">
-                Código de tienda (label store)
-                <input value={newStoreId} onChange={(e) => setNewStoreId(e.target.value)} className={inputClass} placeholder="Igual que carpeta si vacío" />
+                Carpeta en repositorio (opcional si coincide con tienda)
+                <input value={newFolder} onChange={(e) => setNewFolder(e.target.value)} className={inputClass} placeholder="Igual que tienda si vacío" />
               </label>
               <label className="text-xs text-zinc-500">
-                Tipo de estación
+                Distribución
                 <select value={newDistro} onChange={(e) => setNewDistro(e.target.value as "horustech" | "pam")} className={inputClass}>
                   <option value="horustech">Horustech</option>
                   <option value="pam">PAM</option>
                 </select>
               </label>
               <label className="text-xs text-zinc-500">
-                Canal inicial
+                Tag (versión)
                 <select value={newChannel} onChange={(e) => setNewChannel(e.target.value)} className={inputClass}>
-                  <option value="stable">Estable</option>
-                  <option value="unstable">Prueba</option>
+                  <option value="stable">stable</option>
+                  <option value="unstable">unstable</option>
                 </select>
               </label>
             </div>
-            <button type="submit" className="mt-4 w-full rounded-lg bg-cf-orange py-2 text-xs font-medium text-black">
+            {equipmentChecking ? (
+              <p className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Comprobando equipo en Rancher…
+              </p>
+            ) : equipmentCheck ? (
+              <p className="mt-3 text-xs text-emerald-400/90">
+                Equipo encontrado: {equipmentCheck.displayName || equipmentCheck.name} ({equipmentCheck.state})
+              </p>
+            ) : createError ? (
+              <p className="mt-3 text-xs text-red-300">{createError}</p>
+            ) : null}
+            <button
+              type="submit"
+              disabled={!equipmentCheck || equipmentChecking}
+              className="mt-4 w-full rounded-lg bg-cf-orange py-2 text-xs font-medium text-black disabled:opacity-50"
+            >
               Crear y publicar
             </button>
           </form>
