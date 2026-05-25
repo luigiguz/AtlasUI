@@ -210,7 +210,8 @@ def load_store(repo_root: Path, folder_name: str) -> dict[str, Any]:
             "stack": station.get("stack") if station else "",
             "config": (station.get("values") or {}).get("config") if station else {},
             "services": services_summary,
-            "workers": workers_summary,
+            "workerGroups": workers_summary,
+            "workers": _flatten_worker_groups(workers_summary),
             "values": station.get("values") if station else {},
         },
         "stacksData": {k: {"chartVersion": v.get("chartVersion"), "bundleVersion": v.get("bundleVersion")} for k, v in stacks_data.items()},
@@ -254,33 +255,91 @@ def _summarize_services(values: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-def _summarize_workers(values: dict[str, Any]) -> list[dict[str, Any]]:
+def _is_worker_group(node: dict[str, Any]) -> bool:
+    """Nodo contenedor (p. ej. workers.ierp) con sub-procesos, no un worker hoja."""
+    child_worker = False
+    for key, val in node.items():
+        if key in (
+            "enabled",
+            "image",
+            "replicas",
+            "cronExpression",
+            "resources",
+            "persistence",
+            "port",
+            "hostPort",
+        ):
+            continue
+        if isinstance(val, dict) and ("enabled" in val or "image" in val):
+            child_worker = True
+            break
+    return child_worker
+
+
+def _worker_toggle(path: str, val: dict[str, Any]) -> dict[str, Any]:
+    img = val.get("image") if isinstance(val.get("image"), dict) else {}
+    return {
+        "key": path,
+        "enabled": bool(val.get("enabled", False)),
+        "tag": str(img.get("tag") or ""),
+    }
+
+
+def _summarize_workers(values: dict[str, Any]) -> dict[str, Any]:
     workers = values.get("workers")
     if not isinstance(workers, dict):
-        return []
+        return {"groups": []}
 
-    out: list[dict[str, Any]] = []
+    general: list[dict[str, Any]] = []
+    ierp_items: list[dict[str, Any]] = []
+
+    def bucket(path: str, item: dict[str, Any]) -> None:
+        if path == "ierp" or path.startswith("ierp."):
+            ierp_items.append(item)
+        else:
+            general.append(item)
 
     def walk(prefix: str, node: dict[str, Any]) -> None:
         for key, val in node.items():
             if not isinstance(val, dict):
                 continue
             path = f"{prefix}.{key}" if prefix else key
-            if "enabled" in val:
-                img = val.get("image") if isinstance(val.get("image"), dict) else {}
-                out.append(
-                    {
-                        "key": path,
-                        "enabled": bool(val.get("enabled", False)),
-                        "tag": str(img.get("tag") or ""),
-                    }
-                )
+            if _is_worker_group(val):
+                walk(path, val)
+            elif "enabled" in val:
+                bucket(path, _worker_toggle(path, val))
             else:
                 walk(path, val)
 
     walk("", workers)
-    out.sort(key=lambda x: x["key"])
-    return out
+
+    groups: list[dict[str, Any]] = []
+    if general:
+        general.sort(key=lambda x: x["key"])
+        groups.append({"id": "general", "label": "Procesos generales", "workers": general})
+    if ierp_items:
+        ierp_items.sort(key=lambda x: x["key"])
+        groups.append({"id": "ierp", "label": "iERP", "workers": ierp_items})
+
+    return {"groups": groups}
+
+
+def _flatten_worker_groups(worker_groups: dict[str, Any] | list[Any] | None) -> list[dict[str, Any]]:
+    """Acepta groups del API o lista plana legacy."""
+    if isinstance(worker_groups, list):
+        return worker_groups
+    if not isinstance(worker_groups, dict):
+        return []
+    groups = worker_groups.get("groups")
+    if not isinstance(groups, list):
+        return []
+    flat: list[dict[str, Any]] = []
+    for group in groups:
+        if isinstance(group, dict):
+            items = group.get("workers")
+            if isinstance(items, list):
+                flat.extend(i for i in items if isinstance(i, dict))
+    return flat
 
 
 def save_store(

@@ -24,6 +24,12 @@ export type StoreWorkerToggle = {
   tag: string;
 };
 
+export type StoreWorkerGroup = {
+  id: string;
+  label: string;
+  workers: StoreWorkerToggle[];
+};
+
 export type StoreDetail = StoreSummary & {
   clusterLabels: Record<string, string>;
   db: {
@@ -38,7 +44,10 @@ export type StoreDetail = StoreSummary & {
     stack: string;
     config: Record<string, unknown>;
     services: StoreServiceToggle[];
-    workers: StoreWorkerToggle[];
+    /** Agrupado: generales + iERP */
+    workerGroups?: { groups: StoreWorkerGroup[] };
+    /** Lista plana (compatibilidad al guardar) */
+    workers?: StoreWorkerToggle[];
   };
   stacksData?: Record<string, { chartVersion?: string; bundleVersion?: string }>;
 };

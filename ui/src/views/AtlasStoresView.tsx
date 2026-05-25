@@ -4,7 +4,13 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 
 import { api } from "../apiClient";
 import type { ClustersResponse, RancherCustomCluster } from "../rancherTypes";
-import type { StoreDetail, StoreSummary, StoresListResponse } from "../storeTypes";
+import type {
+  StoreDetail,
+  StoreSummary,
+  StoreWorkerGroup,
+  StoreWorkerToggle,
+  StoresListResponse,
+} from "../storeTypes";
 
 type Props = {
   canAdmin: boolean;
@@ -29,15 +35,56 @@ function distroLabel(d: string): string {
   return d || "—";
 }
 
+function workerGroupsFromStation(station: StoreDetail["station"]): StoreWorkerGroup[] {
+  const grouped = station.workerGroups?.groups;
+  if (grouped?.length) return grouped;
+  const flat = station.workers ?? [];
+  const general: StoreWorkerToggle[] = [];
+  const ierp: StoreWorkerToggle[] = [];
+  for (const w of flat) {
+    if (w.key === "ierp" || w.key.startsWith("ierp.")) ierp.push(w);
+    else general.push(w);
+  }
+  const out: StoreWorkerGroup[] = [];
+  if (general.length) out.push({ id: "general", label: "Procesos generales", workers: general });
+  if (ierp.length) out.push({ id: "ierp", label: "iERP", workers: ierp });
+  return out;
+}
+
+function flattenWorkerGroups(groups: StoreWorkerGroup[]): StoreWorkerToggle[] {
+  return groups.flatMap((g) => g.workers);
+}
+
+function updateWorkerInGroups(
+  groups: StoreWorkerGroup[],
+  workerKey: string,
+  patch: Partial<StoreWorkerToggle>
+): StoreWorkerGroup[] {
+  return groups.map((g) => ({
+    ...g,
+    workers: g.workers.map((w) => (w.key === workerKey ? { ...w, ...patch } : w)),
+  }));
+}
+
+function workerDisplayName(key: string, groupId: string): string {
+  if (groupId === "ierp" && key.startsWith("ierp.")) return key.slice(5);
+  return key;
+}
+
 function applyTagToAllComponents(detail: StoreDetail, tag: string): StoreDetail {
   if (!detail.station) return { ...detail, imageChannel: tag };
+  const groups = workerGroupsFromStation(detail.station).map((g) => ({
+    ...g,
+    workers: g.workers.map((w) => ({ ...w, tag })),
+  }));
   return {
     ...detail,
     imageChannel: tag,
     station: {
       ...detail.station,
       services: (detail.station.services ?? []).map((s) => ({ ...s, tag })),
-      workers: (detail.station.workers ?? []).map((w) => ({ ...w, tag })),
+      workerGroups: { groups },
+      workers: flattenWorkerGroups(groups),
     },
   };
 }
@@ -198,7 +245,7 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
               stack: detail.station?.stack,
               config: detail.station?.config,
               services: detail.station?.services,
-              workers: detail.station?.workers,
+              workers: flattenWorkerGroups(workerGroupsFromStation(detail.station)),
             },
             commit_message: `Atlas: configuración tienda ${detail.id}`,
           }),
@@ -632,43 +679,68 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
                 </section>
               ) : null}
 
-              {detail.station?.workers?.length ? (
-                <section>
-                  <h3 className="text-xs font-medium uppercase text-zinc-500">Procesos (workers)</h3>
-                  <div className="mt-2 max-h-40 overflow-y-auto rounded border border-cf-line/40">
+              {workerGroupsFromStation(detail.station).map((group) => (
+                <section key={group.id}>
+                  <h3 className="text-xs font-medium uppercase text-zinc-500">{group.label}</h3>
+                  {group.id === "ierp" ? (
+                    <p className="mt-0.5 text-[11px] text-zinc-600">
+                      Integración iERP: cada fila es un proceso de sincronización.
+                    </p>
+                  ) : null}
+                  <div className="mt-2 max-h-44 overflow-y-auto rounded border border-cf-line/40">
                     <table className="w-full text-left text-xs">
                       <thead className="sticky top-0 bg-[#111418] text-[10px] uppercase text-zinc-600">
                         <tr>
-                          <th className="px-2 py-1.5 w-8" />
+                          <th className="w-8 px-2 py-1.5" />
                           <th className="px-2 py-1.5">Proceso</th>
                           <th className="px-2 py-1.5">Tag (versión)</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {detail.station.workers.map((wrk) => (
+                        {group.workers.map((wrk) => (
                           <tr key={wrk.key} className="border-t border-cf-line/30">
                             <td className="px-2 py-1.5">
                               <input
                                 type="checkbox"
                                 checked={wrk.enabled}
                                 onChange={(e) => {
-                                  const workers = detail.station.workers.map((w) =>
-                                    w.key === wrk.key ? { ...w, enabled: e.target.checked } : w
+                                  const groups = updateWorkerInGroups(
+                                    workerGroupsFromStation(detail.station),
+                                    wrk.key,
+                                    { enabled: e.target.checked }
                                   );
-                                  setDetail({ ...detail, station: { ...detail.station, workers } });
+                                  setDetail({
+                                    ...detail,
+                                    station: {
+                                      ...detail.station,
+                                      workerGroups: { groups },
+                                      workers: flattenWorkerGroups(groups),
+                                    },
+                                  });
                                 }}
                                 disabled={!canEdit}
                               />
                             </td>
-                            <td className="px-2 py-1.5 font-mono text-[11px] text-zinc-400">{wrk.key}</td>
+                            <td className="px-2 py-1.5 font-mono text-[11px] text-zinc-400">
+                              {workerDisplayName(wrk.key, group.id)}
+                            </td>
                             <td className="px-2 py-1.5">
                               <input
                                 value={wrk.tag}
                                 onChange={(e) => {
-                                  const workers = detail.station.workers.map((w) =>
-                                    w.key === wrk.key ? { ...w, tag: e.target.value } : w
+                                  const groups = updateWorkerInGroups(
+                                    workerGroupsFromStation(detail.station),
+                                    wrk.key,
+                                    { tag: e.target.value }
                                   );
-                                  setDetail({ ...detail, station: { ...detail.station, workers } });
+                                  setDetail({
+                                    ...detail,
+                                    station: {
+                                      ...detail.station,
+                                      workerGroups: { groups },
+                                      workers: flattenWorkerGroups(groups),
+                                    },
+                                  });
                                 }}
                                 className={tagInputClass}
                                 disabled={!canEdit}
@@ -680,7 +752,7 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
                     </table>
                   </div>
                 </section>
-              ) : null}
+              ))}
 
               {detail.station?.config && Object.keys(detail.station.config).length > 0 ? (
                 <section>
