@@ -452,6 +452,47 @@ def list_custom_cluster_pods(
     return pods_path, mgmt_id, application, pods
 
 
+def count_custom_cluster_pods(
+    settings: dict[str, str | bool],
+    *,
+    namespace: str,
+    name: str,
+    steve_collection: str,
+) -> int | None:
+    """Cuenta pods en el namespace del label application. None si no aplica o falla."""
+    try:
+        _, _, _, pods = list_custom_cluster_pods(
+            settings,
+            namespace=namespace,
+            name=name,
+            steve_collection=steve_collection,
+        )
+        return len(pods)
+    except RancherConfigError:
+        return None
+    except RancherApiError:
+        return None
+
+
+def enrich_clusters_with_pod_counts(
+    settings: dict[str, str | bool],
+    clusters: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    for cluster in clusters:
+        application = str(cluster.get("application") or "").strip()
+        if not application:
+            cluster["podCount"] = None
+            continue
+        steve = str(cluster.get("steveCollection") or STEVE_COLLECTION_CUSTOM)
+        cluster["podCount"] = count_custom_cluster_pods(
+            settings,
+            namespace=str(cluster.get("namespace") or ""),
+            name=str(cluster.get("name") or ""),
+            steve_collection=steve,
+        )
+    return clusters
+
+
 def _is_connection_error(err: RancherApiError) -> bool:
     if err.status is not None:
         return False

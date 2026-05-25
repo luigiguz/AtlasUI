@@ -12,6 +12,7 @@ from atlas_core.web_auth import current_user, require_roles
 from atlas_rancher.client import (
     RancherApiError,
     RancherConfigError,
+    enrich_clusters_with_pod_counts,
     list_custom_cluster_pods,
     list_custom_clusters,
     update_custom_cluster_labels,
@@ -80,6 +81,7 @@ def post_rancher_settings(
 
 @router.get("/custom-clusters")
 def get_custom_clusters(
+    include_pod_counts: bool = Query(default=False),
     _user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
     settings = load_rancher_settings()
@@ -95,6 +97,8 @@ def get_custom_clusters(
         }
     try:
         source, clusters = list_custom_clusters(settings)
+        if include_pod_counts:
+            clusters = enrich_clusters_with_pod_counts(settings, clusters)
     except RancherConfigError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except RancherApiError as e:

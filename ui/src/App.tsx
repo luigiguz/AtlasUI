@@ -37,6 +37,7 @@ import {
 } from "./WebSshSessionsDock";
 import { AtlasHomeView } from "./views/AtlasHomeView";
 import { AtlasRancherClustersView } from "./views/AtlasRancherClustersView";
+import { AtlasRancherPodsView } from "./views/AtlasRancherPodsView";
 
 type SiteRow = {
   id: string;
@@ -1048,6 +1049,8 @@ export default function App() {
             canEditLabels={me.role === "admin" || me.role === "operator"}
           />
         )}
+
+        {tab === "rancher-pods" && <AtlasRancherPodsView canAdmin={canAdmin} />}
 
         {tab === "conn" && (
           <motion.div

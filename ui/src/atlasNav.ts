@@ -1,8 +1,16 @@
 import type { LucideIcon } from "lucide-react";
-import { Cloud, Home, Info, Server, Settings, Shield, Store, Users, Wifi } from "lucide-react";
+import { Box, Cloud, Home, Info, Server, Settings, Shield, Store, Users, Wifi } from "lucide-react";
 
 /** Rutas de la consola web Atlas (plataforma). */
-export type AtlasRouteId = "home" | "conn" | "poslite" | "cf" | "rancher-clusters" | "users" | "about";
+export type AtlasRouteId =
+  | "home"
+  | "conn"
+  | "poslite"
+  | "cf"
+  | "rancher-clusters"
+  | "rancher-pods"
+  | "users"
+  | "about";
 
 /** Rutas del módulo Atlas VPN (sync CF, túneles, Poslite). */
 export const ATLAS_VPN_ROUTE_IDS = ["conn", "poslite", "cf"] as const satisfies readonly AtlasRouteId[];
@@ -70,6 +78,13 @@ export function buildAtlasNav(canAdmin: boolean): AtlasNavEntry[] {
           label: "Custom clusters",
           icon: Server,
         },
+        {
+          kind: "leaf",
+          id: "rancher-pods",
+          route: "rancher-pods",
+          label: "Pods",
+          icon: Box,
+        },
       ],
     },
   ];
@@ -104,6 +119,8 @@ export function routeMeta(route: AtlasRouteId): { title: string; breadcrumb: str
       return { title: "Cloudflare", breadcrumb: ["Atlas", "Atlas VPN", "Cloudflare"] };
     case "rancher-clusters":
       return { title: "Custom clusters", breadcrumb: ["Atlas", "Atlas Rancher", "Custom clusters"] };
+    case "rancher-pods":
+      return { title: "Pods", breadcrumb: ["Atlas", "Atlas Rancher", "Pods"] };
     case "users":
       return { title: "Usuarios", breadcrumb: ["Atlas", "Administración", "Usuarios"] };
     case "about":
