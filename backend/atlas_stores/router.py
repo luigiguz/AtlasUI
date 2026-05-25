@@ -23,7 +23,6 @@ log = logging.getLogger(__name__)
 
 
 class StoresSettingsBody(BaseModel):
-    local_path: str = ""
     repo_url: str = ""
     branch: str = "main"
     git_token: str = ""
@@ -55,9 +54,8 @@ def stores_health() -> dict[str, str]:
 @router.get("/settings")
 def get_stores_settings(user: dict[str, Any] = Depends(require_roles("admin"))) -> dict[str, Any]:
     s = load_stores_settings()
-    configured = bool(s.get("local_path") or s.get("repo_url"))
+    configured = bool(s.get("repo_url"))
     return {
-        "local_path": s.get("local_path", ""),
         "repo_url": s.get("repo_url", ""),
         "branch": s.get("branch", "main"),
         "git_token": "***" if s.get("git_token") else "",
@@ -72,10 +70,9 @@ def post_stores_settings(
     body: StoresSettingsBody,
     _admin: dict[str, Any] = Depends(require_roles("admin")),
 ) -> dict[str, bool]:
-    if not body.local_path.strip() and not body.repo_url.strip():
-        raise HTTPException(400, "Indica la ruta local del repositorio o la URL Git de atlas-stores.")
+    if not body.repo_url.strip():
+        raise HTTPException(400, "La URL Git del repositorio atlas-stores es obligatoria.")
     save_stores_settings(
-        local_path=body.local_path,
         repo_url=body.repo_url,
         branch=body.branch,
         git_token=body.git_token,
@@ -107,7 +104,7 @@ def get_stores(
     _user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
     settings = load_stores_settings()
-    if not settings.get("local_path") and not settings.get("repo_url"):
+    if not settings.get("repo_url"):
         return {
             "ok": True,
             "configured": False,
@@ -125,7 +122,8 @@ def get_stores(
     return {
         "ok": True,
         "configured": True,
-        "repoPath": str(root),
+        "repoUrl": settings.get("repo_url", ""),
+        "branch": settings.get("branch", "main"),
         "count": len(stores),
         "stores": stores,
     }

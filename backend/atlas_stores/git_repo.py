@@ -34,17 +34,10 @@ def _auth_repo_url(repo_url: str, token: str) -> str:
 
 
 def resolve_repo_root(settings: dict[str, str | bool]) -> Path:
-    local = str(settings.get("local_path") or "").strip()
-    if local:
-        root = Path(local).expanduser().resolve()
-        if not root.is_dir():
-            raise StoresRepoError(f"La ruta local no existe: {root}")
-        return root
-
     repo_url = str(settings.get("repo_url") or "").strip()
     if not repo_url:
         raise StoresRepoError(
-            "Configura la ruta local del repositorio atlas-stores o la URL Git (Gestión de Tiendas → Conexión)."
+            "Configura la URL Git del repositorio atlas-stores (Gestión de Tiendas → Conexión repositorio)."
         )
 
     ensure_atlas_data_dir()
@@ -66,11 +59,6 @@ def resolve_repo_root(settings: dict[str, str | bool]) -> Path:
 
 def git_pull(settings: dict[str, str | bool]) -> str:
     root = resolve_repo_root(settings)
-    if str(settings.get("local_path") or "").strip():
-        if not (root / ".git").is_dir():
-            return "Ruta local sin repositorio Git; no se hizo pull."
-        _run_git(["pull", "--ff-only"], cwd=root)
-        return "Repositorio local actualizado (git pull)."
     _run_git(["pull", "--ff-only"], cwd=root)
     return "Repositorio actualizado desde remoto."
 
@@ -108,7 +96,7 @@ def _run_git(args: list[str], *, cwd: Path | None) -> str:
         )
     except FileNotFoundError as e:
         raise StoresRepoError(
-            "Git no está instalado en el contenedor. Usa ruta local montada o instala git."
+            "Git no está instalado en el contenedor atlas-api."
         ) from e
     except subprocess.TimeoutExpired as e:
         raise StoresRepoError("Timeout ejecutando git.") from e

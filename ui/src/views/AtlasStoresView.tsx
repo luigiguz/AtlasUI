@@ -12,7 +12,6 @@ type Props = {
 };
 
 type SettingsResponse = {
-  local_path: string;
   repo_url: string;
   branch: string;
   git_token: string;
@@ -30,11 +29,27 @@ function distroLabel(d: string): string {
   return d || "—";
 }
 
+function applyTagToAllComponents(detail: StoreDetail, tag: string): StoreDetail {
+  if (!detail.station) return { ...detail, imageChannel: tag };
+  return {
+    ...detail,
+    imageChannel: tag,
+    station: {
+      ...detail.station,
+      services: (detail.station.services ?? []).map((s) => ({ ...s, tag })),
+      workers: (detail.station.workers ?? []).map((w) => ({ ...w, tag })),
+    },
+  };
+}
+
+const tagInputClass =
+  "w-28 min-w-0 rounded border border-cf-line bg-black/50 px-1.5 py-0.5 text-[11px] text-zinc-200 outline-none focus:border-cf-orange/50";
+
 export function AtlasStoresView({ canAdmin, canEdit }: Props) {
   const [stores, setStores] = useState<StoreSummary[]>([]);
   const [configured, setConfigured] = useState(false);
   const [message, setMessage] = useState("");
-  const [repoPath, setRepoPath] = useState("");
+  const [repoUrl, setRepoUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
@@ -47,7 +62,6 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
-  const [cfgLocal, setCfgLocal] = useState("");
   const [cfgUrl, setCfgUrl] = useState("");
   const [cfgBranch, setCfgBranch] = useState("main");
   const [cfgToken, setCfgToken] = useState("");
@@ -58,6 +72,7 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
   const [newFolder, setNewFolder] = useState("");
   const [newStoreId, setNewStoreId] = useState("");
   const [newDistro, setNewDistro] = useState<"horustech" | "pam">("horustech");
+  const [bulkTag, setBulkTag] = useState("stable");
   const [newChannel, setNewChannel] = useState("stable");
   const [createError, setCreateError] = useState("");
   const [equipmentCheck, setEquipmentCheck] = useState<RancherCustomCluster | null>(null);
@@ -70,7 +85,7 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
       const data = await api<StoresListResponse>("/api/atlas-stores/stores");
       setStores(data.stores ?? []);
       setConfigured(data.configured !== false);
-      setRepoPath(data.repoPath ?? "");
+      setRepoUrl(data.repoUrl ?? "");
       if (data.configured === false && data.message) setMessage(data.message);
       else setMessage("");
     } catch (e) {
@@ -89,6 +104,7 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
         `/api/atlas-stores/stores/${encodeURIComponent(folder)}`
       );
       setDetail(r.store);
+      setBulkTag(r.store.imageChannel && r.store.imageChannel !== "varios" ? r.store.imageChannel : "stable");
       setSelectedFolder(folder);
 
       try {
@@ -117,7 +133,6 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
     void (async () => {
       try {
         const s = await api<SettingsResponse>("/api/atlas-stores/settings");
-        setCfgLocal(s.local_path ?? "");
         setCfgUrl(s.repo_url ?? "");
         setCfgBranch(s.branch ?? "main");
         setCfgAutoPull(Boolean(s.auto_pull));
@@ -136,7 +151,6 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
       await api("/api/atlas-stores/settings", {
         method: "POST",
         body: JSON.stringify({
-          local_path: cfgLocal.trim(),
           repo_url: cfgUrl.trim(),
           branch: cfgBranch.trim(),
           git_token: cfgToken.trim(),
@@ -179,7 +193,6 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
           body: JSON.stringify({
             id: detail.id,
             distro: detail.distro,
-            imageChannel: detail.imageChannel,
             db: detail.db,
             station: {
               stack: detail.station?.stack,
@@ -301,7 +314,7 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
             Configura qué software se despliega en cada tienda. Al publicar, se actualiza el repositorio y el
             despliegue automático lo aplica en el equipo.
           </p>
-          {repoPath ? <p className="mt-1 text-[11px] text-zinc-600">{repoPath}</p> : null}
+          {repoUrl ? <p className="mt-1 truncate text-[11px] text-zinc-600">{repoUrl}</p> : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {canAdmin ? (
@@ -352,12 +365,14 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
           <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Repositorio atlas-stores</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="block text-xs text-zinc-400 sm:col-span-2">
-              Ruta local (recomendado en el servidor)
-              <input value={cfgLocal} onChange={(e) => setCfgLocal(e.target.value)} className={inputClass} placeholder="/ruta/al/clon/atlas-stores" />
-            </label>
-            <label className="block text-xs text-zinc-400 sm:col-span-2">
-              O URL Git
-              <input value={cfgUrl} onChange={(e) => setCfgUrl(e.target.value)} className={inputClass} placeholder="https://dev.azure.com/.../atlas-stores" />
+              URL Git
+              <input
+                value={cfgUrl}
+                onChange={(e) => setCfgUrl(e.target.value)}
+                className={inputClass}
+                placeholder="https://aspconsulting.visualstudio.com/Atlas/_git/atlas-stores"
+                required
+              />
             </label>
             <label className="block text-xs text-zinc-400">
               Rama
@@ -424,7 +439,9 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
                   >
                     <td className="px-4 py-3 font-medium text-zinc-200">{s.id}</td>
                     <td className="px-4 py-3 text-zinc-400">{distroLabel(s.distro)}</td>
-                    <td className="px-4 py-3 text-zinc-500">{s.imageChannel || "—"}</td>
+                    <td className="px-4 py-3 text-zinc-500" title="Resumen; cada servicio puede tener otro tag en la ficha">
+                      {s.imageChannel || "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -495,18 +512,40 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
                       disabled={!canEdit}
                     />
                   </label>
-                  <label className="text-xs text-zinc-500">
-                    Tag (versión)
-                    <select
-                      value={detail.imageChannel || "stable"}
-                      onChange={(e) => setDetail({ ...detail, imageChannel: e.target.value })}
-                      className={inputClass}
-                      disabled={!canEdit}
-                    >
-                      <option value="stable">stable</option>
-                      <option value="unstable">unstable</option>
-                    </select>
-                  </label>
+                  <div className="sm:col-span-2">
+                    <p className="text-xs text-zinc-500">Tag (versión) por componente</p>
+                    <p className="mt-0.5 text-[11px] text-zinc-600">
+                      Cada servicio y proceso puede llevar un tag distinto (p. ej.{" "}
+                      <span className="text-zinc-400">stable</span>,{" "}
+                      <span className="text-zinc-400">unstable</span>,{" "}
+                      <span className="text-zinc-400">v1.49.0-noble</span>). Edítalos abajo.
+                    </p>
+                    {canEdit ? (
+                      <div className="mt-2 flex flex-wrap items-end gap-2">
+                        <label className="text-[11px] text-zinc-600">
+                          Aplicar el mismo tag a todos
+                          <input
+                            value={bulkTag}
+                            onChange={(e) => setBulkTag(e.target.value)}
+                            className={`${inputClass} mt-0.5 max-w-[12rem]`}
+                            placeholder="stable, unstable…"
+                            list="atlas-store-tag-suggestions"
+                          />
+                          <datalist id="atlas-store-tag-suggestions">
+                            <option value="stable" />
+                            <option value="unstable" />
+                          </datalist>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setDetail((d) => (d ? applyTagToAllComponents(d, bulkTag.trim()) : d))}
+                          className="rounded-lg border border-cf-line px-2.5 py-1.5 text-[11px] text-zinc-300 hover:border-cf-orange/40"
+                        >
+                          Aplicar a todos
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </section>
 
@@ -539,30 +578,107 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
               {detail.station?.services?.length ? (
                 <section>
                   <h3 className="text-xs font-medium uppercase text-zinc-500">Servicios de estación</h3>
-                  <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
-                    {detail.station.services.map((svc) => (
-                      <li key={svc.key} className="flex items-center justify-between gap-2 rounded border border-cf-line/40 px-2 py-1.5 text-xs">
-                        <label className="flex items-center gap-2 text-zinc-300">
-                          <input
-                            type="checkbox"
-                            checked={svc.enabled}
-                            onChange={(e) => {
-                              const services = detail.station.services.map((s) =>
-                                s.key === svc.key ? { ...s, enabled: e.target.checked } : s
-                              );
-                              setDetail({ ...detail, station: { ...detail.station, services } });
-                            }}
-                            disabled={!canEdit}
-                          />
-                          {svc.key}
-                          {svc.hostPort != null ? (
-                            <span className="text-zinc-600">:{svc.hostPort}</span>
-                          ) : null}
-                        </label>
-                        <span className="text-zinc-600">{svc.tag}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="mt-2 max-h-56 overflow-y-auto rounded border border-cf-line/40">
+                    <table className="w-full text-left text-xs">
+                      <thead className="sticky top-0 bg-[#111418] text-[10px] uppercase text-zinc-600">
+                        <tr>
+                          <th className="px-2 py-1.5 w-8" />
+                          <th className="px-2 py-1.5">Servicio</th>
+                          <th className="px-2 py-1.5">Tag (versión)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.station.services.map((svc) => (
+                          <tr key={svc.key} className="border-t border-cf-line/30">
+                            <td className="px-2 py-1.5">
+                              <input
+                                type="checkbox"
+                                checked={svc.enabled}
+                                onChange={(e) => {
+                                  const services = detail.station.services.map((s) =>
+                                    s.key === svc.key ? { ...s, enabled: e.target.checked } : s
+                                  );
+                                  setDetail({ ...detail, station: { ...detail.station, services } });
+                                }}
+                                disabled={!canEdit}
+                                aria-label={`Activar ${svc.key}`}
+                              />
+                            </td>
+                            <td className="px-2 py-1.5 text-zinc-300">
+                              {svc.key}
+                              {svc.hostPort != null ? (
+                                <span className="text-zinc-600">:{svc.hostPort}</span>
+                              ) : null}
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <input
+                                value={svc.tag}
+                                onChange={(e) => {
+                                  const services = detail.station.services.map((s) =>
+                                    s.key === svc.key ? { ...s, tag: e.target.value } : s
+                                  );
+                                  setDetail({ ...detail, station: { ...detail.station, services } });
+                                }}
+                                className={tagInputClass}
+                                disabled={!canEdit}
+                                placeholder="tag"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              ) : null}
+
+              {detail.station?.workers?.length ? (
+                <section>
+                  <h3 className="text-xs font-medium uppercase text-zinc-500">Procesos (workers)</h3>
+                  <div className="mt-2 max-h-40 overflow-y-auto rounded border border-cf-line/40">
+                    <table className="w-full text-left text-xs">
+                      <thead className="sticky top-0 bg-[#111418] text-[10px] uppercase text-zinc-600">
+                        <tr>
+                          <th className="px-2 py-1.5 w-8" />
+                          <th className="px-2 py-1.5">Proceso</th>
+                          <th className="px-2 py-1.5">Tag (versión)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.station.workers.map((wrk) => (
+                          <tr key={wrk.key} className="border-t border-cf-line/30">
+                            <td className="px-2 py-1.5">
+                              <input
+                                type="checkbox"
+                                checked={wrk.enabled}
+                                onChange={(e) => {
+                                  const workers = detail.station.workers.map((w) =>
+                                    w.key === wrk.key ? { ...w, enabled: e.target.checked } : w
+                                  );
+                                  setDetail({ ...detail, station: { ...detail.station, workers } });
+                                }}
+                                disabled={!canEdit}
+                              />
+                            </td>
+                            <td className="px-2 py-1.5 font-mono text-[11px] text-zinc-400">{wrk.key}</td>
+                            <td className="px-2 py-1.5">
+                              <input
+                                value={wrk.tag}
+                                onChange={(e) => {
+                                  const workers = detail.station.workers.map((w) =>
+                                    w.key === wrk.key ? { ...w, tag: e.target.value } : w
+                                  );
+                                  setDetail({ ...detail, station: { ...detail.station, workers } });
+                                }}
+                                className={tagInputClass}
+                                disabled={!canEdit}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </section>
               ) : null}
 

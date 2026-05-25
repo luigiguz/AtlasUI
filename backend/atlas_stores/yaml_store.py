@@ -65,15 +65,15 @@ def _values_block(doc: dict[str, Any]) -> dict[str, Any]:
     return values if isinstance(values, dict) else {}
 
 
-def _dominant_image_tag(values: dict[str, Any]) -> str:
-    tags: list[str] = []
+def _collect_image_tags(values: dict[str, Any]) -> set[str]:
+    found: set[str] = set()
 
     def walk(obj: Any) -> None:
         if isinstance(obj, dict):
             if "image" in obj and isinstance(obj["image"], dict):
                 t = obj["image"].get("tag")
                 if isinstance(t, str) and t.strip():
-                    tags.append(t.strip())
+                    found.add(t.strip())
             for v in obj.values():
                 walk(v)
         elif isinstance(obj, list):
@@ -81,10 +81,17 @@ def _dominant_image_tag(values: dict[str, Any]) -> str:
                 walk(x)
 
     walk(values)
+    return found
+
+
+def _image_channel_summary(values: dict[str, Any]) -> str:
+    """Resumen para la tabla: un tag si todos coinciden, «varios» si hay mezcla."""
+    tags = _collect_image_tags(values)
     if not tags:
         return ""
-    stable_n = sum(1 for t in tags if t.lower() == "stable")
-    return "stable" if stable_n >= len(tags) / 2 else tags[0]
+    if len(tags) == 1:
+        return next(iter(tags))
+    return "varios"
 
 
 def _parse_stack(stack_key: str, doc: dict[str, Any]) -> dict[str, Any]:
@@ -180,7 +187,7 @@ def load_store(repo_root: Path, folder_name: str) -> dict[str, Any]:
     }
 
     station = stacks_data.get(STACK_HORUSTECH) or stacks_data.get(STACK_PAM)
-    image_channel = _dominant_image_tag(station.get("values") or {}) if station else ""
+    image_channel = _image_channel_summary(station.get("values") or {}) if station else ""
 
     services_summary = _summarize_services(station.get("values") if station else {})
     workers_summary = _summarize_workers(station.get("values") if station else {})
@@ -375,10 +382,10 @@ def _apply_station_patch(
             continue
         if "enabled" in svc:
             values[key]["enabled"] = bool(svc["enabled"])
-        if svc.get("tag"):
+        if "tag" in svc:
             if "image" not in values[key] or not isinstance(values[key]["image"], dict):
                 values[key]["image"] = {}
-            values[key]["image"]["tag"] = str(svc["tag"])
+            values[key]["image"]["tag"] = str(svc.get("tag") or "").strip()
 
     for wrk in station_patch.get("workers") or []:
         if not isinstance(wrk, dict):
@@ -399,12 +406,13 @@ def _apply_station_patch(
             leaf_key = parts[-1]
             if leaf_key in target and isinstance(target[leaf_key], dict) and "enabled" in wrk:
                 target[leaf_key]["enabled"] = bool(wrk["enabled"])
-                if wrk.get("tag"):
+                if "tag" in wrk:
                     if "image" not in target[leaf_key] or not isinstance(target[leaf_key]["image"], dict):
                         target[leaf_key]["image"] = {}
-                    target[leaf_key]["image"]["tag"] = str(wrk["tag"])
+                    target[leaf_key]["image"]["tag"] = str(wrk.get("tag") or "").strip()
 
-    if image_channel and not station_patch.get("services"):
+    has_components = bool(station_patch.get("services")) or bool(station_patch.get("workers"))
+    if image_channel and not has_components:
         _set_all_image_tags(values, image_channel)
 
     helm = _helm_block(doc)

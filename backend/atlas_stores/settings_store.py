@@ -1,4 +1,4 @@
-"""Configuración del repositorio atlas-stores (ruta local o Git)."""
+"""Configuración del repositorio atlas-stores (solo URL Git)."""
 
 from __future__ import annotations
 
@@ -8,12 +8,10 @@ from atlas_core.env import atlas_env
 from atlas_core.paths import ATLAS_DATA_DIR, ensure_atlas_data_dir
 
 STORES_SETTINGS_FILE = ATLAS_DATA_DIR / "stores.json"
-DEFAULT_STORES_SUBPATH = "stores/poslite"
 
 
 def load_stores_settings() -> dict[str, str | bool]:
     file_cfg: dict[str, str | bool] = {
-        "local_path": "",
         "repo_url": "",
         "branch": "main",
         "git_token": "",
@@ -26,14 +24,12 @@ def load_stores_settings() -> dict[str, str | bool]:
                 data = json.load(f)
         except (json.JSONDecodeError, OSError):
             data = {}
-        file_cfg["local_path"] = str(data.get("local_path", "")).strip()
         file_cfg["repo_url"] = str(data.get("repo_url", "")).strip()
         file_cfg["branch"] = str(data.get("branch", "main")).strip() or "main"
         file_cfg["git_token"] = str(data.get("git_token", "")).strip()
         file_cfg["auto_pull"] = bool(data.get("auto_pull", True))
         file_cfg["auto_push"] = bool(data.get("auto_push", False))
 
-    local_path = atlas_env("ATLAS_STORES_LOCAL_PATH") or str(file_cfg["local_path"])
     repo_url = atlas_env("ATLAS_STORES_REPO_URL") or str(file_cfg["repo_url"])
     branch = atlas_env("ATLAS_STORES_BRANCH") or str(file_cfg["branch"])
     git_token = atlas_env("ATLAS_STORES_GIT_TOKEN") or str(file_cfg["git_token"])
@@ -44,7 +40,6 @@ def load_stores_settings() -> dict[str, str | bool]:
         file_cfg["auto_push"]
     )
     return {
-        "local_path": local_path.strip(),
         "repo_url": repo_url.strip(),
         "branch": (branch.strip() or "main"),
         "git_token": git_token.strip(),
@@ -55,7 +50,6 @@ def load_stores_settings() -> dict[str, str | bool]:
 
 def save_stores_settings(
     *,
-    local_path: str = "",
     repo_url: str = "",
     branch: str = "main",
     git_token: str = "",
@@ -66,7 +60,6 @@ def save_stores_settings(
     prev = load_stores_settings()
     token = git_token.strip() or str(prev.get("git_token") or "")
     blob = {
-        "local_path": local_path.strip(),
         "repo_url": repo_url.strip(),
         "branch": (branch.strip() or "main"),
         "git_token": token,

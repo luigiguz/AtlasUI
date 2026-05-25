@@ -47,7 +47,8 @@ export type StoresListResponse = {
   ok: boolean;
   configured?: boolean;
   message?: string;
-  repoPath?: string;
+  repoUrl?: string;
+  branch?: string;
   count: number;
   stores: StoreSummary[];
 };
