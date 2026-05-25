@@ -5,6 +5,7 @@ import {
   ArrowUpDown,
   Filter,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -29,6 +30,7 @@ import {
   normalizeApplication,
   normalizeDistro,
   normalizeState,
+  POSLITE_DISTROS,
 } from "../rancherLabels";
 
 export type RancherCustomCluster = {
@@ -46,6 +48,12 @@ export type RancherCustomCluster = {
   distro: string;
   store: string;
   atlas: string;
+  steveCollection?: string;
+};
+
+type LabelsPatchResponse = {
+  ok: boolean;
+  cluster: RancherCustomCluster;
 };
 
 type ClustersResponse = {
@@ -67,6 +75,7 @@ type SettingsResponse = {
 
 type Props = {
   canAdmin: boolean;
+  canEditLabels?: boolean;
 };
 
 type SortKey = "name" | "store" | "distro" | "application" | "state" | "kubernetes";
@@ -428,7 +437,140 @@ function ClusterFiltersPanel({
   );
 }
 
-export function AtlasRancherClustersView({ canAdmin }: Props) {
+function ClusterLabelsModal({
+  cluster,
+  onClose,
+  onSaved,
+}: {
+  cluster: RancherCustomCluster;
+  onClose: () => void;
+  onSaved: (updated: RancherCustomCluster) => void;
+}) {
+  const [store, setStore] = useState(cluster.store);
+  const [application, setApplication] = useState(cluster.application);
+  const [distro, setDistro] = useState(cluster.distro);
+  const [atlas, setAtlas] = useState(cluster.atlas);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const posliteInvalid =
+    isPosliteApplication(application) &&
+    Boolean(distro.trim()) &&
+    !isValidPosliteDistro(distro);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (posliteInvalid) {
+      setErr(`Poslite solo permite distribución ${POSLITE_DISTROS.join(" u ")}.`);
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    try {
+      const ns = encodeURIComponent(cluster.namespace);
+      const nm = encodeURIComponent(cluster.name);
+      const r = await api<LabelsPatchResponse>(
+        `/api/atlas-rancher/custom-clusters/${ns}/${nm}/labels`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            store: store.trim(),
+            application: application.trim(),
+            distro: distro.trim(),
+            atlas: atlas.trim(),
+            steve_collection: cluster.steveCollection || "provisioning.cattle.io.customclusters",
+          }),
+        }
+      );
+      onSaved(r.cluster);
+      onClose();
+    } catch (ex) {
+      setErr(ex instanceof Error ? ex.message : "No se pudieron guardar los labels.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      role="presentation"
+      onClick={onClose}
+    >
+      <form
+        role="dialog"
+        aria-labelledby="edit-labels-title"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => void onSubmit(e)}
+        className="w-full max-w-md rounded-xl border border-cf-line bg-[#111418] p-5 shadow-2xl ring-1 ring-white/10"
+      >
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h2 id="edit-labels-title" className="text-sm font-semibold text-zinc-100">
+              Editar labels
+            </h2>
+            <p className="mt-0.5 text-xs text-zinc-500">{clusterDisplayName(cluster)}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-zinc-500 hover:bg-white/10"
+            aria-label="Cerrar"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="grid gap-3">
+          {(
+            [
+              ["Tienda", store, setStore, "store"],
+              ["Aplicación", application, setApplication, "application"],
+              ["Distribución", distro, setDistro, "distro"],
+              ["Atlas", atlas, setAtlas, "atlas"],
+            ] as const
+          ).map(([label, value, setValue, key]) => (
+            <label key={key} className="block text-xs text-zinc-500">
+              {label}
+              <input
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-cf-line bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cf-orange/50"
+                autoComplete="off"
+              />
+            </label>
+          ))}
+        </div>
+
+        {posliteInvalid ? (
+          <p className="mt-2 text-xs text-amber-400/90">
+            Poslite solo permite {POSLITE_DISTROS.join(" u ")}.
+          </p>
+        ) : null}
+        {err ? <p className="mt-2 text-xs text-red-300">{err}</p> : null}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-cf-line px-3 py-2 text-xs text-zinc-400 hover:border-zinc-500"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={busy || posliteInvalid}
+            className="rounded-lg bg-cf-orange px-4 py-2 text-xs font-medium text-black hover:bg-cf-orange/90 disabled:opacity-50"
+          >
+            {busy ? "Guardando…" : "Guardar"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Props) {
   const [clusters, setClusters] = useState<RancherCustomCluster[]>([]);
   const [source, setSource] = useState("");
   const [rancherUrl, setRancherUrl] = useState("");
@@ -451,6 +593,17 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
   const [cfgCfSecret, setCfgCfSecret] = useState("");
   const [cfgSaving, setCfgSaving] = useState(false);
   const [cfgMsg, setCfgMsg] = useState("");
+  const [editingCluster, setEditingCluster] = useState<RancherCustomCluster | null>(null);
+
+  function mergeClusterUpdate(updated: RancherCustomCluster) {
+    setClusters((list) =>
+      list.map((c) =>
+        c.id === updated.id || (c.namespace === updated.namespace && c.name === updated.name)
+          ? { ...updated, steveCollection: updated.steveCollection ?? c.steveCollection }
+          : c
+      )
+    );
+  }
 
   const displayedClusters = useMemo(() => {
     let list = clusters.filter(
@@ -482,6 +635,7 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
         store: c.store ?? c.labels?.store ?? "",
         atlas: c.atlas ?? c.labels?.atlas ?? "",
         state: normalizeState(c.state),
+        steveCollection: c.steveCollection,
       }));
       setClusters(list);
       setSource(data.source ?? "");
@@ -815,6 +969,11 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
                           sort={sort}
                           onSort={toggleSort}
                         />
+                        {canEditLabels ? (
+                          <th className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                            Labels
+                          </th>
+                        ) : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -834,6 +993,19 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
                           <td className="px-4 py-3 text-zinc-400">{c.application || "—"}</td>
                           <td className={`px-4 py-3 ${stateTone(c.state)}`}>{c.state || "—"}</td>
                           <td className="px-4 py-3 text-zinc-400">{c.kubernetesVersion || "—"}</td>
+                          {canEditLabels ? (
+                            <td className="px-4 py-3">
+                              <button
+                                type="button"
+                                onClick={() => setEditingCluster(c)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-2.5 py-1.5 text-xs text-zinc-400 hover:border-cf-orange/40 hover:text-cf-orange"
+                                title="Editar labels"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                                Editar
+                              </button>
+                            </td>
+                          ) : null}
                         </tr>
                       ))}
                     </tbody>
@@ -849,6 +1021,13 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
           ) : null}
         </motion.div>
       </div>
+      {editingCluster ? (
+        <ClusterLabelsModal
+          cluster={editingCluster}
+          onClose={() => setEditingCluster(null)}
+          onSaved={mergeClusterUpdate}
+        />
+      ) : null}
     </motion.div>
   );
 }

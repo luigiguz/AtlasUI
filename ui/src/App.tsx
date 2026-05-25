@@ -1172,7 +1172,12 @@ export default function App() {
           />
         )}
 
-        {tab === "rancher-clusters" && <AtlasRancherClustersView canAdmin={canAdmin} />}
+        {tab === "rancher-clusters" && (
+          <AtlasRancherClustersView
+            canAdmin={canAdmin}
+            canEditLabels={me.role === "admin" || me.role === "operator"}
+          />
+        )}
 
         {tab === "conn" && (
           <motion.div

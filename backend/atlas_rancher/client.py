@@ -9,13 +9,20 @@ import urllib.request
 from typing import Any
 
 from atlas_core.env import atlas_env
-from atlas_rancher.labels import normalize_application, normalize_distro
+from atlas_rancher.labels import (
+    ALLOWED_LABEL_KEYS,
+    normalize_application,
+    normalize_distro,
+    prepare_label_values,
+)
 
 STEVE_CUSTOM_CLUSTER_PATHS = (
     "v1/provisioning.cattle.io.customclusters",
     "v1/provisioning.cattle.io.customcluster",
 )
 STEVE_PROVISIONING_CLUSTERS = "v1/provisioning.cattle.io.clusters"
+STEVE_COLLECTION_CUSTOM = "provisioning.cattle.io.customclusters"
+STEVE_COLLECTION_CLUSTER = "provisioning.cattle.io.clusters"
 RANCHER_HTTP_TIMEOUT_S = 12.0
 # Cloudflare (p. ej. atlas.asptienda.com) suele bloquear Python-urllib; usar firma de navegador.
 _DEFAULT_USER_AGENT = (
@@ -81,10 +88,12 @@ def _cloudflare_hint(body: str, status: int) -> str | None:
     return None
 
 
-def rancher_get(
+def _rancher_request(
     settings: dict[str, str | bool],
     path: str,
     *,
+    method: str = "GET",
+    body: dict[str, Any] | None = None,
     timeout_s: float = RANCHER_HTTP_TIMEOUT_S,
 ) -> Any:
     url = str(settings.get("url") or "").strip()
@@ -93,25 +102,28 @@ def rancher_get(
     if not url or not token:
         raise RancherConfigError("Configura la URL y el token de Rancher (Atlas Rancher o variables ATLAS_RANCHER_*).")
     full = f"{url.rstrip('/')}/{path.lstrip('/')}"
-    req = urllib.request.Request(
-        full,
-        headers=_rancher_request_headers(settings),
-        method="GET",
-    )
+    headers = _rancher_request_headers(settings)
+    data: bytes | None = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(full, headers=headers, method=method, data=data)
     try:
         with urllib.request.urlopen(
             req, timeout=timeout_s, context=_ssl_context(insecure_tls)
         ) as resp:
             raw = resp.read()
     except urllib.error.HTTPError as e:
-        body = ""
+        err_body = ""
         try:
-            body = e.read().decode("utf-8", errors="replace")[:800]
+            err_body = e.read().decode("utf-8", errors="replace")[:800]
         except OSError:
             pass
-        hint = _cloudflare_hint(body, e.code) or ""
+        hint = _cloudflare_hint(err_body, e.code) or ""
         raise RancherApiError(
-            f"Rancher respondió HTTP {e.code} en {path}" + (f": {body}" if body else "") + hint,
+            f"Rancher respondió HTTP {e.code} en {path}"
+            + (f": {err_body}" if err_body else "")
+            + hint,
             status=e.code,
         ) from e
     except urllib.error.URLError as e:
@@ -123,6 +135,35 @@ def rancher_get(
         return json.loads(raw.decode("utf-8"))
     except json.JSONDecodeError as e:
         raise RancherApiError("La respuesta de Rancher no es JSON válido.") from e
+
+
+def rancher_get(
+    settings: dict[str, str | bool],
+    path: str,
+    *,
+    timeout_s: float = RANCHER_HTTP_TIMEOUT_S,
+) -> Any:
+    return _rancher_request(settings, path, method="GET", timeout_s=timeout_s)
+
+
+def rancher_put(
+    settings: dict[str, str | bool],
+    path: str,
+    body: dict[str, Any],
+    *,
+    timeout_s: float = RANCHER_HTTP_TIMEOUT_S,
+) -> Any:
+    return _rancher_request(settings, path, method="PUT", body=body, timeout_s=timeout_s)
+
+
+def _steve_resource_path(collection: str, namespace: str, name: str) -> str:
+    return f"v1/{collection}/{namespace}/{name}"
+
+
+def _collection_from_list_source(source: str) -> str:
+    if "customcluster" in source.lower():
+        return STEVE_COLLECTION_CUSTOM
+    return STEVE_COLLECTION_CLUSTER
 
 
 def _collect_items(payload: Any) -> list[dict[str, Any]] | None:
@@ -195,7 +236,7 @@ def _condition_state(item: dict[str, Any]) -> str:
     return "unknown"
 
 
-def _normalize_cluster(item: dict[str, Any]) -> dict[str, Any]:
+def _normalize_cluster(item: dict[str, Any], *, steve_collection: str) -> dict[str, Any]:
     meta = _as_dict(item.get("metadata"))
     spec = _as_dict(item.get("spec"))
     status = _as_dict(item.get("status"))
@@ -234,6 +275,7 @@ def _normalize_cluster(item: dict[str, Any]) -> dict[str, Any]:
         "distro": normalize_distro(_label("distro")),
         "store": _label("store"),
         "atlas": _label("atlas"),
+        "steveCollection": steve_collection,
     }
 
 
@@ -258,7 +300,8 @@ def list_custom_clusters(settings: dict[str, str | bool]) -> tuple[str, list[dic
             raise
         items = _collect_items(payload)
         if items is not None:
-            normalized = [_normalize_cluster(i) for i in items if _is_custom_cluster_resource(i)]
+            coll = _collection_from_list_source(path)
+            normalized = [_normalize_cluster(i, steve_collection=coll) for i in items if _is_custom_cluster_resource(i)]
             return path, normalized
 
     try:
@@ -272,4 +315,50 @@ def list_custom_clusters(settings: dict[str, str | bool]) -> tuple[str, list[dic
         raise
     items = _collect_items(payload) or []
     filtered = [i for i in items if _is_provisioning_custom_cluster(i)]
-    return f"{STEVE_PROVISIONING_CLUSTERS}?filter=custom", [_normalize_cluster(i) for i in filtered]
+    coll = STEVE_COLLECTION_CLUSTER
+    return (
+        f"{STEVE_PROVISIONING_CLUSTERS}?filter=custom",
+        [_normalize_cluster(i, steve_collection=coll) for i in filtered],
+    )
+
+
+def update_custom_cluster_labels(
+    settings: dict[str, str | bool],
+    *,
+    namespace: str,
+    name: str,
+    steve_collection: str,
+    store: str = "",
+    application: str = "",
+    distro: str = "",
+    atlas: str = "",
+) -> dict[str, Any]:
+    """Actualiza metadata.labels permitidos vía PUT al recurso Steve."""
+    ns = namespace.strip()
+    cluster_name = name.strip()
+    if not ns or not cluster_name:
+        raise RancherConfigError("Namespace y nombre del cluster son obligatorios.")
+    collection = steve_collection.strip() or STEVE_COLLECTION_CUSTOM
+    if collection not in (STEVE_COLLECTION_CUSTOM, STEVE_COLLECTION_CLUSTER):
+        raise RancherConfigError("Colección Steve no válida para este cluster.")
+
+    new_labels = prepare_label_values(store, application, distro, atlas)
+    path = _steve_resource_path(collection, ns, cluster_name)
+    resource = rancher_get(settings, path)
+    if not isinstance(resource, dict):
+        raise RancherApiError("Rancher no devolvió el recurso del cluster.")
+
+    meta = _as_dict(resource.get("metadata"))
+    labels = dict(_as_dict(meta.get("labels")))
+    for key in ALLOWED_LABEL_KEYS:
+        if key in new_labels:
+            labels[key] = new_labels[key]
+        elif key in labels:
+            del labels[key]
+    meta["labels"] = labels
+    resource["metadata"] = meta
+
+    updated = rancher_put(settings, path, resource)
+    if not isinstance(updated, dict):
+        raise RancherApiError("Rancher no devolvió el cluster actualizado.")
+    return _normalize_cluster(updated, steve_collection=collection)

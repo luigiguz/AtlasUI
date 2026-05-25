@@ -13,6 +13,7 @@ from atlas_rancher.client import (
     RancherApiError,
     RancherConfigError,
     list_custom_clusters,
+    update_custom_cluster_labels,
 )
 from atlas_rancher.settings_store import load_rancher_settings, save_rancher_settings
 
@@ -27,6 +28,14 @@ class RancherSettingsBody(BaseModel):
     cf_access_client_id: str = ""
     cf_access_client_secret: str = ""
     user_agent: str = ""
+
+
+class ClusterLabelsBody(BaseModel):
+    store: str = ""
+    application: str = ""
+    distro: str = ""
+    atlas: str = ""
+    steve_collection: str = "provisioning.cattle.io.customclusters"
 
 
 @router.get("/health")
@@ -103,3 +112,54 @@ def get_custom_clusters(
         "count": len(clusters),
         "clusters": clusters,
     }
+
+
+@router.patch("/custom-clusters/{namespace}/{name}/labels")
+def patch_custom_cluster_labels(
+    namespace: str,
+    name: str,
+    body: ClusterLabelsBody,
+    user: dict[str, Any] = Depends(require_roles("admin", "operator")),
+) -> dict[str, Any]:
+    settings = load_rancher_settings()
+    if not settings["url"] or not settings["token"]:
+        raise HTTPException(
+            400,
+            "Configura la conexión a Rancher antes de editar labels.",
+        )
+    try:
+        cluster = update_custom_cluster_labels(
+            settings,
+            namespace=namespace,
+            name=name,
+            steve_collection=body.steve_collection.strip(),
+            store=body.store,
+            application=body.application,
+            distro=body.distro,
+            atlas=body.atlas,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RancherConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RancherApiError as e:
+        status = 503 if e.status is None or e.status >= 500 else 502
+        if e.status == 404:
+            status = 404
+        elif e.status == 403:
+            status = 403
+        raise HTTPException(status_code=status, detail=str(e)) from e
+    except Exception as e:
+        log.exception("patch cluster labels failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al actualizar labels en Rancher.",
+        ) from e
+
+    log.info(
+        "rancher cluster labels updated namespace=%s name=%s user=%s",
+        namespace,
+        name,
+        user.get("username"),
+    )
+    return {"ok": True, "cluster": cluster}
