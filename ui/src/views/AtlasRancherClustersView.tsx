@@ -5,12 +5,22 @@ import {
   ArrowUpDown,
   Filter,
   Loader2,
+  Plus,
   RefreshCw,
   Search,
   Server,
+  Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 
 import { api } from "../apiClient";
 import {
@@ -19,7 +29,6 @@ import {
   normalizeApplication,
   normalizeDistro,
   normalizeState,
-  POSLITE_DISTROS,
 } from "../rancherLabels";
 
 export type RancherCustomCluster = {
@@ -60,24 +69,46 @@ type Props = {
   canAdmin: boolean;
 };
 
-const FILTER_ALL = "";
-
 type SortKey = "name" | "store" | "distro" | "application" | "state" | "kubernetes";
 type SortDir = "asc" | "desc";
 
-type ColumnFilters = {
-  distro: string;
-  application: string;
-  state: string;
-  kubernetes: string;
+type FilterFieldKey = SortKey;
+type FilterOperator = "contains" | "equals" | "not_contains";
+
+type FilterRule = {
+  id: string;
+  field: FilterFieldKey;
+  operator: FilterOperator;
+  value: string;
 };
 
-const EMPTY_FILTERS: ColumnFilters = {
-  distro: FILTER_ALL,
-  application: FILTER_ALL,
-  state: FILTER_ALL,
-  kubernetes: FILTER_ALL,
-};
+const FILTER_FIELDS: { key: FilterFieldKey; label: string; placeholder: string }[] = [
+  { key: "name", label: "Nombre", placeholder: "nombre del cluster" },
+  { key: "store", label: "Tienda", placeholder: "nombre de tienda" },
+  { key: "distro", label: "Distribución", placeholder: "Pam, Horustech…" },
+  { key: "application", label: "Aplicación", placeholder: "Poslite, …" },
+  { key: "state", label: "Estado", placeholder: "Ready, Disconnected…" },
+  { key: "kubernetes", label: "Kubernetes", placeholder: "v1.28.5+rke2r1" },
+];
+
+const FILTER_OPERATORS: { key: FilterOperator; label: string }[] = [
+  { key: "contains", label: "contiene" },
+  { key: "equals", label: "es" },
+  { key: "not_contains", label: "no contiene" },
+];
+
+function newFilterRule(field: FilterFieldKey = "name"): FilterRule {
+  return {
+    id: crypto.randomUUID(),
+    field,
+    operator: "contains",
+    value: "",
+  };
+}
+
+function fieldPlaceholder(field: FilterFieldKey): string {
+  return FILTER_FIELDS.find((f) => f.key === field)?.placeholder ?? "";
+}
 
 function stateTone(state: string): string {
   const s = state.toLowerCase();
@@ -86,12 +117,6 @@ function stateTone(state: string): string {
   if (s.includes("error") || s.includes("fail")) return "text-red-400";
   if (s.includes("provision") || s.includes("pending") || s.includes("reconcil")) return "text-amber-400";
   return "text-zinc-400";
-}
-
-function uniqueSorted(values: string[]): string[] {
-  return [...new Set(values.map((v) => v.trim()).filter(Boolean))].sort((a, b) =>
-    a.localeCompare(b, "es")
-  );
 }
 
 function clusterDisplayName(c: RancherCustomCluster): string {
@@ -115,21 +140,65 @@ function matchesSearchQuery(c: RancherCustomCluster, query: string): boolean {
   return haystack.includes(t);
 }
 
-function matchesColumnFilters(c: RancherCustomCluster, f: ColumnFilters): boolean {
-  if (f.application && normalizeApplication(c.application) !== normalizeApplication(f.application)) {
-    return false;
+function clusterFieldValue(c: RancherCustomCluster, field: FilterFieldKey): string {
+  switch (field) {
+    case "name":
+      return clusterDisplayName(c);
+    case "store":
+      return c.store || "";
+    case "distro":
+      return normalizeDistro(c.distro);
+    case "application":
+      return normalizeApplication(c.application);
+    case "state":
+      return normalizeState(c.state);
+    case "kubernetes":
+      return (c.kubernetesVersion || "").trim();
+    default:
+      return "";
   }
-  const appNorm = normalizeApplication(f.application || c.application);
+}
+
+function compareFieldValues(field: FilterFieldKey, clusterVal: string, ruleVal: string): boolean {
+  const a = clusterVal.trim();
+  const b = ruleVal.trim();
+  if (field === "application") {
+    return normalizeApplication(a) === normalizeApplication(b);
+  }
+  if (field === "distro") {
+    return normalizeDistro(a) === normalizeDistro(b);
+  }
+  if (field === "state") {
+    return normalizeState(a) === normalizeState(b);
+  }
+  return a.localeCompare(b, "es", { sensitivity: "base" }) === 0;
+}
+
+function ruleMatchesCluster(c: RancherCustomCluster, rule: FilterRule): boolean {
+  const needle = rule.value.trim();
+  if (!needle) return true;
+
+  const haystack = clusterFieldValue(c, rule.field).toLowerCase();
+  const q = needle.toLowerCase();
+
+  if (rule.operator === "equals") {
+    return compareFieldValues(rule.field, clusterFieldValue(c, rule.field), needle);
+  }
+  if (rule.operator === "not_contains") {
+    return !haystack.includes(q);
+  }
+  return haystack.includes(q);
+}
+
+function matchesFilterRules(c: RancherCustomCluster, rules: FilterRule[]): boolean {
+  const active = rules.filter((r) => r.value.trim());
+  if (active.length === 0) return true;
+  if (!active.every((r) => ruleMatchesCluster(c, r))) return false;
+
+  const appNorm = normalizeApplication(
+    active.find((r) => r.field === "application")?.value || c.application
+  );
   if (isPosliteApplication(appNorm) && !isValidPosliteDistro(c.distro)) {
-    return false;
-  }
-  if (f.distro && normalizeDistro(c.distro) !== normalizeDistro(f.distro)) {
-    return false;
-  }
-  if (f.state && normalizeState(c.state) !== normalizeState(f.state)) {
-    return false;
-  }
-  if (f.kubernetes && (c.kubernetesVersion || "").trim() !== f.kubernetes) {
     return false;
   }
   return true;
@@ -236,35 +305,126 @@ function ClusterSearchInput({
   );
 }
 
-function FilterField({
-  label,
-  value,
+const selectClass =
+  "w-full min-w-0 rounded-lg border border-cf-line bg-black/40 px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-cf-orange/50";
+
+function ClusterFiltersPanel({
+  rules,
   onChange,
-  options,
-  allLabel = "Todos",
+  onApply,
+  onClose,
 }: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: string[];
-  allLabel?: string;
+  rules: FilterRule[];
+  onChange: (rules: FilterRule[]) => void;
+  onApply: () => void;
+  onClose: () => void;
 }) {
+  function updateRule(id: string, patch: Partial<FilterRule>) {
+    onChange(rules.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+
+  function removeRule(id: string) {
+    const next = rules.filter((r) => r.id !== id);
+    onChange(next.length ? next : [newFilterRule()]);
+  }
+
+  function onKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onApply();
+    }
+  }
+
   return (
-    <label className="block text-xs text-zinc-500">
-      {label}
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-cf-line bg-black/40 px-2.5 py-2 text-sm text-zinc-100"
-      >
-        <option value={FILTER_ALL}>{allLabel}</option>
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
+    <div
+      role="dialog"
+      aria-label="Filtros de clusters"
+      className="absolute left-0 right-0 top-full z-30 mt-2 w-full max-w-xl rounded-xl border border-cf-line bg-[#111418] p-4 shadow-2xl ring-1 ring-white/10 sm:left-auto sm:right-0 sm:w-[min(36rem,calc(100vw-2rem))]"
+      onKeyDown={onKeyDown}
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-sm font-medium text-zinc-200">Filtros</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-300"
+          aria-label="Cerrar filtros"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {rules.map((rule) => (
+          <div key={rule.id} className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+            <select
+              value={rule.field}
+              onChange={(e) =>
+                updateRule(rule.id, { field: e.target.value as FilterFieldKey })
+              }
+              className={`${selectClass} sm:w-[7.5rem]`}
+              aria-label="Campo"
+            >
+              {FILTER_FIELDS.map((f) => (
+                <option key={f.key} value={f.key}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={rule.operator}
+              onChange={(e) =>
+                updateRule(rule.id, { operator: e.target.value as FilterOperator })
+              }
+              className={`${selectClass} sm:w-[8.5rem]`}
+              aria-label="Operador"
+            >
+              {FILTER_OPERATORS.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              value={rule.value}
+              onChange={(e) => updateRule(rule.id, { value: e.target.value })}
+              placeholder={fieldPlaceholder(rule.field)}
+              className="min-w-0 flex-1 rounded-lg border border-cf-line bg-black/40 px-2.5 py-1.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50"
+              aria-label="Valor del filtro"
+            />
+            <button
+              type="button"
+              onClick={() => removeRule(rule.id)}
+              className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-white/10 hover:text-zinc-300"
+              aria-label="Eliminar filtro"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
         ))}
-      </select>
-    </label>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onChange([...rules, newFilterRule()])}
+        className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-cf-orange hover:text-cf-orange/80"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Agregar filtro
+      </button>
+
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-cf-line/50 pt-3">
+        <p className="text-[11px] text-zinc-600">Pulsa Intro para aplicar</p>
+        <button
+          type="button"
+          onClick={onApply}
+          className="rounded-lg bg-zinc-700 px-4 py-1.5 text-sm font-medium text-zinc-100 ring-1 ring-zinc-600 hover:bg-zinc-600"
+        >
+          Aplicar
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -277,7 +437,8 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersPanelRef = useRef<HTMLDivElement>(null);
-  const [colFilters, setColFilters] = useState<ColumnFilters>(EMPTY_FILTERS);
+  const [appliedRules, setAppliedRules] = useState<FilterRule[]>([]);
+  const [draftRules, setDraftRules] = useState<FilterRule[]>(() => [newFilterRule()]);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>({
     key: "name",
     dir: "asc",
@@ -291,60 +452,21 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
   const [cfgSaving, setCfgSaving] = useState(false);
   const [cfgMsg, setCfgMsg] = useState("");
 
-  const applicationOptions = useMemo(
-    () => uniqueSorted(clusters.map((c) => normalizeApplication(c.application))),
-    [clusters]
-  );
-  const distroOptions = useMemo(() => {
-    if (isPosliteApplication(colFilters.application)) {
-      return [...POSLITE_DISTROS];
-    }
-    return uniqueSorted(clusters.map((c) => normalizeDistro(c.distro)));
-  }, [clusters, colFilters.application]);
-  const stateOptions = useMemo(
-    () => uniqueSorted(clusters.map((c) => normalizeState(c.state))),
-    [clusters]
-  );
-  const kubernetesOptions = useMemo(
-    () => uniqueSorted(clusters.map((c) => c.kubernetesVersion)),
-    [clusters]
-  );
-
-  useEffect(() => {
-    if (!isPosliteApplication(colFilters.application)) return;
-    if (!colFilters.distro) return;
-    if (!isValidPosliteDistro(colFilters.distro)) {
-      setColFilters((f) => ({ ...f, distro: FILTER_ALL }));
-    }
-  }, [colFilters.application, colFilters.distro]);
-
   const displayedClusters = useMemo(() => {
     let list = clusters.filter(
-      (c) => matchesSearchQuery(c, searchQuery) && matchesColumnFilters(c, colFilters)
+      (c) => matchesSearchQuery(c, searchQuery) && matchesFilterRules(c, appliedRules)
     );
     if (sort) {
       list = sortClusters(list, sort.key, sort.dir);
     }
     return list;
-  }, [clusters, searchQuery, colFilters, sort]);
+  }, [clusters, searchQuery, appliedRules, sort]);
 
   function toggleSort(key: SortKey) {
     setSort((prev) => {
       if (!prev || prev.key !== key) return { key, dir: "asc" };
       if (prev.dir === "asc") return { key, dir: "desc" };
       return { key, dir: "asc" };
-    });
-  }
-
-  function setColFilter<K extends keyof ColumnFilters>(field: K, value: string) {
-    setColFilters((f) => {
-      const next = { ...f, [field]: value };
-      if (field === "application" && isPosliteApplication(value)) {
-        if (next.distro && !isValidPosliteDistro(next.distro)) {
-          next.distro = FILTER_ALL;
-        }
-      }
-      return next;
     });
   }
 
@@ -427,16 +549,31 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
     }
   }
 
-  const activeColumnFilterCount = useMemo(
-    () => Object.values(colFilters).filter((v) => v !== FILTER_ALL).length,
-    [colFilters]
+  const activeRuleCount = useMemo(
+    () => appliedRules.filter((r) => r.value.trim()).length,
+    [appliedRules]
   );
 
-  const hasActiveFilters = searchQuery.trim() !== "" || activeColumnFilterCount > 0;
+  const hasActiveFilters = searchQuery.trim() !== "" || activeRuleCount > 0;
 
   function clearAllFilters() {
     setSearchQuery("");
-    setColFilters(EMPTY_FILTERS);
+    setAppliedRules([]);
+    setDraftRules([newFilterRule()]);
+  }
+
+  function openFiltersPanel() {
+    setDraftRules(
+      appliedRules.filter((r) => r.value.trim()).length
+        ? appliedRules.map((r) => ({ ...r, id: crypto.randomUUID() }))
+        : [newFilterRule()]
+    );
+    setFiltersOpen(true);
+  }
+
+  function applyDraftFilters() {
+    setAppliedRules(draftRules.filter((r) => r.value.trim()));
+    setFiltersOpen(false);
   }
 
   useEffect(() => {
@@ -596,165 +733,130 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
         </motion.div>
       ) : null}
 
-      <motion.div layout className="overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90 ring-1 ring-white/[0.03]">
-        {loading && clusters.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 p-12 text-sm text-zinc-500">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Cargando clusters…
-          </div>
-        ) : clusters.length === 0 && !error ? (
-          <motion.div layout className="p-10 text-center text-sm text-zinc-500">
-            <Server className="mx-auto mb-2 h-8 w-8 text-zinc-600" strokeWidth={1.25} />
-            No hay Custom clusters visibles.
-            {canAdmin ? " Configura la conexión a Rancher y pulsa Actualizar." : null}
-          </motion.div>
-        ) : (
-          <>
-            <div
-              ref={filtersPanelRef}
-              className="relative border-b border-cf-line/50 bg-gradient-to-b from-white/[0.04] to-transparent px-4 py-3"
+      <div className="flex flex-col gap-3">
+        {clusters.length > 0 ? (
+          <div ref={filtersPanelRef} className="relative flex flex-wrap items-center gap-2">
+            <ClusterSearchInput value={searchQuery} onChange={setSearchQuery} />
+            <button
+              type="button"
+              onClick={() => (filtersOpen ? setFiltersOpen(false) : openFiltersPanel())}
+              aria-expanded={filtersOpen}
+              aria-haspopup="dialog"
+              className={
+                filtersOpen || activeRuleCount > 0
+                  ? "inline-flex shrink-0 items-center gap-2 rounded-xl border border-cf-orange/45 bg-cf-orange/10 px-3.5 py-2 text-sm font-medium text-zinc-100 ring-1 ring-cf-orange/25"
+                  : "inline-flex shrink-0 items-center gap-2 rounded-xl border border-cf-line bg-cf-panel/90 px-3.5 py-2 text-sm font-medium text-zinc-200 hover:border-zinc-500"
+              }
             >
-              <div className="flex flex-wrap items-center gap-2">
-                <ClusterSearchInput value={searchQuery} onChange={setSearchQuery} />
-                <button
-                  type="button"
-                  onClick={() => setFiltersOpen((o) => !o)}
-                  aria-expanded={filtersOpen}
-                  aria-haspopup="dialog"
-                  className={
-                    filtersOpen || activeColumnFilterCount > 0
-                      ? "inline-flex shrink-0 items-center gap-2 rounded-xl border border-cf-orange/45 bg-cf-orange/10 px-3.5 py-2 text-sm font-medium text-zinc-100 ring-1 ring-cf-orange/25"
-                      : "inline-flex shrink-0 items-center gap-2 rounded-xl border border-cf-line bg-cf-panel/90 px-3.5 py-2 text-sm font-medium text-zinc-200 hover:border-zinc-500"
-                  }
-                >
-                  <Filter className="h-4 w-4 text-zinc-400" aria-hidden />
-                  Filtros
-                  {activeColumnFilterCount > 0 ? (
-                    <span className="rounded-full bg-cf-orange/25 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-cf-orange">
-                      {activeColumnFilterCount}
-                    </span>
-                  ) : null}
-                </button>
-                <p className="ml-auto shrink-0 text-xs tabular-nums text-zinc-500">
-                  {displayedClusters.length} de {clusters.length}
-                </p>
-              </div>
-
-              {filtersOpen ? (
-                <div
-                  role="dialog"
-                  aria-label="Filtros de clusters"
-                  className="absolute right-4 top-full z-30 mt-2 w-[min(20rem,calc(100%-2rem))] rounded-xl border border-cf-line bg-[#111418] p-4 shadow-2xl ring-1 ring-white/10"
-                >
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="text-sm font-medium text-zinc-200">Filtros</span>
-                    <button
-                      type="button"
-                      onClick={() => setFiltersOpen(false)}
-                      className="rounded p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-300"
-                      aria-label="Cerrar filtros"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <div className="grid gap-3">
-                    <FilterField
-                      label="Distribución"
-                      value={colFilters.distro}
-                      onChange={(v) => setColFilter("distro", v)}
-                      options={distroOptions}
-                    />
-                    <FilterField
-                      label="Aplicación"
-                      value={colFilters.application}
-                      onChange={(v) => setColFilter("application", v)}
-                      options={applicationOptions}
-                      allLabel="Todas"
-                    />
-                    <FilterField
-                      label="Estado"
-                      value={colFilters.state}
-                      onChange={(v) => setColFilter("state", v)}
-                      options={stateOptions}
-                    />
-                    <FilterField
-                      label="Kubernetes"
-                      value={colFilters.kubernetes}
-                      onChange={(v) => setColFilter("kubernetes", v)}
-                      options={kubernetesOptions}
-                    />
-                  </div>
-                  {activeColumnFilterCount > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => setColFilters(EMPTY_FILTERS)}
-                      className="mt-3 w-full rounded-lg border border-cf-line py-2 text-xs text-zinc-400 hover:border-zinc-500 hover:text-zinc-300"
-                    >
-                      Quitar filtros de columna
-                    </button>
-                  ) : null}
-                </div>
+              <Filter className="h-4 w-4 text-zinc-400" aria-hidden />
+              Filtros
+              {activeRuleCount > 0 ? (
+                <span className="rounded-full bg-cf-orange/25 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-cf-orange">
+                  {activeRuleCount}
+                </span>
               ) : null}
-            </div>
-            {displayedClusters.length === 0 ? (
-              <motion.div layout className="p-10 text-center text-sm text-zinc-500">
-                Ningún cluster coincide con los filtros seleccionados.
-              </motion.div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[800px] text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-cf-line/60 text-xs uppercase tracking-wide text-zinc-500">
-                      <SortableTh label="Nombre" sortKey="name" sort={sort} onSort={toggleSort} />
-                      <SortableTh label="Tienda" sortKey="store" sort={sort} onSort={toggleSort} />
-                      <SortableTh label="Distribución" sortKey="distro" sort={sort} onSort={toggleSort} />
-                      <SortableTh
-                        label="Aplicación"
-                        sortKey="application"
-                        sort={sort}
-                        onSort={toggleSort}
-                      />
-                      <SortableTh label="Estado" sortKey="state" sort={sort} onSort={toggleSort} />
-                      <SortableTh
-                        label="Kubernetes"
-                        sortKey="kubernetes"
-                        sort={sort}
-                        onSort={toggleSort}
-                      />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {displayedClusters.map((c) => (
-                      <tr
-                        key={c.id}
-                        className="border-b border-cf-line/40 last:border-0 hover:bg-white/[0.02]"
-                      >
-                        <td className="px-4 py-3">
-                          <span className="font-medium text-zinc-100">{clusterDisplayName(c)}</span>
-                          {c.displayName && c.displayName !== c.name ? (
-                            <span className="mt-0.5 block text-xs text-zinc-600">{c.name}</span>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3 text-zinc-400">{c.store || "—"}</td>
-                        <td className="px-4 py-3 text-zinc-400">{c.distro || "—"}</td>
-                        <td className="px-4 py-3 text-zinc-400">{c.application || "—"}</td>
-                        <td className={`px-4 py-3 ${stateTone(c.state)}`}>{c.state || "—"}</td>
-                        <td className="px-4 py-3 text-zinc-400">{c.kubernetesVersion || "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </>
-        )}
-        {source && !loading ? (
-          <p className="border-t border-cf-line/40 px-4 py-2 text-[11px] text-zinc-600">
-            Fuente API: {source} · {displayedClusters.length} de {clusters.length} cluster
-            {clusters.length !== 1 ? "s" : ""}
-          </p>
+            </button>
+
+            {filtersOpen ? (
+              <ClusterFiltersPanel
+                rules={draftRules}
+                onChange={setDraftRules}
+                onApply={applyDraftFilters}
+                onClose={() => setFiltersOpen(false)}
+              />
+            ) : null}
+          </div>
         ) : null}
-      </motion.div>
+
+        <motion.div
+          layout
+          className="overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90 ring-1 ring-white/[0.03]"
+        >
+          {loading && clusters.length === 0 ? (
+            <div className="flex items-center justify-center gap-2 p-12 text-sm text-zinc-500">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Cargando clusters…
+            </div>
+          ) : clusters.length === 0 && !error ? (
+            <motion.div layout className="p-10 text-center text-sm text-zinc-500">
+              <Server className="mx-auto mb-2 h-8 w-8 text-zinc-600" strokeWidth={1.25} />
+              No hay Custom clusters visibles.
+              {canAdmin ? " Configura la conexión a Rancher y pulsa Actualizar." : null}
+            </motion.div>
+          ) : (
+            <>
+              <p className="border-b border-cf-line/50 px-4 py-3 text-sm text-zinc-400">
+                {displayedClusters.length === clusters.length ? (
+                  <>
+                    <span className="font-medium text-zinc-300">{clusters.length}</span> cluster
+                    {clusters.length !== 1 ? "s" : ""}
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-zinc-300">{displayedClusters.length}</span> de{" "}
+                    {clusters.length} cluster{clusters.length !== 1 ? "s" : ""}
+                  </>
+                )}
+              </p>
+              {displayedClusters.length === 0 ? (
+                <motion.div layout className="p-10 text-center text-sm text-zinc-500">
+                  Ningún cluster coincide con la búsqueda o los filtros seleccionados.
+                </motion.div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[800px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-cf-line/60 text-xs uppercase tracking-wide text-zinc-500">
+                        <SortableTh label="Nombre" sortKey="name" sort={sort} onSort={toggleSort} />
+                        <SortableTh label="Tienda" sortKey="store" sort={sort} onSort={toggleSort} />
+                        <SortableTh label="Distribución" sortKey="distro" sort={sort} onSort={toggleSort} />
+                        <SortableTh
+                          label="Aplicación"
+                          sortKey="application"
+                          sort={sort}
+                          onSort={toggleSort}
+                        />
+                        <SortableTh label="Estado" sortKey="state" sort={sort} onSort={toggleSort} />
+                        <SortableTh
+                          label="Kubernetes"
+                          sortKey="kubernetes"
+                          sort={sort}
+                          onSort={toggleSort}
+                        />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayedClusters.map((c) => (
+                        <tr
+                          key={c.id}
+                          className="border-b border-cf-line/40 last:border-0 hover:bg-white/[0.02]"
+                        >
+                          <td className="px-4 py-3">
+                            <span className="font-medium text-zinc-100">{clusterDisplayName(c)}</span>
+                            {c.displayName && c.displayName !== c.name ? (
+                              <span className="mt-0.5 block text-xs text-zinc-600">{c.name}</span>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-3 text-zinc-400">{c.store || "—"}</td>
+                          <td className="px-4 py-3 text-zinc-400">{c.distro || "—"}</td>
+                          <td className="px-4 py-3 text-zinc-400">{c.application || "—"}</td>
+                          <td className={`px-4 py-3 ${stateTone(c.state)}`}>{c.state || "—"}</td>
+                          <td className="px-4 py-3 text-zinc-400">{c.kubernetesVersion || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+          {source && !loading && clusters.length > 0 ? (
+            <p className="border-t border-cf-line/40 px-4 py-2 text-[11px] text-zinc-600">
+              Fuente API: {source}
+            </p>
+          ) : null}
+        </motion.div>
+      </div>
     </motion.div>
   );
 }
