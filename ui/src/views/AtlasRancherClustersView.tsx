@@ -602,25 +602,17 @@ export function AtlasRancherClustersView({ canAdmin }: Props) {
       className="flex flex-col gap-4"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <motion.div layout className="flex items-center gap-3">
-          <img
-            src="/branding/atlas-rancher-header.svg"
-            alt=""
-            className="h-9 w-auto opacity-90"
-            aria-hidden
-          />
-          <motion.div layout>
-            <h1 className="text-lg font-semibold text-zinc-100">Custom clusters</h1>
-            <p className="text-xs text-zinc-500">
-              Busca por texto; usa Filtros para acotar. Clic en un encabezado para ordenar.
-              {rancherUrl ? (
-                <>
-                  {" "}
-                  <span className="text-zinc-600">{rancherUrl}</span>
-                </>
-              ) : null}
-            </p>
-          </motion.div>
+        <motion.div layout>
+          <h1 className="text-lg font-semibold text-zinc-100">Custom clusters</h1>
+          <p className="text-xs text-zinc-500">
+            Busca por texto; usa Filtros para acotar. Clic en un encabezado para ordenar.
+            {rancherUrl ? (
+              <>
+                {" "}
+                <span className="text-zinc-600">{rancherUrl}</span>
+              </>
+            ) : null}
+          </p>
         </motion.div>
         <div className="flex flex-wrap items-center gap-2">
           {hasActiveFilters ? (
