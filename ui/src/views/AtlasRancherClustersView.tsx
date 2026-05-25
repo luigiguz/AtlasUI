@@ -3,8 +3,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
-  ChevronDown,
-  ChevronRight,
+  Box,
   Filter,
   Loader2,
   Pencil,
@@ -16,7 +15,6 @@ import {
   X,
 } from "lucide-react";
 import {
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -607,114 +605,199 @@ function ClusterLabelsModal({
   );
 }
 
-function ClusterPodsPanel({ cluster }: { cluster: RancherCustomCluster }) {
+const PODS_AUTO_REFRESH_MS = 15_000;
+
+function ClusterPodsModal({
+  cluster,
+  onClose,
+}: {
+  cluster: RancherCustomCluster;
+  onClose: () => void;
+}) {
   const [pods, setPods] = useState<RancherPod[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [podNamespace, setPodNamespace] = useState(cluster.application || "");
 
-  const loadPods = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const ns = encodeURIComponent(cluster.namespace);
-      const nm = encodeURIComponent(cluster.name);
-      const steve = encodeURIComponent(
-        cluster.steveCollection || "provisioning.cattle.io.customclusters"
-      );
-      const r = await api<PodsResponse>(
-        `/api/atlas-rancher/custom-clusters/${ns}/${nm}/pods?steve_collection=${steve}`
-      );
-      setPods(r.pods ?? []);
-    } catch (e) {
-      setPods([]);
-      setError(e instanceof Error ? e.message : "No se pudieron cargar los pods.");
-    } finally {
-      setLoading(false);
-    }
-  }, [cluster.namespace, cluster.name, cluster.steveCollection]);
+  const loadPods = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent ?? false;
+      if (silent) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setError("");
+      try {
+        const ns = encodeURIComponent(cluster.namespace);
+        const nm = encodeURIComponent(cluster.name);
+        const steve = encodeURIComponent(
+          cluster.steveCollection || "provisioning.cattle.io.customclusters"
+        );
+        const r = await api<PodsResponse>(
+          `/api/atlas-rancher/custom-clusters/${ns}/${nm}/pods?steve_collection=${steve}`
+        );
+        setPods(r.pods ?? []);
+        setPodNamespace(r.podNamespace || r.application || cluster.application || "");
+      } catch (e) {
+        setPods([]);
+        setError(e instanceof Error ? e.message : "No se pudieron cargar los pods.");
+      } finally {
+        if (silent) {
+          setRefreshing(false);
+        } else {
+          setLoading(false);
+        }
+      }
+    },
+    [cluster.namespace, cluster.name, cluster.steveCollection, cluster.application]
+  );
 
   useEffect(() => {
     void loadPods();
   }, [loadPods]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center gap-2 px-4 py-4 text-sm text-zinc-500">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Cargando pods…
-      </div>
-    );
-  }
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.hidden) return;
+      void loadPods({ silent: true });
+    }, PODS_AUTO_REFRESH_MS);
+    return () => window.clearInterval(id);
+  }, [loadPods]);
 
-  if (error) {
-    return (
-      <div className="space-y-2 px-4 py-4">
-        <p className="text-sm text-red-300">{error}</p>
-        <button
-          type="button"
-          onClick={() => void loadPods()}
-          className="text-xs text-cf-orange hover:underline"
-        >
-          Reintentar
-        </button>
-      </div>
-    );
-  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
-  const podNs = cluster.application || "—";
-
-  if (pods.length === 0) {
-    return (
-      <p className="px-4 py-4 text-sm text-zinc-500">
-        No hay pods en el namespace <span className="text-zinc-300">{podNs}</span> (application).
-      </p>
-    );
-  }
+  const podNs = podNamespace || cluster.application || "—";
 
   return (
-    <div className="border-t border-cf-line/40 bg-black/20">
-      <div className="flex items-center justify-between gap-2 px-4 py-2">
-        <p className="text-xs text-zinc-500">
-          {pods.length} pod{pods.length !== 1 ? "s" : ""} · namespace{" "}
-          <span className="font-medium text-zinc-300">{podNs}</span>
-          {cluster.managementClusterId ? (
-            <span className="text-zinc-600"> · {cluster.managementClusterId}</span>
-          ) : null}
-        </p>
-        <button
-          type="button"
-          onClick={() => void loadPods()}
-          className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-cf-orange"
-        >
-          <RefreshCw className="h-3 w-3" />
-          Actualizar
-        </button>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[560px] text-left text-xs">
-          <thead>
-            <tr className="border-b border-cf-line/50 text-[10px] uppercase tracking-wide text-zinc-600">
-              <th className="px-4 py-2">Pod</th>
-              <th className="px-4 py-2">Estado</th>
-              <th className="px-4 py-2">Ready</th>
-              <th className="px-4 py-2">Nodo</th>
-              <th className="px-4 py-2">Reinicios</th>
-              <th className="px-4 py-2">IP</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pods.map((p) => (
-              <tr key={p.name} className="border-b border-cf-line/30 last:border-0">
-                <td className="px-4 py-2 font-medium text-zinc-200">{p.name}</td>
-                <td className={`px-4 py-2 ${podPhaseTone(p.phase)}`}>{p.phase}</td>
-                <td className="px-4 py-2 text-zinc-400">{p.ready}</td>
-                <td className="px-4 py-2 text-zinc-500">{p.node || "—"}</td>
-                <td className="px-4 py-2 tabular-nums text-zinc-400">{p.restarts}</td>
-                <td className="px-4 py-2 font-mono text-[11px] text-zinc-500">{p.podIP || "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-labelledby="pods-modal-title"
+        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-[min(90vh,48rem)] w-full max-w-4xl flex-col rounded-xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/10"
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-cf-line/50 px-5 py-4">
+          <div className="min-w-0">
+            <h2 id="pods-modal-title" className="text-sm font-semibold text-zinc-100">
+              Gestión de pods
+            </h2>
+            <p className="mt-0.5 truncate text-xs text-zinc-500">
+              {clusterDisplayName(cluster)}
+              {cluster.store ? (
+                <span className="text-zinc-600"> · {cluster.store}</span>
+              ) : null}
+            </p>
+            <p className="mt-1 text-[11px] text-zinc-600">
+              Namespace <span className="font-medium text-zinc-400">{podNs}</span>
+              {cluster.managementClusterId ? (
+                <span> · {cluster.managementClusterId}</span>
+              ) : null}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void loadPods({ silent: true })}
+              disabled={loading || refreshing}
+              className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-2.5 py-1.5 text-xs text-zinc-400 hover:border-cf-orange/40 hover:text-cf-orange disabled:opacity-50"
+            >
+              {loading || refreshing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              Actualizar
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 text-zinc-500 hover:bg-white/10"
+              aria-label="Cerrar"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 px-5 py-12 text-sm text-zinc-500">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Cargando pods…
+            </div>
+          ) : error ? (
+            <div className="space-y-2 px-5 py-8">
+              <p className="text-sm text-red-300">{error}</p>
+              <button
+                type="button"
+                onClick={() => void loadPods()}
+                className="text-xs text-cf-orange hover:underline"
+              >
+                Reintentar
+              </button>
+            </div>
+          ) : pods.length === 0 ? (
+            <p className="px-5 py-8 text-sm text-zinc-500">
+              No hay pods en el namespace <span className="text-zinc-300">{podNs}</span>{" "}
+              (application).
+            </p>
+          ) : (
+            <>
+              <p className="border-b border-cf-line/40 px-5 py-2 text-xs text-zinc-500">
+                {pods.length} pod{pods.length !== 1 ? "s" : ""}
+                {refreshing ? (
+                  <span className="text-zinc-600"> · sincronizando…</span>
+                ) : null}
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[560px] text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-cf-line/50 text-[10px] uppercase tracking-wide text-zinc-600">
+                      <th className="px-5 py-2">Pod</th>
+                      <th className="px-5 py-2">Estado</th>
+                      <th className="px-5 py-2">Ready</th>
+                      <th className="px-5 py-2">Nodo</th>
+                      <th className="px-5 py-2">Reinicios</th>
+                      <th className="px-5 py-2">IP</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pods.map((p) => (
+                      <tr key={p.name} className="border-b border-cf-line/30 last:border-0">
+                        <td className="px-5 py-2.5 font-medium text-zinc-200">{p.name}</td>
+                        <td className={`px-5 py-2.5 ${podPhaseTone(p.phase)}`}>{p.phase}</td>
+                        <td className="px-5 py-2.5 text-zinc-400">{p.ready}</td>
+                        <td className="px-5 py-2.5 text-zinc-500">{p.node || "—"}</td>
+                        <td className="px-5 py-2.5 tabular-nums text-zinc-400">{p.restarts}</td>
+                        <td className="px-5 py-2.5 font-mono text-[11px] text-zinc-500">
+                          {p.podIP || "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="shrink-0 border-t border-cf-line/50 px-5 py-3">
+          <p className="text-[11px] text-zinc-600">
+            Actualización automática cada {PODS_AUTO_REFRESH_MS / 1000}s mientras el modal está abierto.
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -748,10 +831,7 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
   const [cfgSaving, setCfgSaving] = useState(false);
   const [cfgMsg, setCfgMsg] = useState("");
   const [editingCluster, setEditingCluster] = useState<RancherCustomCluster | null>(null);
-  const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
-
-  const tableColSpan =
-    6 + (canEditLabels ? 1 : 0) + 1;
+  const [podsCluster, setPodsCluster] = useState<RancherCustomCluster | null>(null);
 
   function mergeClusterUpdate(updated: RancherCustomCluster) {
     setClusters((list) =>
@@ -841,12 +921,12 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
     if (!rancherConfigured) return;
 
     const id = window.setInterval(() => {
-      if (document.hidden || editingCluster) return;
+      if (document.hidden || editingCluster || podsCluster) return;
       void loadClusters({ silent: true });
     }, AUTO_REFRESH_INTERVAL_MS);
 
     return () => window.clearInterval(id);
-  }, [rancherConfigured, editingCluster, loadClusters]);
+  }, [rancherConfigured, editingCluster, podsCluster, loadClusters]);
 
   useEffect(() => {
     if (!lastRefreshedAt) return;
@@ -951,7 +1031,7 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
         <motion.div layout>
           <h1 className="text-lg font-semibold text-zinc-100">Custom clusters</h1>
           <p className="text-xs text-zinc-500">
-            Busca por texto o filtros. Expande un cluster (▸) para ver sus pods.
+            Busca por texto o filtros. Abre <span className="text-zinc-400">Pods</span> en un cluster para gestionarlos.
             {rancherUrl ? (
               <>
                 {" "}
@@ -1154,7 +1234,6 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
                   <table className="w-full min-w-[800px] text-left text-sm">
                     <thead>
                       <tr className="border-b border-cf-line/60 text-xs uppercase tracking-wide text-zinc-500">
-                        <th className="w-10 px-2 py-3" aria-label="Pods" />
                         <SortableTh label="Nombre" sortKey="name" sort={sort} onSort={toggleSort} />
                         <SortableTh label="Tienda" sortKey="store" sort={sort} onSort={toggleSort} />
                         <SortableTh label="Distribución" sortKey="distro" sort={sort} onSort={toggleSort} />
@@ -1171,6 +1250,9 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
                           sort={sort}
                           onSort={toggleSort}
                         />
+                        <th className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                          Pods
+                        </th>
                         {canEditLabels ? (
                           <th className="px-4 py-3 text-xs font-medium uppercase tracking-wide text-zinc-500">
                             Labels
@@ -1179,34 +1261,11 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
                       </tr>
                     </thead>
                     <tbody>
-                      {displayedClusters.map((c) => {
-                        const expanded = expandedClusterId === c.id;
-                        return (
-                          <Fragment key={c.id}>
+                      {displayedClusters.map((c) => (
                             <tr
-                              className={
-                                expanded
-                                  ? "border-b border-cf-line/40 bg-white/[0.03]"
-                                  : "border-b border-cf-line/40 hover:bg-white/[0.02]"
-                              }
+                              key={c.id}
+                              className="border-b border-cf-line/40 hover:bg-white/[0.02]"
                             >
-                              <td className="px-2 py-3">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setExpandedClusterId((id) => (id === c.id ? null : c.id))
-                                  }
-                                  className="rounded p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-200"
-                                  aria-expanded={expanded}
-                                  title={expanded ? "Ocultar pods" : "Ver pods"}
-                                >
-                                  {expanded ? (
-                                    <ChevronDown className="h-4 w-4" />
-                                  ) : (
-                                    <ChevronRight className="h-4 w-4" />
-                                  )}
-                                </button>
-                              </td>
                               <td className="px-4 py-3">
                                 <span className="font-medium text-zinc-100">{clusterDisplayName(c)}</span>
                                 {c.displayName && c.displayName !== c.name ? (
@@ -1218,6 +1277,17 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
                               <td className="px-4 py-3 text-zinc-400">{c.application || "—"}</td>
                               <td className={`px-4 py-3 ${stateTone(c.state)}`}>{c.state || "—"}</td>
                               <td className="px-4 py-3 text-zinc-400">{c.kubernetesVersion || "—"}</td>
+                              <td className="px-4 py-3">
+                                <button
+                                  type="button"
+                                  onClick={() => setPodsCluster(c)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-2.5 py-1.5 text-xs text-zinc-400 hover:border-cf-orange/40 hover:text-cf-orange"
+                                  title="Gestionar pods"
+                                >
+                                  <Box className="h-3.5 w-3.5" />
+                                  Pods
+                                </button>
+                              </td>
                               {canEditLabels ? (
                                 <td className="px-4 py-3">
                                   <button
@@ -1232,16 +1302,7 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
                                 </td>
                               ) : null}
                             </tr>
-                            {expanded ? (
-                              <tr key={`${c.id}-pods`} className="border-b border-cf-line/40">
-                                <td colSpan={tableColSpan} className="p-0">
-                                  <ClusterPodsPanel cluster={c} />
-                                </td>
-                              </tr>
-                            ) : null}
-                          </Fragment>
-                        );
-                      })}
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -1261,6 +1322,9 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
           onClose={() => setEditingCluster(null)}
           onSaved={mergeClusterUpdate}
         />
+      ) : null}
+      {podsCluster ? (
+        <ClusterPodsModal cluster={podsCluster} onClose={() => setPodsCluster(null)} />
       ) : null}
     </motion.div>
   );
