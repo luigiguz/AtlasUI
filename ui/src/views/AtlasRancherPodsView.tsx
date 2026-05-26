@@ -801,19 +801,6 @@ function ClusterContainersPanel({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-end gap-2 border-b border-cf-line/40 px-3 py-2">
-        <button
-          type="button"
-          onClick={() => void loadAll({ silent: true })}
-          disabled={refreshing}
-          className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-white/5 hover:text-cf-orange disabled:opacity-50"
-          aria-label="Actualizar lista"
-          title="Actualizar"
-        >
-          {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-        </button>
-      </div>
-
       {error ? (
         <p className="shrink-0 border-b border-red-500/20 bg-red-500/5 px-4 py-2 text-xs text-red-300">{error}</p>
       ) : null}
@@ -842,6 +829,16 @@ function ClusterContainersPanel({
         <span className="shrink-0 rounded-full bg-zinc-800/80 px-2 py-0.5 text-[10px] tabular-nums text-zinc-500">
           {filteredRows.length}
         </span>
+        <button
+          type="button"
+          onClick={() => void loadAll({ silent: true })}
+          disabled={refreshing}
+          className="shrink-0 rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-cf-orange disabled:opacity-50"
+          aria-label="Actualizar lista"
+          title="Actualizar"
+        >
+          {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+        </button>
       </div>
 
       {canEdit && rolloutRows.length > 0 ? (
