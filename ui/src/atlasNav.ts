@@ -90,7 +90,7 @@ export function buildAtlasNav(canAdmin: boolean): AtlasNavEntry[] {
           kind: "leaf",
           id: "rancher-pods",
           route: "rancher-pods",
-          label: "Servicios en ejecución",
+          label: "Contenedores",
           icon: Box,
         },
       ],
@@ -130,7 +130,7 @@ export function routeMeta(route: AtlasRouteId): { title: string; breadcrumb: str
     case "rancher-clusters":
       return { title: "Equipos", breadcrumb: ["Atlas", "Atlas Rancher", "Equipos"] };
     case "rancher-pods":
-      return { title: "Servicios en ejecución", breadcrumb: ["Atlas", "Atlas Rancher", "Servicios"] };
+      return { title: "Contenedores", breadcrumb: ["Atlas", "Atlas Rancher", "Contenedores"] };
     case "users":
       return { title: "Usuarios", breadcrumb: ["Atlas", "Administración", "Usuarios"] };
     case "about":

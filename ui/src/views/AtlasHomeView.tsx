@@ -167,7 +167,7 @@ export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, on
             <li className="flex items-start gap-2">
               <Box className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" aria-hidden />
               <span>
-                <strong className="font-medium text-zinc-200">Servicios en ejecución</strong> — contenedores y pods;
+                <strong className="font-medium text-zinc-200">Contenedores</strong> — servicios, estado y réplicas;
                 <strong className="font-medium text-zinc-200"> actualizar imagen</strong> (escala 0 → N para forzar pull)
               </span>
             </li>
@@ -175,7 +175,7 @@ export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, on
           <div className="mt-4 flex flex-wrap gap-2">
             <NavButton label="Tiendas" route="rancher-stores" primary onNavigate={onNavigate} />
             <NavButton label="Equipos" route="rancher-clusters" onNavigate={onNavigate} />
-            <NavButton label="Servicios" route="rancher-pods" onNavigate={onNavigate} />
+            <NavButton label="Contenedores" route="rancher-pods" onNavigate={onNavigate} />
           </div>
         </DashCard>
       </motion.div>
@@ -218,7 +218,7 @@ export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, on
             <span>
               <strong className="text-zinc-200">Rancher Fleet</strong> reconcilia los{" "}
               <code className="text-[11px]">fleet.yaml</code> en el cluster. Supervisa el despliegue en{" "}
-              <strong className="text-zinc-200">Servicios en ejecución</strong>.
+              <strong className="text-zinc-200">Contenedores</strong>.
             </span>
           </li>
         </ol>
