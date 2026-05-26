@@ -22,6 +22,8 @@ export type RancherCustomCluster = {
 
 export type RancherPod = {
   name: string;
+  /** Namespace real en Kubernetes (metadata.namespace). */
+  k8sNamespace?: string;
   namespace: string;
   phase: string;
   node: string;

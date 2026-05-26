@@ -364,7 +364,10 @@ def get_custom_cluster_pod_logs(
     pod_name: str,
     steve_collection: str = Query(default="provisioning.cattle.io.customclusters"),
     container: str = Query(default=""),
+    pod_namespace: str = Query(default=""),
     tail_lines: int = Query(default=500, ge=1, le=5000),
+    since_seconds: int | None = Query(default=None, ge=1, le=604800),
+    timestamps: bool = Query(default=True),
     previous: bool = Query(default=False),
     follow: bool = Query(default=False),
     _user: dict[str, Any] = Depends(require_permission(PERM_RANCHER_READ)),
@@ -384,8 +387,11 @@ def get_custom_cluster_pod_logs(
                         name=name,
                         steve_collection=steve,
                         pod_name=pod_name,
+                        pod_k8s_namespace=pod_namespace,
                         container=container,
                         tail_lines=min(tail_lines, 500),
+                        since_seconds=since_seconds,
+                        timestamps=timestamps,
                         previous=previous,
                     ):
                         yield chunk
@@ -405,8 +411,11 @@ def get_custom_cluster_pod_logs(
             name=name,
             steve_collection=steve,
             pod_name=pod_name,
+            pod_k8s_namespace=pod_namespace,
             container=container,
             tail_lines=tail_lines,
+            since_seconds=since_seconds,
+            timestamps=timestamps,
             previous=previous,
         )
     except RancherConfigError as e:

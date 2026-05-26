@@ -476,9 +476,11 @@ def _normalize_pod(item: dict[str, Any], *, application_namespace: str) -> dict[
         for c in containers:
             if isinstance(c, dict) and c.get("name"):
                 container_names.append(str(c["name"]))
+    raw_ns = str(meta.get("namespace") or "").strip()
     return {
         "name": str(meta.get("name") or ""),
-        "namespace": application_namespace or str(meta.get("namespace") or ""),
+        "k8sNamespace": raw_ns,
+        "namespace": application_namespace or raw_ns,
         "phase": phase,
         "node": str(spec.get("nodeName") or ""),
         "ready": f"{ready_count}/{total_containers}" if total_containers else "—",
@@ -903,19 +905,20 @@ def list_custom_cluster_pods(
     return pods_path, mgmt_id, application, pods
 
 
-def _pod_log_path(
-    mgmt_id: str,
-    k8s_ns: str,
-    pod_name: str,
+def _pod_log_query_params(
     *,
     container: str = "",
     tail_lines: int = 500,
+    since_seconds: int | None = None,
     follow: bool = False,
     previous: bool = False,
     timestamps: bool = True,
 ) -> str:
-    base = f"k8s/clusters/{mgmt_id}/v1/pods/{k8s_ns}/{pod_name}/log"
-    params: list[str] = [f"tailLines={max(1, min(tail_lines, 5000))}"]
+    params: list[str] = []
+    if since_seconds is not None and since_seconds > 0:
+        params.append(f"sinceSeconds={min(int(since_seconds), 604800)}")
+    else:
+        params.append(f"tailLines={max(1, min(tail_lines, 5000))}")
     if timestamps:
         params.append("timestamps=true")
     if follow:
@@ -924,7 +927,100 @@ def _pod_log_path(
         params.append("previous=true")
     if container.strip():
         params.append(f"container={urllib.parse.quote(container.strip())}")
-    return f"{base}?{'&'.join(params)}"
+    return "&".join(params)
+
+
+def _pod_log_path_k8s_proxy(
+    mgmt_id: str,
+    k8s_ns: str,
+    pod_name: str,
+    **kwargs: Any,
+) -> str:
+    """Misma ruta que usa el visor de logs de Rancher (proxy api/v1 del cluster)."""
+    base = (
+        f"k8s/clusters/{mgmt_id}/api/v1/namespaces/{k8s_ns}/pods/{pod_name}/log"
+    )
+    return f"{base}?{_pod_log_query_params(**kwargs)}"
+
+
+def _pod_log_path_steve_link(
+    mgmt_id: str,
+    k8s_ns: str,
+    pod_name: str,
+    **kwargs: Any,
+) -> str:
+    """Fallback Steve: subrecurso link=log sobre el pod."""
+    base = f"k8s/clusters/{mgmt_id}/v1/pods/{k8s_ns}/{pod_name}"
+    return f"{base}?link=log&{_pod_log_query_params(**kwargs)}"
+
+
+def _rancher_log_looks_like_html(text: str) -> bool:
+    head = (text or "")[:1200].lstrip().lower()
+    if not head:
+        return False
+    if head.startswith("<!") or head.startswith("<html"):
+        return True
+    return "if you are reading this" in head and "application/json" in head
+
+
+def _read_pod_log_text(
+    settings: dict[str, str | bool],
+    mgmt_id: str,
+    k8s_ns: str,
+    pod_name: str,
+    **log_kw: Any,
+) -> str:
+    paths = (
+        _pod_log_path_k8s_proxy(mgmt_id, k8s_ns, pod_name, **log_kw),
+        _pod_log_path_steve_link(mgmt_id, k8s_ns, pod_name, **log_kw),
+    )
+    last_html = ""
+    for path in paths:
+        text = rancher_get_text(settings, path, timeout_s=RANCHER_POD_LOG_TIMEOUT_S)
+        if not _rancher_log_looks_like_html(text):
+            return text
+        last_html = text
+    raise RancherApiError(
+        "Rancher devolvió la interfaz HTML del pod en lugar del log. "
+        "Comprueba el namespace del pod y los permisos del token."
+        + (f" Inicio de respuesta: {last_html[:200]!r}" if last_html else "")
+    )
+
+
+def _iter_pod_log_text_stream(
+    settings: dict[str, str | bool],
+    mgmt_id: str,
+    k8s_ns: str,
+    pod_name: str,
+    **log_kw: Any,
+) -> Iterator[str]:
+    paths = (
+        _pod_log_path_k8s_proxy(mgmt_id, k8s_ns, pod_name, **log_kw),
+        _pod_log_path_steve_link(mgmt_id, k8s_ns, pod_name, **log_kw),
+    )
+    for path in paths:
+        resp = _rancher_open_stream(
+            settings, path, timeout_s=RANCHER_POD_LOG_STREAM_TIMEOUT_S
+        )
+        try:
+            head = resp.read(1200)
+            if head and _rancher_log_looks_like_html(
+                head.decode("utf-8", errors="replace")
+            ):
+                continue
+            if head:
+                yield head.decode("utf-8", errors="replace")
+            while True:
+                chunk = resp.read(4096)
+                if not chunk:
+                    break
+                yield chunk.decode("utf-8", errors="replace")
+            return
+        finally:
+            resp.close()
+    raise RancherApiError(
+        "No se pudo abrir el stream de logs del pod (Rancher devolvió HTML o error HTTP)."
+    )
 
 
 def fetch_pod_logs(
@@ -934,9 +1030,12 @@ def fetch_pod_logs(
     name: str,
     steve_collection: str,
     pod_name: str,
+    pod_k8s_namespace: str = "",
     container: str = "",
     tail_lines: int = 500,
+    since_seconds: int | None = None,
     previous: bool = False,
+    timestamps: bool = True,
 ) -> dict[str, Any]:
     """Últimas líneas del log de un pod (vía API Steve de Rancher)."""
     pod_key = pod_name.strip()
@@ -948,20 +1047,23 @@ def fetch_pod_logs(
         name=name,
         steve_collection=steve_collection,
     )
-    path = _pod_log_path(
+    k8s_ns = (pod_k8s_namespace or app_ns).strip() or app_ns
+    text = _read_pod_log_text(
+        settings,
         mgmt_id,
-        app_ns,
+        k8s_ns,
         pod_key,
         container=container,
         tail_lines=tail_lines,
+        since_seconds=since_seconds,
         follow=False,
         previous=previous,
+        timestamps=timestamps,
     )
-    text = rancher_get_text(settings, path, timeout_s=RANCHER_POD_LOG_TIMEOUT_S)
     return {
         "managementClusterId": mgmt_id,
         "application": application,
-        "podNamespace": app_ns,
+        "podNamespace": k8s_ns,
         "pod": pod_key,
         "container": container.strip() or None,
         "logs": text,
@@ -975,9 +1077,12 @@ def iter_pod_log_stream(
     name: str,
     steve_collection: str,
     pod_name: str,
+    pod_k8s_namespace: str = "",
     container: str = "",
     tail_lines: int = 200,
+    since_seconds: int | None = None,
     previous: bool = False,
+    timestamps: bool = True,
 ) -> Iterator[str]:
     """Stream de log en vivo (follow=true)."""
     pod_key = pod_name.strip()
@@ -989,16 +1094,19 @@ def iter_pod_log_stream(
         name=name,
         steve_collection=steve_collection,
     )
-    path = _pod_log_path(
+    k8s_ns = (pod_k8s_namespace or app_ns).strip() or app_ns
+    yield from _iter_pod_log_text_stream(
+        settings,
         mgmt_id,
-        app_ns,
+        k8s_ns,
         pod_key,
         container=container,
         tail_lines=tail_lines,
+        since_seconds=since_seconds,
         follow=True,
         previous=previous,
+        timestamps=timestamps,
     )
-    yield from rancher_iter_text_stream(settings, path, timeout_s=RANCHER_POD_LOG_STREAM_TIMEOUT_S)
 
 
 def _count_pods_in_management_cluster(
