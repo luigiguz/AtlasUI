@@ -145,7 +145,7 @@ docker compose up -d
 | Proyecto Compose | `atlas` |
 | Datos | volumen → `/app/.atlas` |
 
-Deploy automático en push a `dev` o `feat/atlas-platform`: [`.github/workflows/atlas-dev-deploy.yml`](.github/workflows/atlas-dev-deploy.yml) (runner self-hosted **Linux ARM64** en el RPi).
+Deploy automático en cada **push a `dev`**: [`.github/workflows/atlas-dev-deploy.yml`](.github/workflows/atlas-dev-deploy.yml) (runner self-hosted **Linux ARM64** en el RPi). También puedes lanzarlo a mano con **workflow_dispatch**.
 
 ---
 

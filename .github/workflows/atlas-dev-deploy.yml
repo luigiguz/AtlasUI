@@ -7,7 +7,6 @@ on:
   push:
     branches:
       - dev
-      - feat/atlas-platform
   workflow_dispatch:
     inputs:
       no_cache:
