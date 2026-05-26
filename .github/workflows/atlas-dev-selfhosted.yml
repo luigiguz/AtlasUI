@@ -3,22 +3,7 @@
 name: Atlas — dev build y deploy (self-hosted)
 
 on:
-  push:
-    branches:
-      - dev
-      - feat/atlas-platform
-    paths:
-      - "backend/**"
-      - "ui/**"
-      - "scripts/**"
-      - "ui/public/branding/**"
-      - "requirements.txt"
-      - "backend/Dockerfile"
-      - "backend/docker-entrypoint.sh"
-      - "ui/Dockerfile"
-      - "docker-compose.yml"
-      - "deploy/**"
-      - ".github/workflows/atlas-dev-selfhosted.yml"
+  # Lo dispara atlas-dev-unblock.yml en cada push (cancela cola atascada primero).
   workflow_dispatch:
     inputs:
       no_cache:
@@ -37,10 +22,8 @@ permissions:
 jobs:
   build-and-deploy:
     name: Build + Compose dev (RPi)
-    runs-on:
-      - self-hosted
-      - Linux
-      - ARM64
+    runs-on: self-hosted
+    timeout-minutes: 90
 
     env:
       COMPOSE_PROJECT_NAME: atlas
