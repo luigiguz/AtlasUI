@@ -64,7 +64,10 @@ jobs:
   build-and-deploy:
     name: Build + Compose dev (RPi)
     needs: unblock
-    runs-on: self-hosted
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
     timeout-minutes: 90
 
     env:
