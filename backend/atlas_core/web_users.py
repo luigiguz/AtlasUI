@@ -203,6 +203,9 @@ def update_user(
                 if len(password) < 12:
                     raise ValueError("La contraseña debe tener al menos 12 caracteres.")
                 row.password_hash = _ph.hash(password)
+                from atlas_core.web_sessions import revoke_all_sessions_for_user
+
+                revoke_all_sessions_for_user(int(row.id))
     except IntegrityError as e:
         if "email" in str(e).lower():
             raise ValueError("Ese correo ya está registrado.") from e

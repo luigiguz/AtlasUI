@@ -37,8 +37,10 @@ from atlas_core.web_auth import (
     register_failed_login,
     require_roles,
     resolve_user_dict,
+    revoke_request_session,
     session_middleware_config,
 )
+from atlas_core.web_sessions import create_user_session, refresh_access_session
 from atlas_rancher.router import router as atlas_rancher_router
 from atlas_stores.router import router as atlas_stores_router
 from atlas_vpn.ssh_terminal_ws import run_ssh_terminal_ws
@@ -126,6 +128,16 @@ class OpenPgAdminBody(BaseModel):
 class LoginBody(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=1, max_length=256)
+
+
+class RefreshBody(BaseModel):
+    refresh_token: str = Field(..., min_length=16, max_length=512)
+
+
+def _request_client_meta(request: Request) -> tuple[str, str]:
+    ip = request.client.host if request.client else ""
+    ua = (request.headers.get("user-agent") or "")[:512]
+    return ip, ua
 
 
 class CreateUserBody(BaseModel):
@@ -304,21 +316,49 @@ def create_app() -> FastAPI:
             register_failed_login(request)
             raise HTTPException(401, "Usuario o contraseña incorrectos.")
         clear_failed_logins(request)
+        ip, ua = _request_client_meta(request)
+        jti, refresh_token = create_user_session(
+            user_id=int(row["id"]),
+            ip_address=ip,
+            user_agent=ua,
+        )
         request.session["user"] = {
             "username": row["username"],
             "role": row["role"],
             "id": row["id"],
+            "jti": jti,
         }
         audit("login_ok", row["username"], "")
         token = encode_access_token(
             username=str(row["username"]),
             role=str(row["role"]),
             user_id=int(row["id"]),
+            jti=jti,
         )
         return {
             "ok": True,
             "user": {"username": row["username"], "role": row["role"]},
             "access_token": token,
+            "refresh_token": refresh_token,
+        }
+
+    @app.post("/api/auth/refresh")
+    def auth_refresh(body: RefreshBody) -> dict[str, Any]:
+        rotated = refresh_access_session(body.refresh_token.strip())
+        if not rotated:
+            raise HTTPException(401, "Sesión expirada o inválida. Vuelve a iniciar sesión.")
+        jti, refresh_token, user = rotated
+        token = encode_access_token(
+            username=str(user["username"]),
+            role=str(user["role"]),
+            user_id=int(user["id"]),
+            jti=jti,
+        )
+        return {
+            "ok": True,
+            "user": {"username": user["username"], "role": user["role"]},
+            "access_token": token,
+            "refresh_token": refresh_token,
         }
 
     @app.post("/api/auth/logout")
@@ -326,6 +366,7 @@ def create_app() -> FastAPI:
         u = resolve_user_dict(request)
         if isinstance(u, dict) and u.get("username"):
             audit("logout", str(u.get("username")), "")
+        revoke_request_session(request)
         request.session.pop("user", None)
         return {"ok": True}
 

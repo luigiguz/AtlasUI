@@ -1,4 +1,4 @@
-"""JWT de acceso (Bearer) para API detrás de otro origen (p. ej. UI en Cloudflare)."""
+"""JWT de acceso (Bearer) vinculado a sesión en BD (`jti`)."""
 
 from __future__ import annotations
 
@@ -22,16 +22,18 @@ def _jwt_secret() -> str:
 
 
 def jwt_ttl_seconds() -> int:
-    return int(atlas_env("JWT_EXPIRE_SECONDS", "604800"))
+    """Access JWT: por defecto 12 h (43200 s)."""
+    return int(atlas_env("JWT_EXPIRE_SECONDS", "43200"))
 
 
-def encode_access_token(*, username: str, role: str, user_id: int) -> str:
+def encode_access_token(*, username: str, role: str, user_id: int, jti: str) -> str:
     now = datetime.now(UTC)
     exp = now + timedelta(seconds=max(300, jwt_ttl_seconds()))
     payload: dict[str, Any] = {
         "sub": username,
         "role": role,
         "uid": user_id,
+        "jti": jti,
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
         "typ": "access",
@@ -50,6 +52,21 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
         return None
     if raw.get("typ") != "access":
         return None
-    if not raw.get("sub") or not raw.get("role"):
+    if not raw.get("sub") or not raw.get("role") or not raw.get("jti"):
         return None
     return raw
+
+
+def resolve_user_from_access_token(token: str) -> dict[str, Any] | None:
+    """JWT válido + sesión activa en PostgreSQL."""
+    from atlas_core.web_sessions import get_active_session, touch_session
+
+    payload = decode_access_token(token)
+    if not payload:
+        return None
+    jti = str(payload["jti"])
+    session_user = get_active_session(jti)
+    if not session_user:
+        return None
+    touch_session(jti)
+    return session_user

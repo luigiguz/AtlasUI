@@ -12,7 +12,8 @@ from fastapi import Depends, HTTPException, Request
 
 from atlas_core.env import atlas_env, atlas_env_flag
 from atlas_core.paths import ATLAS_DATA_DIR, ensure_atlas_data_dir
-from atlas_core.web_tokens import decode_access_token
+from atlas_core.web_sessions import get_active_session, revoke_session
+from atlas_core.web_tokens import resolve_user_from_access_token
 
 SESSION_SECRET_FILE = ATLAS_DATA_DIR / "session.secret"
 
@@ -40,7 +41,7 @@ def get_session_secret() -> str:
 
 def session_middleware_config() -> dict[str, Any]:
     https_only = atlas_env_flag("SECURE_COOKIES")
-    max_age = int(atlas_env("SESSION_MAX_AGE", "604800"))
+    max_age = int(atlas_env("SESSION_MAX_AGE", "43200"))
     return {
         "secret_key": get_session_secret(),
         "session_cookie": "atlas_session",
@@ -89,24 +90,35 @@ def _bearer_token(request: Request) -> str | None:
 
 
 def resolve_user_dict(request: Request) -> dict[str, Any] | None:
-    """Usuario desde Authorization Bearer (JWT) o cookie de sesión."""
+    """Usuario desde Bearer (JWT+jti en BD) o cookie de sesión (jti en BD)."""
     tok = _bearer_token(request)
     if tok:
-        payload = decode_access_token(tok)
-        if payload:
-            try:
-                uid = int(payload.get("uid", 0))
-            except (TypeError, ValueError):
-                uid = 0
-            return {
-                "username": str(payload["sub"]),
-                "role": str(payload["role"]),
-                "id": uid,
-            }
+        u = resolve_user_from_access_token(tok)
+        if u:
+            return u
     raw = request.session.get("user")
     if isinstance(raw, dict) and raw.get("username") and raw.get("role"):
-        return raw
+        jti = raw.get("jti")
+        if isinstance(jti, str) and jti:
+            u = get_active_session(jti)
+            if u:
+                return u
+        return None
     return None
+
+
+def revoke_request_session(request: Request) -> None:
+    """Revoca la sesión del request actual (Bearer o cookie)."""
+    tok = _bearer_token(request)
+    if tok:
+        from atlas_core.web_tokens import decode_access_token
+
+        payload = decode_access_token(tok)
+        if payload and payload.get("jti"):
+            revoke_session(str(payload["jti"]))
+    raw = request.session.get("user")
+    if isinstance(raw, dict) and raw.get("jti"):
+        revoke_session(str(raw["jti"]))
 
 
 def current_user(request: Request) -> dict[str, Any]:

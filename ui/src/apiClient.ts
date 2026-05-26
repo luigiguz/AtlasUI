@@ -15,6 +15,7 @@ function resolveApiBase(): string {
 export const API_BASE = resolveApiBase();
 
 const TOKEN_KEY = "atlas_access_token";
+const REFRESH_KEY = "atlas_refresh_token";
 const LEGACY_TOKEN_KEY = "atlasvpn_access_token";
 
 /** sessionStorage no se comparte entre ventanas emergentes; localStorage sí (mismo origen). */
@@ -69,6 +70,23 @@ export function getAccessToken(): string | null {
   }
 }
 
+export function getRefreshToken(): string | null {
+  try {
+    return localStorage.getItem(REFRESH_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setRefreshToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(REFRESH_KEY, token);
+    else localStorage.removeItem(REFRESH_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function setAccessToken(token: string | null): void {
   try {
     if (token) {
@@ -83,6 +101,35 @@ export function setAccessToken(token: string | null): void {
     }
   } catch {
     /* ignore */
+  }
+}
+
+export function clearAuthTokens(): void {
+  setAccessToken(null);
+  setRefreshToken(null);
+}
+
+/** Renueva access_token usando refresh_token en BD. */
+export async function refreshAccessToken(): Promise<boolean> {
+  const refresh = getRefreshToken();
+  if (!refresh) return false;
+  try {
+    const r = await fetch(apiUrl("/api/auth/refresh"), {
+      method: "POST",
+      credentials: "omit",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refresh }),
+    });
+    const data = (await r.json().catch(() => ({}))) as {
+      access_token?: string;
+      refresh_token?: string;
+    };
+    if (!r.ok || !data.access_token) return false;
+    setAccessToken(data.access_token);
+    if (data.refresh_token) setRefreshToken(data.refresh_token);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -114,6 +161,22 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     detail?: string | { msg: string }[];
   };
   if (r.status === 401) {
+    const refreshed =
+      path !== "/api/auth/refresh" &&
+      path !== "/api/auth/login" &&
+      (await refreshAccessToken());
+    if (refreshed) {
+      const retry = await fetch(apiUrl(path), {
+        ...init,
+        credentials: cross ? "omit" : "include",
+        headers: mergeHeaders(init),
+      });
+      const retryData = (await retry.json().catch(() => ({}))) as {
+        message?: string;
+        detail?: string | { msg: string }[];
+      };
+      if (retry.ok) return retryData as T;
+    }
     window.dispatchEvent(new CustomEvent("atlas-unauthorized"));
   }
   if (!r.ok) {

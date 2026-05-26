@@ -23,7 +23,7 @@ import {
   type SetStateAction,
 } from "react";
 
-import { API_BASE, api, apiUrl, bearerHeaders, setAccessToken } from "./apiClient";
+import { API_BASE, api, apiUrl, bearerHeaders, clearAuthTokens } from "./apiClient";
 import { clearSessionActivity, touchSessionActivity, useIdleLogout } from "./useIdleLogout";
 import type { AtlasRouteId } from "./atlasNav";
 import { AuthLoginPanel } from "./components/AuthLoginPanel";
@@ -703,7 +703,7 @@ export default function App() {
 
   const endSession = useCallback(() => {
     clearSessionActivity();
-    setAccessToken(null);
+    clearAuthTokens();
     setMe(null);
     setAuthPhase("login");
     setTab("conn");
