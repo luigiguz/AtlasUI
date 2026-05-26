@@ -1,38 +1,84 @@
-# Plataforma Atlas (API + UI nginx). Túneles Cloudflare típicos:
-#   https://atlas-ui.verkku.com      → localhost:8088 (UI; puerto host ATLAS_UI_PORT)
-#   https://api-atlas-vpn.verkku.com → localhost:8765 (API)
-#
-# UI: ATLAS_PUBLIC_API_URL en atlas-ui (escribe /atlas-runtime-config.js).
-# API: ATLAS_CORS_ORIGINS debe incluir el origen de la UI (https://atlas-ui.verkku.com).
+# Plataforma Atlas (API + UI + PostgreSQL). Valores fijos en este archivo (sin .env).
+# UI: http://localhost:8088  |  API: http://localhost:8765  |  pgAdmin: http://localhost:5050
 
 name: atlas
 
 services:
+  atlas-postgres:
+    image: postgres:16-alpine
+    container_name: atlas-postgres
+    restart: unless-stopped
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: Atlas_Pg_Dev_2026
+      POSTGRES_DB: atlas
+      TZ: America/Panama
+    ports:
+      - "5432:5432"
+    volumes:
+      - atlas_pgdata:/var/lib/postgresql/data
+      # RPi: descomenta si existe /var/postgresql.conf en el host
+      # - /var/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    # command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    networks:
+      - atlas_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atlas -d atlas"]
+      interval: 5s
+      timeout: 5s
+      retries: 8
+      start_period: 10s
+
+  atlas-pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: atlas-pgadmin
+    restart: unless-stopped
+    depends_on:
+      atlas-postgres:
+        condition: service_healthy
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      TZ: America/Panama
+    volumes:
+      - atlas_pgadmin:/var/lib/pgadmin
+    networks:
+      - atlas_net
+
   atlas-api:
     build:
       context: .
       dockerfile: backend/Dockerfile
       args:
-        CLOUDFLARED_VERSION: ${CLOUDFLARED_VERSION:-2026.5.0}
-    image: ${ATLAS_API_IMAGE:-atlas-api}:${ATLAS_TAG:-latest}
+        CLOUDFLARED_VERSION: "2026.5.0"
+    image: atlas-api:latest
     container_name: atlas-api
     restart: unless-stopped
+    depends_on:
+      atlas-postgres:
+        condition: service_healthy
     ports:
-      - "${ATLAS_API_PORT:-8765}:8765"
+      - "8765:8765"
     environment:
-      TZ: ${TZ:-UTC}
+      TZ: America/Panama
       ATLAS_API_ONLY: "1"
-      ATLAS_SESSION_SECRET: ${ATLAS_SESSION_SECRET:-}
-      ATLAS_JWT_SECRET: ${ATLAS_JWT_SECRET:-}
-      ATLAS_SECURE_COOKIES: ${ATLAS_SECURE_COOKIES:-0}
-      ATLAS_SESSION_MAX_AGE: ${ATLAS_SESSION_MAX_AGE:-604800}
-      ATLAS_DEFAULT_ADMIN_USERNAME: ${ATLAS_DEFAULT_ADMIN_USERNAME:-admin}
-      ATLAS_DEFAULT_ADMIN_PASSWORD: ${ATLAS_DEFAULT_ADMIN_PASSWORD:-Atlas_Admin_Initial12}
-      ATLAS_CORS_ORIGINS: ${ATLAS_CORS_ORIGINS:-https://atlas-ui.verkku.com,https://atlas-vpn.verkku.com,http://127.0.0.1:5173,http://localhost:5173}
+      ATLAS_SESSION_SECRET: atlas-session-secret-change-in-prod
+      ATLAS_JWT_SECRET: atlas-jwt-secret-change-in-prod
+      ATLAS_SECURE_COOKIES: "0"
+      ATLAS_SESSION_MAX_AGE: "604800"
+      ATLAS_DEFAULT_ADMIN_USERNAME: admin
+      ATLAS_DEFAULT_ADMIN_PASSWORD: Atlas_Admin_Initial12
+      ATLAS_CORS_ORIGINS: "https://atlas-ui.verkku.com,https://atlas-vpn.verkku.com,http://127.0.0.1:5173,http://localhost:5173"
+      ATLAS_DATABASE_URL: postgresql+psycopg://atlas:Atlas_Pg_Dev_2026@atlas-postgres:5432/atlas
     volumes:
       - atlas_settings:/app/.atlas
       - atlas_cloudflared:/app/.cloudflared-tunnels
       - ./scripts/tunnels.json:/app/scripts/tunnels.json:rw
+    networks:
+      - atlas_net
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/api/health"]
       interval: 30s
@@ -45,17 +91,20 @@ services:
       context: .
       dockerfile: ui/Dockerfile
       args:
-        VITE_API_BASE_URL: ${ATLAS_PUBLIC_API_URL:-}
-    image: ${ATLAS_UI_IMAGE:-atlas-ui}:${ATLAS_TAG:-latest}
+        VITE_API_BASE_URL: ""
+    image: atlas-ui:latest
     container_name: atlas-ui
     restart: unless-stopped
     ports:
-      - "${ATLAS_UI_PORT:-8088}:80"
+      - "8088:80"
     depends_on:
       atlas-api:
         condition: service_started
     environment:
       ATLAS_PUBLIC_API_URL: https://api-atlas-vpn.verkku.com
+      TZ: America/Panama
+    networks:
+      - atlas_net
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
       interval: 30s
@@ -63,6 +112,12 @@ services:
       retries: 3
       start_period: 10s
 
+networks:
+  atlas_net:
+    driver: bridge
+
 volumes:
   atlas_settings:
   atlas_cloudflared:
+  atlas_pgdata:
+  atlas_pgadmin:

@@ -52,21 +52,49 @@ En Docker el `WORKDIR` es `/app`; se copia `backend/` y el comando es `python -m
 2. En `atlas_api/app.py`: `app.include_router(...)`.
 3. Menú en `ui/src/atlasNav.ts` y vista asociada.
 
+## Base de datos (PostgreSQL / SQLite)
+
+Persistencia unificada en `backend/atlas_core/db/` (SQLAlchemy 2 + Alembic).
+
+| Tabla | Uso |
+|-------|-----|
+| `users` | Cuentas web (Argon2id, roles admin/operator/viewer) |
+| `audit_web` | Auditoría de login y gestión de usuarios |
+| `app_settings` | JSON por namespace: `cloudflare`, `rancher`, `stores` |
+
+| Entorno | `ATLAS_DATABASE_URL` |
+|---------|----------------------|
+| Docker (RPi) | `postgresql+psycopg://atlas:…@atlas-postgres:5432/atlas` (ver `docker-compose.yml`) |
+| Local sin Docker | *(vacío)* → SQLite en `.atlas/atlas.db` |
+
+Al arrancar, si la BD está vacía se importan automáticamente `users.db` y los JSON legacy (`settings.json`, `rancher.json`, `stores.json`).
+
+Migraciones:
+
+```bash
+cd backend
+set ATLAS_DATABASE_URL=postgresql+psycopg://atlas:pass@localhost:5432/atlas
+alembic upgrade head
+```
+
+**Fuera de la BD:** `scripts/tunnels.json`, estado `cloudflared`, repo Git de tiendas (YAML), branding estático.
+
 ## Datos y variables de entorno
 
 | Ruta / variable | Notas |
 |-----------------|--------|
-| `.atlas/` | Datos locales (settings, usuarios, secretos de sesión) |
-| `ATLAS_*` | Variables de entorno (Docker, producción) |
+| `.atlas/` | SQLite local, caché Git stores, secretos de sesión en archivo |
+| `ATLAS_DATABASE_URL` | PostgreSQL (recomendado en producción) |
+| `ATLAS_POSTGRES_*` | Usuario/contraseña/DB en Compose |
+| `ATLAS_*` | Resto de configuración (Docker, producción) |
 | `ATLASVPN_*` | Legacy: el backend las acepta en transición |
-| `atlas-runtime-config.js` | Runtime UI en nginx (`window.__ATLAS_API_BASE__`) |
-| `atlas_access_token` | Token JWT en localStorage (migra desde `atlasvpn_access_token`) |
+
+Variables de módulo siguen pudiendo **sobrescribir** la BD vía env (`ATLAS_RANCHER_URL`, `ATLAS_STORES_REPO_URL`, etc.).
 
 ### Migración desde nombres antiguos
 
-- Carpeta `.atlasvpn/` → `.atlas/` al primer arranque (`ensure_atlas_data_dir()`).
-- En Docker: volumen montado en `/app/.atlas` (antes `/app/.atlasvpn`).
-- En el host/RPi: renombrar variables en `.env` de `ATLASVPN_*` a `ATLAS_*` cuando puedas.
+- Carpeta `.atlasvpn/` → `.atlas/` al primer arranque.
+- `users.db` + JSON de settings → tablas PostgreSQL/SQLite en el primer `init_db()`.
 
 ## Desarrollo
 

@@ -1,43 +1,22 @@
-"""Configuración del repositorio atlas-stores (solo URL Git)."""
+"""Configuración del repositorio atlas-stores (URL Git)."""
 
 from __future__ import annotations
 
-import json
-
+from atlas_core.db.settings import load_namespace, save_namespace
 from atlas_core.env import atlas_env
-from atlas_core.paths import ATLAS_DATA_DIR, ensure_atlas_data_dir
 
-STORES_SETTINGS_FILE = ATLAS_DATA_DIR / "stores.json"
+_NAMESPACE = "stores"
 
 
-def load_stores_settings() -> dict[str, str | bool]:
-    file_cfg: dict[str, str | bool] = {
-        "repo_url": "",
-        "branch": "main",
-        "git_token": "",
-        "auto_pull": True,
-        "auto_push": True,
-    }
-    if STORES_SETTINGS_FILE.is_file():
-        try:
-            with STORES_SETTINGS_FILE.open(encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            data = {}
-        file_cfg["repo_url"] = str(data.get("repo_url", "")).strip()
-        file_cfg["branch"] = str(data.get("branch", "main")).strip() or "main"
-        file_cfg["git_token"] = str(data.get("git_token", "")).strip()
-        file_cfg["auto_pull"] = bool(data.get("auto_pull", True))
-        file_cfg["auto_push"] = bool(data.get("auto_push", True))
-
-    repo_url = atlas_env("ATLAS_STORES_REPO_URL") or str(file_cfg["repo_url"])
-    branch = atlas_env("ATLAS_STORES_BRANCH") or str(file_cfg["branch"])
-    git_token = atlas_env("ATLAS_STORES_GIT_TOKEN") or str(file_cfg["git_token"])
+def _from_env_and_file(file_cfg: dict[str, str | bool]) -> dict[str, str | bool]:
+    repo_url = atlas_env("ATLAS_STORES_REPO_URL") or str(file_cfg.get("repo_url", ""))
+    branch = atlas_env("ATLAS_STORES_BRANCH") or str(file_cfg.get("branch", "main"))
+    git_token = atlas_env("ATLAS_STORES_GIT_TOKEN") or str(file_cfg.get("git_token", ""))
     auto_pull = atlas_env("ATLAS_STORES_AUTO_PULL").lower() in ("1", "true", "yes") or bool(
-        file_cfg["auto_pull"]
+        file_cfg.get("auto_pull", True)
     )
     auto_push = atlas_env("ATLAS_STORES_AUTO_PUSH").lower() in ("1", "true", "yes") or bool(
-        file_cfg["auto_push"]
+        file_cfg.get("auto_push", True)
     )
     return {
         "repo_url": repo_url.strip(),
@@ -48,6 +27,18 @@ def load_stores_settings() -> dict[str, str | bool]:
     }
 
 
+def load_stores_settings() -> dict[str, str | bool]:
+    raw = load_namespace(_NAMESPACE)
+    file_cfg: dict[str, str | bool] = {
+        "repo_url": str(raw.get("repo_url", "")).strip(),
+        "branch": str(raw.get("branch", "main")).strip() or "main",
+        "git_token": str(raw.get("git_token", "")).strip(),
+        "auto_pull": bool(raw.get("auto_pull", True)),
+        "auto_push": bool(raw.get("auto_push", True)),
+    }
+    return _from_env_and_file(file_cfg)
+
+
 def save_stores_settings(
     *,
     repo_url: str = "",
@@ -56,7 +47,6 @@ def save_stores_settings(
     auto_pull: bool = True,
     auto_push: bool = False,
 ) -> None:
-    ensure_atlas_data_dir()
     prev = load_stores_settings()
     token = git_token.strip() or str(prev.get("git_token") or "")
     blob = {
@@ -66,5 +56,4 @@ def save_stores_settings(
         "auto_pull": bool(auto_pull),
         "auto_push": bool(auto_push),
     }
-    with STORES_SETTINGS_FILE.open("w", encoding="utf-8") as f:
-        json.dump(blob, f, indent=2)
+    save_namespace(_NAMESPACE, blob)

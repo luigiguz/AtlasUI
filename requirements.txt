@@ -16,3 +16,8 @@ cloudflare>=3.1.0
 
 # Gestión de tiendas (atlas-stores / fleet.yaml)
 PyYAML>=6.0.0
+
+# Base de datos (PostgreSQL en Docker; SQLite local sin ATLAS_DATABASE_URL)
+SQLAlchemy>=2.0.0
+psycopg[binary]>=3.1.0
+alembic>=1.13.0

@@ -256,7 +256,18 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
-        return {"status": "ok"}
+        from atlas_core.db.config import database_url
+        from sqlalchemy import create_engine, text
+
+        payload: dict[str, str] = {"status": "ok", "service": "atlas-api"}
+        try:
+            with create_engine(database_url(), pool_pre_ping=True).connect() as conn:
+                conn.execute(text("SELECT 1"))
+            payload["database"] = "ok"
+        except Exception as e:
+            payload["status"] = "degraded"
+            payload["database"] = str(e)[:200]
+        return payload
 
     @app.websocket("/api/ws/ssh-terminal")
     async def ws_ssh_terminal(websocket: WebSocket) -> None:

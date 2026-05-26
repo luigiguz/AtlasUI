@@ -1,0 +1,11 @@
+# Ejemplo para RPi/host: copiar a /var/postgresql.conf (o ruta en ATLAS_POSTGRES_CONF)
+# y descomentar volume + command en docker-compose.yml (servicio atlas-postgres).
+#
+# data_directory lo fija el entrypoint oficial de la imagen postgres;
+# este archivo solo añade overrides.
+
+listen_addresses = '*'
+max_connections = 100
+shared_buffers = 128MB
+log_timezone = 'America/Panama'
+timezone = 'America/Panama'

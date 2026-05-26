@@ -2,23 +2,20 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 from atlas_vpn.cf_credentials import normalize_account_id, normalize_api_token
-from atlas_core.paths import SETTINGS_FILE, ensure_atlas_data_dir
+from atlas_core.db.settings import load_namespace, save_namespace
+
+_NAMESPACE = "cloudflare"
+
+_DEFAULTS = {
+    "account_id": "",
+    "api_token": "",
+    "domain_suffix": "asptienda.com",
+    "zone_id": "",
+}
 
 
-def load_settings() -> dict:
-    if not SETTINGS_FILE.is_file():
-        return {
-            "account_id": "",
-            "api_token": "",
-            "domain_suffix": "asptienda.com",
-            "zone_id": "",
-        }
-    with SETTINGS_FILE.open(encoding="utf-8") as f:
-        data = json.load(f)
+def _normalize(data: dict) -> dict:
     return {
         "account_id": normalize_account_id(str(data.get("account_id", ""))),
         "api_token": normalize_api_token(str(data.get("api_token", ""))),
@@ -27,15 +24,22 @@ def load_settings() -> dict:
     }
 
 
+def load_settings() -> dict:
+    raw = load_namespace(_NAMESPACE)
+    if not raw:
+        return dict(_DEFAULTS)
+    return _normalize(raw)
+
+
 def save_settings(
     account_id: str, api_token: str, domain_suffix: str, zone_id: str = ""
 ) -> None:
-    ensure_atlas_data_dir()
-    blob = {
-        "account_id": normalize_account_id(account_id),
-        "api_token": normalize_api_token(api_token),
-        "domain_suffix": (domain_suffix or "asptienda.com").strip(),
-        "zone_id": normalize_account_id(zone_id),
-    }
-    with SETTINGS_FILE.open("w", encoding="utf-8") as f:
-        json.dump(blob, f, indent=2)
+    blob = _normalize(
+        {
+            "account_id": account_id,
+            "api_token": api_token,
+            "domain_suffix": domain_suffix,
+            "zone_id": zone_id,
+        }
+    )
+    save_namespace(_NAMESPACE, blob)

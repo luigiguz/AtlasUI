@@ -2,42 +2,23 @@
 
 from __future__ import annotations
 
-import json
-
+from atlas_core.db.settings import load_namespace, save_namespace
 from atlas_core.env import atlas_env
-from atlas_core.paths import ATLAS_DATA_DIR, ensure_atlas_data_dir
 
-RANCHER_SETTINGS_FILE = ATLAS_DATA_DIR / "rancher.json"
+_NAMESPACE = "rancher"
 
 
-def load_rancher_settings() -> dict[str, str | bool]:
-    file_cfg: dict[str, str | bool] = {
-        "url": "",
-        "token": "",
-        "insecure_tls": False,
-        "cf_access_client_id": "",
-        "cf_access_client_secret": "",
-        "user_agent": "",
-    }
-    if RANCHER_SETTINGS_FILE.is_file():
-        try:
-            with RANCHER_SETTINGS_FILE.open(encoding="utf-8") as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            data = {}
-        file_cfg["url"] = str(data.get("url", "")).strip().rstrip("/")
-        file_cfg["token"] = str(data.get("token", "")).strip()
-        file_cfg["insecure_tls"] = bool(data.get("insecure_tls", False))
-        file_cfg["cf_access_client_id"] = str(data.get("cf_access_client_id", "")).strip()
-        file_cfg["cf_access_client_secret"] = str(data.get("cf_access_client_secret", "")).strip()
-        file_cfg["user_agent"] = str(data.get("user_agent", "")).strip()
-
-    url = atlas_env("RANCHER_URL") or str(file_cfg["url"])
-    token = atlas_env("RANCHER_TOKEN") or str(file_cfg["token"])
-    insecure = atlas_env("RANCHER_INSECURE_TLS").lower() in ("1", "true", "yes") or bool(file_cfg["insecure_tls"])
-    cf_id = atlas_env("RANCHER_CF_ACCESS_CLIENT_ID") or str(file_cfg["cf_access_client_id"])
-    cf_secret = atlas_env("RANCHER_CF_ACCESS_CLIENT_SECRET") or str(file_cfg["cf_access_client_secret"])
-    user_agent = atlas_env("RANCHER_USER_AGENT") or str(file_cfg["user_agent"])
+def _from_env_and_file(file_cfg: dict[str, str | bool]) -> dict[str, str | bool]:
+    url = atlas_env("RANCHER_URL") or str(file_cfg.get("url", ""))
+    token = atlas_env("RANCHER_TOKEN") or str(file_cfg.get("token", ""))
+    insecure = atlas_env("RANCHER_INSECURE_TLS").lower() in ("1", "true", "yes") or bool(
+        file_cfg.get("insecure_tls", False)
+    )
+    cf_id = atlas_env("RANCHER_CF_ACCESS_CLIENT_ID") or str(file_cfg.get("cf_access_client_id", ""))
+    cf_secret = atlas_env("RANCHER_CF_ACCESS_CLIENT_SECRET") or str(
+        file_cfg.get("cf_access_client_secret", "")
+    )
+    user_agent = atlas_env("RANCHER_USER_AGENT") or str(file_cfg.get("user_agent", ""))
     return {
         "url": url.strip().rstrip("/"),
         "token": token.strip(),
@@ -46,6 +27,19 @@ def load_rancher_settings() -> dict[str, str | bool]:
         "cf_access_client_secret": cf_secret.strip(),
         "user_agent": user_agent.strip(),
     }
+
+
+def load_rancher_settings() -> dict[str, str | bool]:
+    raw = load_namespace(_NAMESPACE)
+    file_cfg: dict[str, str | bool] = {
+        "url": str(raw.get("url", "")).strip().rstrip("/"),
+        "token": str(raw.get("token", "")).strip(),
+        "insecure_tls": bool(raw.get("insecure_tls", False)),
+        "cf_access_client_id": str(raw.get("cf_access_client_id", "")).strip(),
+        "cf_access_client_secret": str(raw.get("cf_access_client_secret", "")).strip(),
+        "user_agent": str(raw.get("user_agent", "")).strip(),
+    }
+    return _from_env_and_file(file_cfg)
 
 
 def save_rancher_settings(
@@ -57,7 +51,6 @@ def save_rancher_settings(
     cf_access_client_secret: str = "",
     user_agent: str = "",
 ) -> None:
-    ensure_atlas_data_dir()
     blob = {
         "url": url.strip().rstrip("/"),
         "token": token.strip(),
@@ -66,5 +59,4 @@ def save_rancher_settings(
         "cf_access_client_secret": cf_access_client_secret.strip(),
         "user_agent": user_agent.strip(),
     }
-    with RANCHER_SETTINGS_FILE.open("w", encoding="utf-8") as f:
-        json.dump(blob, f, indent=2)
+    save_namespace(_NAMESPACE, blob)
