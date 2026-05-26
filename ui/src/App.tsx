@@ -26,6 +26,7 @@ import {
 import { API_BASE, api, apiUrl, bearerHeaders, setAccessToken } from "./apiClient";
 import { clearSessionActivity, touchSessionActivity, useIdleLogout } from "./useIdleLogout";
 import type { AtlasRouteId } from "./atlasNav";
+import { AuthLoginPanel } from "./components/AuthLoginPanel";
 import { AtlasShell } from "./components/AtlasShell";
 import { PoweredByVerkkutech } from "./components/PoweredByVerkkutech";
 import {
@@ -228,71 +229,6 @@ function StatusPill({ kind }: { kind: string }) {
       ) : null}
       {active ? "Activo" : kind === "dead" ? "Muerto" : "—"}
     </span>
-  );
-}
-
-function AuthLoginPanel({ onDone }: { onDone: (u: AuthUser) => void }) {
-  const [user, setUser] = useState("");
-  const [pw, setPw] = useState("");
-  const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setErr("");
-    setBusy(true);
-    try {
-      const r = await api<{ ok: boolean; user: { username: string; role: string }; access_token?: string }>(
-        "/api/auth/login",
-        {
-          method: "POST",
-          body: JSON.stringify({ username: user.trim(), password: pw }),
-        }
-      );
-      if (r.access_token) setAccessToken(r.access_token);
-      else setAccessToken(null);
-      onDone({ username: r.user.username, role: r.user.role as AuthUser["role"] });
-    } catch (ex) {
-      setErr(String(ex));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-cf-ink px-4 text-zinc-100 vpn-grid-bg">
-      <form
-        onSubmit={(e) => void submit(e)}
-        className="w-full max-w-sm space-y-4 rounded-2xl border border-cf-line bg-cf-card/90 p-8 ring-1 ring-white/5"
-      >
-        <h1 className="text-xl font-semibold">Iniciar sesión</h1>
-        <p className="text-sm text-zinc-400">Acceso a la plataforma Atlas.</p>
-        {err ? <p className="text-sm text-rose-300">{err}</p> : null}
-        <input
-          className="w-full rounded-lg border border-cf-line bg-black/30 px-3 py-2 text-sm outline-none ring-cf-orange/40 focus:ring-2"
-          placeholder="Usuario"
-          value={user}
-          onChange={(e) => setUser(e.target.value)}
-          autoComplete="username"
-          required
-        />
-        <input
-          className="w-full rounded-lg border border-cf-line bg-black/30 px-3 py-2 text-sm outline-none ring-cf-orange/40 focus:ring-2"
-          placeholder="Contraseña"
-          type="password"
-          value={pw}
-          onChange={(e) => setPw(e.target.value)}
-          autoComplete="current-password"
-          required
-        />
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-xl bg-cf-orange py-2.5 text-sm font-semibold text-black disabled:opacity-50"
-        >
-          {busy ? "Entrando…" : "Entrar"}
-        </button>
-        <PoweredByVerkkutech compact className="border-t border-cf-line/60 pt-4" />
-      </form>
-    </div>
   );
 }
 
