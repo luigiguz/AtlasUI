@@ -7,9 +7,10 @@ import logging
 import ssl
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
+from typing import Any, Iterator
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +31,8 @@ STEVE_COLLECTION_CUSTOM = "provisioning.cattle.io.customclusters"
 STEVE_COLLECTION_CLUSTER = "provisioning.cattle.io.clusters"
 RANCHER_HTTP_TIMEOUT_S = 12.0
 RANCHER_POD_COUNT_TIMEOUT_S = 8.0
+RANCHER_POD_LOG_TIMEOUT_S = 45.0
+RANCHER_POD_LOG_STREAM_TIMEOUT_S = 600.0
 ROLLOUT_WAIT_TIMEOUT_S = 120.0
 ROLLOUT_POLL_INTERVAL_S = 2.0
 POD_COUNT_MAX_WORKERS = 4
@@ -167,6 +170,78 @@ def rancher_put(
     timeout_s: float = RANCHER_HTTP_TIMEOUT_S,
 ) -> Any:
     return _rancher_request(settings, path, method="PUT", body=body, timeout_s=timeout_s)
+
+
+def _rancher_open_stream(
+    settings: dict[str, str | bool],
+    path: str,
+    *,
+    timeout_s: float,
+) -> Any:
+    """Abre respuesta HTTP cruda (p. ej. log follow=true)."""
+    url = str(settings.get("url") or "").strip()
+    token = str(settings.get("token") or "").strip()
+    insecure_tls = bool(settings.get("insecure_tls"))
+    if not url or not token:
+        raise RancherConfigError("Configura la URL y el token de Rancher (Atlas Rancher o variables ATLAS_RANCHER_*).")
+    full = f"{url.rstrip('/')}/{path.lstrip('/')}"
+    headers = _rancher_request_headers(settings)
+    headers["Accept"] = "text/plain, */*"
+    req = urllib.request.Request(full, headers=headers, method="GET")
+    try:
+        return urllib.request.urlopen(
+            req, timeout=timeout_s, context=_ssl_context(insecure_tls)
+        )
+    except urllib.error.HTTPError as e:
+        err_body = ""
+        try:
+            err_body = e.read().decode("utf-8", errors="replace")[:800]
+        except OSError:
+            pass
+        hint = _cloudflare_hint(err_body, e.code) or ""
+        raise RancherApiError(
+            f"Rancher respondió HTTP {e.code} en {path}"
+            + (f": {err_body}" if err_body else "")
+            + hint,
+            status=e.code,
+        ) from e
+    except urllib.error.URLError as e:
+        raise RancherApiError(f"No se pudo conectar con Rancher: {e.reason}") from e
+    except TimeoutError as e:
+        raise RancherApiError(
+            f"Timeout al consultar Rancher ({timeout_s}s en {path})."
+        ) from e
+
+
+def rancher_get_text(
+    settings: dict[str, str | bool],
+    path: str,
+    *,
+    timeout_s: float = RANCHER_POD_LOG_TIMEOUT_S,
+) -> str:
+    with _rancher_open_stream(settings, path, timeout_s=timeout_s) as resp:
+        raw = resp.read()
+    if not raw:
+        return ""
+    return raw.decode("utf-8", errors="replace")
+
+
+def rancher_iter_text_stream(
+    settings: dict[str, str | bool],
+    path: str,
+    *,
+    timeout_s: float = RANCHER_POD_LOG_STREAM_TIMEOUT_S,
+    chunk_size: int = 4096,
+) -> Iterator[str]:
+    resp = _rancher_open_stream(settings, path, timeout_s=timeout_s)
+    try:
+        while True:
+            chunk = resp.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk.decode("utf-8", errors="replace")
+    finally:
+        resp.close()
 
 
 def _steve_resource_path(collection: str, namespace: str, name: str) -> str:
@@ -396,6 +471,11 @@ def _normalize_pod(item: dict[str, Any], *, application_namespace: str) -> dict[
             pass
     containers = spec.get("containers")
     total_containers = len(containers) if isinstance(containers, list) else len(container_statuses)
+    container_names: list[str] = []
+    if isinstance(containers, list):
+        for c in containers:
+            if isinstance(c, dict) and c.get("name"):
+                container_names.append(str(c["name"]))
     return {
         "name": str(meta.get("name") or ""),
         "namespace": application_namespace or str(meta.get("namespace") or ""),
@@ -405,6 +485,7 @@ def _normalize_pod(item: dict[str, Any], *, application_namespace: str) -> dict[
         "restarts": restart_total,
         "podIP": str(status.get("podIP") or ""),
         "createdAt": meta.get("creationTimestamp"),
+        "containers": container_names,
     }
 
 
@@ -820,6 +901,104 @@ def list_custom_cluster_pods(
         pods.append(_normalize_pod(i, application_namespace=application))
     pods.sort(key=lambda p: (p.get("name") or ""))
     return pods_path, mgmt_id, application, pods
+
+
+def _pod_log_path(
+    mgmt_id: str,
+    k8s_ns: str,
+    pod_name: str,
+    *,
+    container: str = "",
+    tail_lines: int = 500,
+    follow: bool = False,
+    previous: bool = False,
+    timestamps: bool = True,
+) -> str:
+    base = f"k8s/clusters/{mgmt_id}/v1/pods/{k8s_ns}/{pod_name}/log"
+    params: list[str] = [f"tailLines={max(1, min(tail_lines, 5000))}"]
+    if timestamps:
+        params.append("timestamps=true")
+    if follow:
+        params.append("follow=true")
+    if previous:
+        params.append("previous=true")
+    if container.strip():
+        params.append(f"container={urllib.parse.quote(container.strip())}")
+    return f"{base}?{'&'.join(params)}"
+
+
+def fetch_pod_logs(
+    settings: dict[str, str | bool],
+    *,
+    namespace: str,
+    name: str,
+    steve_collection: str,
+    pod_name: str,
+    container: str = "",
+    tail_lines: int = 500,
+    previous: bool = False,
+) -> dict[str, Any]:
+    """Últimas líneas del log de un pod (vía API Steve de Rancher)."""
+    pod_key = pod_name.strip()
+    if not pod_key:
+        raise RancherConfigError("El nombre del pod es obligatorio.")
+    mgmt_id, app_ns, application = resolve_custom_cluster_context(
+        settings,
+        namespace=namespace,
+        name=name,
+        steve_collection=steve_collection,
+    )
+    path = _pod_log_path(
+        mgmt_id,
+        app_ns,
+        pod_key,
+        container=container,
+        tail_lines=tail_lines,
+        follow=False,
+        previous=previous,
+    )
+    text = rancher_get_text(settings, path, timeout_s=RANCHER_POD_LOG_TIMEOUT_S)
+    return {
+        "managementClusterId": mgmt_id,
+        "application": application,
+        "podNamespace": app_ns,
+        "pod": pod_key,
+        "container": container.strip() or None,
+        "logs": text,
+    }
+
+
+def iter_pod_log_stream(
+    settings: dict[str, str | bool],
+    *,
+    namespace: str,
+    name: str,
+    steve_collection: str,
+    pod_name: str,
+    container: str = "",
+    tail_lines: int = 200,
+    previous: bool = False,
+) -> Iterator[str]:
+    """Stream de log en vivo (follow=true)."""
+    pod_key = pod_name.strip()
+    if not pod_key:
+        raise RancherConfigError("El nombre del pod es obligatorio.")
+    mgmt_id, app_ns, _application = resolve_custom_cluster_context(
+        settings,
+        namespace=namespace,
+        name=name,
+        steve_collection=steve_collection,
+    )
+    path = _pod_log_path(
+        mgmt_id,
+        app_ns,
+        pod_key,
+        container=container,
+        tail_lines=tail_lines,
+        follow=True,
+        previous=previous,
+    )
+    yield from rancher_iter_text_stream(settings, path, timeout_s=RANCHER_POD_LOG_STREAM_TIMEOUT_S)
 
 
 def _count_pods_in_management_cluster(

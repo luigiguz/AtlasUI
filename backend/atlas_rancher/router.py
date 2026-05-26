@@ -6,14 +6,17 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from atlas_core.permissions import PERM_RANCHER_CONFIGURE, PERM_RANCHER_WRITE
+from atlas_core.permissions import PERM_RANCHER_CONFIGURE, PERM_RANCHER_READ, PERM_RANCHER_WRITE
 from atlas_core.web_auth import current_user, require_permission
 from atlas_rancher.client import (
     RancherApiError,
     RancherConfigError,
     enrich_clusters_with_pod_counts,
+    fetch_pod_logs,
+    iter_pod_log_stream,
     list_custom_cluster_deployments,
     list_custom_cluster_pods,
     list_custom_clusters,
@@ -352,3 +355,70 @@ def get_custom_cluster_pods(
         "count": len(pods),
         "pods": pods,
     }
+
+
+@router.get("/custom-clusters/{namespace}/{name}/pods/{pod_name}/logs")
+def get_custom_cluster_pod_logs(
+    namespace: str,
+    name: str,
+    pod_name: str,
+    steve_collection: str = Query(default="provisioning.cattle.io.customclusters"),
+    container: str = Query(default=""),
+    tail_lines: int = Query(default=500, ge=1, le=5000),
+    previous: bool = Query(default=False),
+    follow: bool = Query(default=False),
+    _user: dict[str, Any] = Depends(require_permission(PERM_RANCHER_READ)),
+) -> Any:
+    settings = load_rancher_settings()
+    if not settings["url"] or not settings["token"]:
+        raise HTTPException(400, "Configura la conexión a Rancher antes de consultar logs.")
+    steve = steve_collection.strip()
+    try:
+        if follow:
+
+            def _stream():
+                try:
+                    for chunk in iter_pod_log_stream(
+                        settings,
+                        namespace=namespace,
+                        name=name,
+                        steve_collection=steve,
+                        pod_name=pod_name,
+                        container=container,
+                        tail_lines=min(tail_lines, 500),
+                        previous=previous,
+                    ):
+                        yield chunk
+                except RancherApiError as e:
+                    yield f"\n[Atlas] {e}\n"
+                except RancherConfigError as e:
+                    yield f"\n[Atlas] {e}\n"
+
+            return StreamingResponse(
+                _stream(),
+                media_type="text/plain; charset=utf-8",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+        result = fetch_pod_logs(
+            settings,
+            namespace=namespace,
+            name=name,
+            steve_collection=steve,
+            pod_name=pod_name,
+            container=container,
+            tail_lines=tail_lines,
+            previous=previous,
+        )
+    except RancherConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RancherApiError as e:
+        status = 503 if e.status is None or e.status >= 500 else 502
+        if e.status == 404:
+            status = 404
+        elif e.status == 403:
+            status = 403
+        raise HTTPException(status_code=status, detail=str(e)) from e
+    except Exception as e:
+        log.exception("custom-cluster pod logs failed")
+        raise HTTPException(status_code=500, detail="Error interno al leer logs del pod.") from e
+    return {"ok": True, **result}

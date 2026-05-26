@@ -9,6 +9,7 @@ import {
   RefreshCw,
   RotateCcw,
   RotateCw,
+  ScrollText,
   Search,
   Server,
   Star,
@@ -19,6 +20,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../apiClient";
+import { PodLogsPanel } from "../components/PodLogsPanel";
 import { normalizeApplication, normalizeDistro, normalizeState } from "../rancherLabels";
 import {
   rememberTiendaForContainers,
@@ -769,6 +771,9 @@ function ClusterContainersPanel({
   const [confirmDeployments, setConfirmDeployments] = useState<RancherDeployment[] | null>(null);
   const [filterQuery, setFilterQuery] = useState("");
   const [expandedService, setExpandedService] = useState<string | null>(null);
+  const [logsTarget, setLogsTarget] = useState<{ serviceName: string; pods: RancherPod[] } | null>(
+    null
+  );
 
   const containerRows = useMemo(
     () => buildContainerRows(deployments, pods),
@@ -1069,6 +1074,20 @@ function ClusterContainersPanel({
                       </p>
                     </div>
                     <StatusPill phase={phase} />
+                    {row.pods.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLogsTarget({ serviceName: row.serviceName, pods: row.pods })
+                        }
+                        className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-zinc-400 ring-1 ring-cf-line transition hover:bg-white/5 hover:text-zinc-200"
+                        title="Ver logs en vivo"
+                        aria-label={`Ver logs de ${row.serviceName}`}
+                      >
+                        <ScrollText className="h-3.5 w-3.5" />
+                        Logs
+                      </button>
+                    ) : null}
                     {canRollout ? (
                       <button
                         type="button"
@@ -1107,6 +1126,18 @@ function ClusterContainersPanel({
           </ul>
         </div>
       )}
+
+      <AnimatePresence>
+        {logsTarget ? (
+          <PodLogsPanel
+            key={logsTarget.serviceName}
+            cluster={cluster}
+            serviceName={logsTarget.serviceName}
+            pods={logsTarget.pods}
+            onClose={() => setLogsTarget(null)}
+          />
+        ) : null}
+      </AnimatePresence>
 
       <AnimatePresence>
         {canEdit && selected.size > 0 ? (

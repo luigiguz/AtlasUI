@@ -29,6 +29,7 @@ export type RancherPod = {
   restarts: number;
   podIP: string;
   createdAt?: string | null;
+  containers?: string[];
 };
 
 export type RancherDeployment = {
