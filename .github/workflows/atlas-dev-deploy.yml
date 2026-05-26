@@ -1,0 +1,161 @@
+# Reemplaza atlas-dev-selfhosted.yml (run #45 atascado que GitHub no deja cancelar).
+
+name: Atlas — dev deploy (RPi)
+
+on:
+  push:
+    branches:
+      - dev
+      - feat/atlas-platform
+  workflow_dispatch:
+    inputs:
+      no_cache:
+        description: "docker compose build --no-cache"
+        required: false
+        default: "false"
+        type: boolean
+
+concurrency:
+  group: atlas-dev-deploy-v2-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unblock:
+    name: Desbloquear cola
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Cancelar cualquier run en cola de esta rama
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const branch = context.ref.replace("refs/heads/", "");
+            const currentRunId = context.runId;
+
+            for (const status of ["queued", "waiting", "pending"]) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                branch,
+                status,
+                per_page: 30,
+              });
+              for (const run of data.workflow_runs) {
+                if (run.id === currentRunId) continue;
+                console.log(`Cancelando #${run.run_number} ${run.name} (${run.status})`);
+                try {
+                  await github.rest.actions.cancelWorkflowRun({
+                    owner,
+                    repo,
+                    run_id: run.id,
+                  });
+                } catch (e) {
+                  console.log(`Skip #${run.run_number}: ${e.message}`);
+                }
+              }
+            }
+
+  build-and-deploy:
+    name: Build + Compose dev (RPi)
+    needs: unblock
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+    timeout-minutes: 90
+
+    env:
+      COMPOSE_PROJECT_NAME: atlas
+      DOCKER_BUILDKIT: "1"
+      ATLAS_API_IMAGE: atlas-api
+      ATLAS_UI_IMAGE: atlas-ui
+      ATLAS_TAG: ${{ github.sha }}
+      ATLAS_PUBLIC_API_URL: http://127.0.0.1:8765
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Asegurar tunnels.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f scripts/tunnels.json ]]; then
+            exit 0
+          fi
+          echo "Creando scripts/tunnels.json (no presente en el checkout)."
+          if [[ -f scripts/tunnels.example.json ]]; then
+            cp scripts/tunnels.example.json scripts/tunnels.json
+          else
+            printf '%s\n' '{"meta":{"created_by":"github-actions"},"sites":{}}' > scripts/tunnels.json
+          fi
+
+      - name: Docker y Compose
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker version
+          docker compose version
+
+      - name: Build imagen
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ inputs.no_cache }}" == "true" ]]; then
+            docker compose -f docker-compose.yml build --no-cache --pull
+          else
+            docker compose -f docker-compose.yml build --pull
+          fi
+
+      - name: Etiquetar también como latest
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker tag "${ATLAS_API_IMAGE}:${ATLAS_TAG}" "${ATLAS_API_IMAGE}:latest"
+          docker tag "${ATLAS_UI_IMAGE}:${ATLAS_TAG}" "${ATLAS_UI_IMAGE}:latest"
+
+      - name: Desplegar (Compose)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.yml up -d --remove-orphans
+
+      - name: Estado
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.yml ps
+          docker compose -f docker-compose.yml images
+
+      - name: Comprobar HTTP (local)
+        shell: bash
+        env:
+          ATLAS_API_PORT: "8765"
+          ATLAS_UI_PORT: "8088"
+        run: |
+          set -euo pipefail
+          sleep 3
+          api_url="http://127.0.0.1:${ATLAS_API_PORT}/api/health"
+          ui_url="http://127.0.0.1:${ATLAS_UI_PORT}/"
+          if command -v curl >/dev/null 2>&1; then
+            api_code="$(curl -fsS -o /dev/null -w "%{http_code}" "$api_url" || true)"
+            echo "API HTTP $api_code $api_url"
+            [[ "$api_code" == "200" ]]
+            ui_code="$(curl -fsS -o /dev/null -w "%{http_code}" "$ui_url" || true)"
+            echo "UI HTTP $ui_code $ui_url"
+            [[ "$ui_code" == "200" ]] || [[ "$ui_code" == "304" ]]
+          elif command -v wget >/dev/null 2>&1; then
+            wget -qO- "$api_url" >/dev/null
+            wget -qO- "$ui_url" >/dev/null
+          fi
+
+      - name: Logs del servicio (solo si falló antes)
+        if: failure()
+        shell: bash
+        run: docker compose -f docker-compose.yml logs --no-color --tail=80 atlas-api atlas-ui || true
