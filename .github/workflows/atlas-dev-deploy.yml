@@ -38,6 +38,8 @@ jobs:
       ATLAS_UI_IMAGE: atlas-ui
       ATLAS_TAG: ${{ github.sha }}
       ATLAS_PUBLIC_API_URL: http://127.0.0.1:8765
+      # Revisiones SHA antiguas de atlas-api / atlas-ui a conservar (además de :latest y el deploy actual)
+      ATLAS_IMAGE_KEEP_REVISIONS: "3"
 
     steps:
       - name: Checkout (git nativo)
@@ -85,15 +87,12 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ inputs.no_cache }}" == "true" ]]; then
-            docker compose -f docker-compose.yml build --no-cache --pull
+            docker compose -f docker-compose.yml build --no-cache --pull atlas-api atlas-ui
           else
-            docker compose -f docker-compose.yml build --pull
+            docker compose -f docker-compose.yml build --pull atlas-api atlas-ui
           fi
-
-      - name: Etiquetar también como latest
-        shell: bash
-        run: |
-          set -euo pipefail
+          docker image inspect "${ATLAS_API_IMAGE}:${ATLAS_TAG}" >/dev/null
+          docker image inspect "${ATLAS_UI_IMAGE}:${ATLAS_TAG}" >/dev/null
           docker tag "${ATLAS_API_IMAGE}:${ATLAS_TAG}" "${ATLAS_API_IMAGE}:latest"
           docker tag "${ATLAS_UI_IMAGE}:${ATLAS_TAG}" "${ATLAS_UI_IMAGE}:latest"
 
@@ -101,7 +100,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker compose -f docker-compose.yml up -d --remove-orphans
+          docker compose -f docker-compose.yml up -d --remove-orphans --no-build
 
       - name: Estado
         shell: bash
@@ -131,6 +130,102 @@ jobs:
             wget -qO- "$api_url" >/dev/null
             wget -qO- "$ui_url" >/dev/null
           fi
+
+      - name: Mantenimiento imágenes Docker
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          keep_rev="${ATLAS_IMAGE_KEEP_REVISIONS:-3}"
+          repos=("${ATLAS_API_IMAGE}" "${ATLAS_UI_IMAGE}")
+
+          echo "Conservar por repo: tag latest, tag ${ATLAS_TAG}, y hasta ${keep_rev} revisiones SHA anteriores."
+          echo "Nunca se eliminan imágenes usadas por contenedores en ejecución."
+
+          prune_repo() {
+            local repo="$1"
+            echo ""
+            echo "== ${repo} =="
+            if ! docker images -q "${repo}" | grep -q .; then
+              echo "Sin imágenes locales."
+              return 0
+            fi
+
+            mapfile -t lines < <(
+              docker images "${repo}" --format '{{.Tag}}\t{{.CreatedAt}}\t{{.ID}}' \
+                | grep -v $'^<none>\t' || true
+            )
+            if ((${#lines[@]} == 0)); then
+              return 0
+            fi
+
+            candidates=()
+            while IFS=$'\t' read -r tag created id; do
+              [[ "$tag" == "latest" ]] && continue
+              [[ "$tag" == "${ATLAS_TAG}" ]] && continue
+              candidates+=("${created}"$'\t'"${tag}"$'\t'"${id}")
+            done < <(printf '%s\n' "${lines[@]}")
+
+            if ((${#candidates[@]} == 0)); then
+              echo "Sin revisiones antiguas que podar."
+              return 0
+            fi
+
+            mapfile -t sorted < <(printf '%s\n' "${candidates[@]}" | sort -r)
+            kept=0
+            for entry in "${sorted[@]}"; do
+              IFS=$'\t' read -r _created tag id <<< "$entry"
+              short_id="${id#sha256:}"
+              if docker ps --filter "ancestor=${id}" -q | grep -q .; then
+                echo "En uso, se conserva: ${repo}:${tag}"
+                continue
+              fi
+              if docker ps -q | xargs -r docker inspect --format '{{.Image}}' 2>/dev/null \
+                | grep -q "${short_id}"; then
+                echo "En uso (inspect), se conserva: ${repo}:${tag}"
+                continue
+              fi
+              if (( kept < keep_rev )); then
+                echo "Conservar rollback (${kept}/${keep_rev}): ${repo}:${tag}"
+                kept=$((kept + 1))
+                continue
+              fi
+              echo "Eliminar: ${repo}:${tag}"
+              docker rmi "${repo}:${tag}" 2>/dev/null || echo "  (omitida: capa compartida o en uso)"
+            done
+          }
+
+          for repo in "${repos[@]}"; do
+            prune_repo "$repo"
+          done
+
+          echo ""
+          echo "== Capas intermedias (dangling) =="
+          docker image prune -f
+
+          echo ""
+          echo "== Caché de build antigua (>5 días) =="
+          docker builder prune -f --filter "until=120h" 2>/dev/null || docker builder prune -f
+
+          echo ""
+          echo "== Contenedores detenidos =="
+          docker container prune -f
+
+          echo ""
+          echo "== Imágenes huérfanas atlasvpn-* (legacy) =="
+          mapfile -t legacy_ids < <(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+            | grep -E '^atlasvpn-' || true)
+          if ((${#legacy_ids[@]} > 0)); then
+            printf '%s\n' "${legacy_ids[@]}"
+            docker rmi "${legacy_ids[@]}" 2>/dev/null || true
+          else
+            echo "Ninguna."
+          fi
+
+          echo ""
+          echo "== Uso de disco =="
+          docker system df || true
+          df -h /var/lib/docker 2>/dev/null || df -h .
 
       - name: Logs del servicio (solo si falló antes)
         if: failure()

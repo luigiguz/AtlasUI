@@ -54,7 +54,7 @@ services:
       dockerfile: backend/Dockerfile
       args:
         CLOUDFLARED_VERSION: "2026.5.0"
-    image: atlas-api:latest
+    image: ${ATLAS_API_IMAGE:-atlas-api}:${ATLAS_TAG:-latest}
     container_name: atlas-api
     restart: unless-stopped
     depends_on:
@@ -92,7 +92,7 @@ services:
       dockerfile: ui/Dockerfile
       args:
         VITE_API_BASE_URL: ""
-    image: atlas-ui:latest
+    image: ${ATLAS_UI_IMAGE:-atlas-ui}:${ATLAS_TAG:-latest}
     container_name: atlas-ui
     restart: unless-stopped
     ports:
