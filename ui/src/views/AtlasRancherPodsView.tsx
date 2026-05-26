@@ -50,20 +50,20 @@ function stateTone(state: string): string {
 }
 
 function RolloutConfirmModal({
-  deployment,
+  deployments,
   clusterLabel,
   busy,
   onConfirm,
   onCancel,
 }: {
-  deployment: RancherDeployment;
+  deployments: RancherDeployment[];
   clusterLabel: string;
   busy: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const targetReplicas = deployment.replicas > 0 ? deployment.replicas : 1;
-
+  const count = deployments.length;
+  const single = count === 1 ? deployments[0] : null;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !busy) onCancel();
@@ -120,44 +120,27 @@ function RolloutConfirmModal({
           </div>
         </div>
 
-        <div className="space-y-4 px-5 py-4">
-          <p className="text-sm text-zinc-300">
-            ¿Forzar la descarga de la imagen en el nodo para{" "}
-            <span className="font-medium text-zinc-100">«{deployment.name}»</span>?
-          </p>
-
-          <div className="rounded-lg border border-cf-line/70 bg-black/30 p-3">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">Proceso</p>
-            <div className="mt-3 flex items-center justify-center gap-2 text-sm">
-              <span className="rounded-md bg-zinc-800 px-2.5 py-1 tabular-nums text-zinc-200 ring-1 ring-zinc-700">
-                0
-              </span>
-              <motion.span
-                className="text-cf-orange"
-                animate={{ x: [0, 4, 0] }}
-                transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
-                aria-hidden
-              >
-                →
-              </motion.span>
-              <span className="rounded-md bg-cf-orange/15 px-2.5 py-1 tabular-nums font-medium text-cf-orange ring-1 ring-cf-orange/40">
-                {targetReplicas}
-              </span>
-            </div>
-            <p className="mt-3 text-center text-[11px] leading-relaxed text-zinc-500">
-              Réplicas a 0, luego a {targetReplicas}. El pod nuevo hará pull según{" "}
-              <span className="text-zinc-400">imagePullPolicy</span>.
+        <div className="px-5 py-4">
+          {single ? (
+            <p className="text-sm text-zinc-300">
+              Se actualizará la imagen de{" "}
+              <span className="font-medium text-zinc-100">{single.name}</span>.
             </p>
-          </div>
-
-          {deployment.image ? (
-            <div className="rounded-lg border border-cf-line/50 bg-black/20 px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wide text-zinc-600">Imagen actual</p>
-              <p className="mt-1 truncate font-mono text-[11px] text-zinc-400" title={deployment.image}>
-                {deployment.image}
+          ) : (
+            <>
+              <p className="text-sm text-zinc-300">
+                Se actualizará la imagen de{" "}
+                <span className="font-medium text-zinc-100">{count} servicios</span>.
               </p>
-            </div>
-          ) : null}
+              <ul className="mt-3 max-h-36 space-y-1 overflow-y-auto rounded-lg border border-cf-line/50 bg-black/20 px-3 py-2 text-xs text-zinc-400">
+                {deployments.map((d) => (
+                  <li key={d.name} className="truncate">
+                    {d.name}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
 
         <div className="flex gap-2 border-t border-cf-line/60 bg-black/20 px-5 py-4">
@@ -275,14 +258,31 @@ function ClusterContainersPanel({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [rolling, setRolling] = useState<string | null>(null);
-  const [rolloutMsg, setRolloutMsg] = useState("");
-  const [confirmDeployment, setConfirmDeployment] = useState<RancherDeployment | null>(null);
+  const [rolling, setRolling] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [confirmDeployments, setConfirmDeployments] = useState<RancherDeployment[] | null>(null);
 
   const containerRows = useMemo(
     () => buildContainerRows(deployments, pods),
     [deployments, pods]
   );
+
+  const rolloutRows = useMemo(
+    () => containerRows.filter((r): r is ContainerRow & { deployment: RancherDeployment } => r.deployment != null),
+    [containerRows]
+  );
+
+  const allRolloutSelected =
+    rolloutRows.length > 0 && rolloutRows.every((r) => selected.has(r.serviceName));
+  const someRolloutSelected = rolloutRows.some((r) => selected.has(r.serviceName));
+
+  useEffect(() => {
+    const valid = new Set(rolloutRows.map((r) => r.serviceName));
+    setSelected((prev) => {
+      const next = new Set([...prev].filter((n) => valid.has(n)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [rolloutRows]);
 
   const loadAll = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -322,39 +322,67 @@ function ClusterContainersPanel({
     return () => window.clearInterval(id);
   }, [loadAll]);
 
-  function openRolloutConfirm(dep: RancherDeployment) {
-    if (!canEdit || rolling) return;
-    setConfirmDeployment(dep);
+  function toggleRow(serviceName: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(serviceName)) next.delete(serviceName);
+      else next.add(serviceName);
+      return next;
+    });
   }
 
-  async function executeRollout(dep: RancherDeployment) {
-    const label = dep.name;
-    setRolling(dep.name);
-    setRolloutMsg("");
-    setError("");
-    try {
-      const ns = encodeURIComponent(cluster.namespace);
-      const nm = encodeURIComponent(cluster.name);
-      const depName = encodeURIComponent(dep.name);
-      const r = await api<DeploymentRolloutResponse>(
-        `/api/atlas-rancher/custom-clusters/${ns}/${nm}/deployments/${depName}/rollout`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            steve_collection: cluster.steveCollection || "provisioning.cattle.io.customclusters",
-          }),
-        }
-      );
-      setRolloutMsg(
-        `«${label}»: réplicas 0 → ${r.targetReplicas}. La imagen se volverá a descargar según imagePullPolicy.`
-      );
-      setConfirmDeployment(null);
-      await loadAll({ silent: true });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo actualizar el deployment.");
-    } finally {
-      setRolling(null);
+  function toggleSelectAll() {
+    if (allRolloutSelected) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(rolloutRows.map((r) => r.serviceName)));
     }
+  }
+
+  function openRolloutConfirm(deps: RancherDeployment[]) {
+    if (!canEdit || rolling || !deps.length) return;
+    setConfirmDeployments(deps);
+  }
+
+  function selectedDeployments(): RancherDeployment[] {
+    return rolloutRows.filter((r) => selected.has(r.serviceName)).map((r) => r.deployment);
+  }
+
+  async function executeRollouts(deps: RancherDeployment[]) {
+    if (!deps.length) return;
+    setRolling(true);
+    setError("");
+    const ns = encodeURIComponent(cluster.namespace);
+    const nm = encodeURIComponent(cluster.name);
+    const steve = cluster.steveCollection || "provisioning.cattle.io.customclusters";
+    const failed: string[] = [];
+
+    for (const dep of deps) {
+      try {
+        const depName = encodeURIComponent(dep.name);
+        await api<DeploymentRolloutResponse>(
+          `/api/atlas-rancher/custom-clusters/${ns}/${nm}/deployments/${depName}/rollout`,
+          {
+            method: "POST",
+            body: JSON.stringify({ steve_collection: steve }),
+          }
+        );
+      } catch {
+        failed.push(dep.name);
+      }
+    }
+
+    setConfirmDeployments(null);
+    setSelected(new Set());
+    await loadAll({ silent: true });
+
+    if (failed.length === deps.length) {
+      setError("No se pudo actualizar ningún servicio.");
+    } else if (failed.length > 0) {
+      setError(`No se pudo actualizar: ${failed.join(", ")}.`);
+    }
+
+    setRolling(false);
   }
 
   if (loading) {
@@ -396,22 +424,41 @@ function ClusterContainersPanel({
         </p>
       </div>
 
-      {rolloutMsg ? (
-        <p className="shrink-0 border-b border-emerald-500/20 bg-emerald-500/5 px-4 py-2 text-xs text-emerald-300">
-          {rolloutMsg}
-        </p>
-      ) : null}
       {error ? (
         <p className="shrink-0 border-b border-red-500/20 bg-red-500/5 px-4 py-2 text-xs text-red-300">{error}</p>
       ) : null}
 
-      <p className="shrink-0 border-b border-cf-line/40 px-4 py-2 text-[11px] text-zinc-500">
-        {containerRows.length} servicio{containerRows.length !== 1 ? "s" : ""}
-        {pods.length ? ` · ${pods.length} pod${pods.length !== 1 ? "s" : ""} en ejecución` : ""}
-        {refreshing ? <span className="text-zinc-600"> · sincronizando…</span> : null}
-        {" · "}
-        <span className="text-zinc-400">Actualizar imagen</span> escala 0 → N para forzar pull.
-      </p>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-cf-line/40 px-4 py-2 text-[11px] text-zinc-500">
+        <span>
+          {containerRows.length} servicio{containerRows.length !== 1 ? "s" : ""}
+          {pods.length ? ` · ${pods.length} pod${pods.length !== 1 ? "s" : ""} en ejecución` : ""}
+          {refreshing ? <span className="text-zinc-600"> · sincronizando…</span> : null}
+        </span>
+        {canEdit && selected.size > 0 ? (
+          <div className="flex items-center gap-2">
+            <span className="text-zinc-400">
+              {selected.size} seleccionado{selected.size !== 1 ? "s" : ""}
+            </span>
+            <button
+              type="button"
+              disabled={rolling}
+              onClick={() => openRolloutConfirm(selectedDeployments())}
+              className="inline-flex items-center gap-1 rounded border border-cf-orange/40 bg-cf-orange/10 px-2 py-1 text-[11px] font-medium text-cf-orange hover:bg-cf-orange/20 disabled:opacity-50"
+            >
+              {rolling ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
+              Actualizar imagen
+            </button>
+            <button
+              type="button"
+              disabled={rolling}
+              onClick={() => setSelected(new Set())}
+              className="text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+            >
+              Quitar
+            </button>
+          </div>
+        ) : null}
+      </div>
 
       {containerRows.length === 0 ? (
         <p className="px-4 py-8 text-sm text-zinc-500">No hay contenedores en este namespace.</p>
@@ -420,6 +467,21 @@ function ClusterContainersPanel({
           <table className="w-full min-w-[720px] text-left text-xs">
             <thead className="sticky top-0 z-10 bg-[#111418]">
               <tr className="border-b border-cf-line/50 text-[10px] uppercase tracking-wide text-zinc-600">
+                {canEdit ? (
+                  <th className="w-10 px-2 py-2">
+                    <input
+                      type="checkbox"
+                      checked={allRolloutSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someRolloutSelected && !allRolloutSelected;
+                      }}
+                      disabled={rolling || rolloutRows.length === 0}
+                      onChange={toggleSelectAll}
+                      className="h-3.5 w-3.5 rounded border-cf-line bg-black/40 accent-cf-orange"
+                      aria-label="Seleccionar todos"
+                    />
+                  </th>
+                ) : null}
                 <th className="px-4 py-2">Servicio</th>
                 <th className="px-4 py-2">Imagen</th>
                 <th className="px-4 py-2">Estado</th>
@@ -446,9 +508,31 @@ function ClusterContainersPanel({
                 const imgTitle =
                   d?.images?.length ? d.images.join("\n") : d?.image || row.pods.map((p) => p.name).join("\n");
                 const canRollout = canEdit && d != null;
+                const isSelected = selected.has(row.serviceName);
 
                 return (
-                  <tr key={row.serviceName} className="border-b border-cf-line/30 last:border-0">
+                  <tr
+                    key={row.serviceName}
+                    className={
+                      isSelected
+                        ? "border-b border-cf-line/30 bg-cf-orange/[0.04] last:border-0"
+                        : "border-b border-cf-line/30 last:border-0"
+                    }
+                  >
+                    {canEdit ? (
+                      <td className="px-2 py-2.5">
+                        {canRollout ? (
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            disabled={rolling}
+                            onChange={() => toggleRow(row.serviceName)}
+                            className="h-3.5 w-3.5 rounded border-cf-line bg-black/40 accent-cf-orange"
+                            aria-label={`Seleccionar ${row.serviceName}`}
+                          />
+                        ) : null}
+                      </td>
+                    ) : null}
                     <td className="px-4 py-2.5 font-medium text-zinc-200">{row.serviceName}</td>
                     <td
                       className="max-w-[200px] truncate px-4 py-2.5 font-mono text-[11px] text-zinc-400"
@@ -474,16 +558,16 @@ function ClusterContainersPanel({
                         {canRollout ? (
                           <button
                             type="button"
-                            disabled={rolling !== null}
-                            onClick={() => openRolloutConfirm(d)}
+                            disabled={rolling}
+                            onClick={() => openRolloutConfirm([d])}
                             className="inline-flex items-center gap-1 rounded border border-cf-orange/40 bg-cf-orange/10 px-2 py-1 text-[11px] font-medium text-cf-orange hover:bg-cf-orange/20 disabled:opacity-50"
                           >
-                            {rolling === d.name ? (
+                            {rolling ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
                               <RotateCw className="h-3 w-3" />
                             )}
-                            Actualizar imagen
+                            Actualizar
                           </button>
                         ) : (
                           <span className="text-zinc-600">—</span>
@@ -512,15 +596,15 @@ function ClusterContainersPanel({
       </div>
 
       <AnimatePresence>
-        {confirmDeployment ? (
+        {confirmDeployments?.length ? (
           <RolloutConfirmModal
-            deployment={confirmDeployment}
+            deployments={confirmDeployments}
             clusterLabel={clusterDisplayName(cluster)}
-            busy={rolling === confirmDeployment.name}
+            busy={rolling}
             onCancel={() => {
-              if (rolling !== confirmDeployment.name) setConfirmDeployment(null);
+              if (!rolling) setConfirmDeployments(null);
             }}
-            onConfirm={() => void executeRollout(confirmDeployment)}
+            onConfirm={() => void executeRollouts(confirmDeployments)}
           />
         ) : null}
       </AnimatePresence>
@@ -602,7 +686,7 @@ export function AtlasRancherPodsView({ canAdmin: _canAdmin, canEdit }: Props) {
         <div>
           <h1 className="text-lg font-semibold text-zinc-100">Contenedores</h1>
           <p className="text-xs text-zinc-500">
-            Servicios del namespace por equipo: estado, réplicas y actualización de imagen (0 → N).
+            Servicios del namespace por equipo: estado, réplicas y actualización de imagen.
           </p>
         </div>
         <button

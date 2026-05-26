@@ -168,7 +168,7 @@ export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, on
               <Box className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" aria-hidden />
               <span>
                 <strong className="font-medium text-zinc-200">Contenedores</strong> — servicios, estado y réplicas;
-                <strong className="font-medium text-zinc-200"> actualizar imagen</strong> (escala 0 → N para forzar pull)
+                <strong className="font-medium text-zinc-200"> actualizar imagen</strong> cuando haya una versión nueva
               </span>
             </li>
           </ul>
