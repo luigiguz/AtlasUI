@@ -1,19 +1,61 @@
-# Atlas
+<p align="center">
+  <img src="ui/public/branding/Logo%20ATLAS%20-%20Sin%20Fondi.png" alt="Atlas" width="220" />
+</p>
 
-**Atlas** es la plataforma web de Verkku: consola con menú lateral, inicio con **métricas en vivo** y módulos operativos. **Atlas VPN** cubre túneles **Cloudflare Access TCP** (`cloudflared access tcp`) hacia **SSH** y **bases de datos** detrás de Zero Trust. **Atlas Rancher** gestiona equipos Kubernetes (Rancher), tiendas en Git (`atlas-stores`) y contenedores/servicios Poslite en el edge.
+<p align="center">
+  <strong>Plataforma Verkku</strong> para operar tiendas PosLite en el edge
+</p>
 
-Por defecto `python -m atlas_api` abre **Atlas** en una ventana de escritorio Windows (**WebView2** + React), sin abrir Chrome/Edge como navegador aparte. Opcional: `--browser`, `--tk` (CustomTkinter legacy) o `--no-browser` (solo API).
+<p align="center">
+  <a href="https://atlas-ui.verkku.com">UI</a> ·
+  <a href="https://api-atlas-vpn.verkku.com/swagger">API</a> ·
+  Uso interno
+</p>
 
-> Los datos locales viven en `.atlas/` (al arrancar se migra automáticamente desde `.atlasvpn/` si existía).
+---
+
+## Qué es Atlas
+
+**Atlas** es la consola web unificada: menú lateral, inicio con métricas en vivo y módulos operativos.
+
+| Módulo | Función |
+|--------|---------|
+| **Atlas VPN** | Túneles Cloudflare Access TCP (`cloudflared`) hacia SSH y bases de datos |
+| **Atlas Rancher** | Equipos Kubernetes, tiendas en Git (`atlas-stores`) y contenedores Poslite |
+| **Administración** | Usuarios y roles (admin / operador / visor) |
+
+Por defecto `python -m atlas_api` abre la app en **WebView2** (Windows) con la UI React integrada. También: `--browser`, `--no-browser` (solo API) o `--tk` (CustomTkinter legacy).
+
+> Los datos locales viven en `.atlas/` (se migra desde `.atlasvpn/` al primer arranque si existía).
+
+---
+
+## Tabla de contenidos
+
+- [Requisitos](#requisitos)
+- [Instalación](#instalación)
+- [Uso rápido](#uso-rápido)
+- [Producción](#producción)
+- [Docker](#docker-desarrollo--rpi)
+- [Datos locales](#datos-locales)
+- [Estructura del repo](#estructura-del-repositorio)
+- [Desarrollo](#desarrollo)
+- [Seguridad](#seguridad)
+
+---
 
 ## Requisitos
 
-- **Python 3.10+**
-- **Node.js 18+** y `npm` (compilar la UI en `ui/` → `ui/dist/`)
-- **WebView2** en Windows (ventana integrada)
-- **`cloudflared`** en el `PATH` (módulo Atlas VPN)
-- Cloudflare **Zero Trust / Access** con apps `NOMBRE-ssh.TUDOMINIO` y `NOMBRE-bd.TUDOMINIO` (si usas VPN)
-- **Rancher** + repo Git de tiendas (si usas Atlas Rancher)
+| Componente | Versión / nota |
+|------------|----------------|
+| Python | 3.10+ |
+| Node.js | 18+ (`npm` para compilar `ui/`) |
+| WebView2 | Windows (ventana integrada) |
+| cloudflared | En el `PATH` (Atlas VPN) |
+| Cloudflare Zero Trust | Apps `NOMBRE-ssh` y `NOMBRE-bd` (VPN) |
+| Rancher + Git | Repo `atlas-stores` (Atlas Rancher) |
+
+---
 
 ## Instalación
 
@@ -28,116 +70,161 @@ npm run build
 cd ..
 ```
 
+---
+
 ## Uso rápido
 
-### Interfaz web (recomendado)
+### Consola web
 
 ```powershell
 python -m atlas_api
 ```
 
-**Login:** logo Atlas (branding), texto «Bienvenido a Atlas», formulario y pie «Powered by Verkku».
+| Paso | Qué verás |
+|------|-----------|
+| Login | Logo Atlas, «Bienvenido a Atlas», pie Powered by **Verkku** |
+| Inicio | Métricas VPN, Rancher y Cloudflare (tarjetas clicables) |
+| Menú | Módulos según tu rol |
 
-**Inicio:** tarjetas de métricas (no textos explicativos largos):
+**Atlas VPN**
 
-| Bloque | Métricas |
-|--------|----------|
-| Atlas VPN | Sitios, túneles activos, sitios al 100 %, incidencias |
-| Atlas Rancher | Equipos, Ready, desconectados, tiendas Git |
-| Cloudflare (admin) | Sync, sitios en catálogo, intervalo |
+- Conexiones — túneles SSH/BD por sitio  
+- Poslite — portales cuando el túnel está activo  
+- Cloudflare — sync de sitios (admin)
 
-**Menú principal:**
+**Atlas Rancher**
 
-- **Atlas VPN** → Conexiones, Poslite, Cloudflare (admin)
-- **Atlas Rancher** → Tiendas (repo Git), Equipos (clusters Rancher), Contenedores (servicios por tienda; actualizar imagen)
-- **Administración** → Usuarios (admin)
+- Tiendas — configuración en Git, plantillas, publicación  
+- Equipos — clusters RPi en Rancher (columna **Servicios** → Contenedores)  
+- Contenedores — servicios por tienda, actualizar imagen  
 
-Desde **Equipos**, la columna **Servicios** abre **Contenedores** con esa tienda preseleccionada.
-
-**Navegador externo:** `python -m atlas_api --browser`. **Solo API:** `--no-browser`. **Puerto:** `--port 9000`.
-
-### CustomTkinter (legacy)
+**Otros modos**
 
 ```powershell
-python -m atlas_api --tk
+python -m atlas_api --browser      # Navegador externo
+python -m atlas_api --no-browser   # Solo API (Docker)
+python -m atlas_api --port 9000    # Puerto distinto
+python -m atlas_api --tk           # GUI legacy
 ```
 
-### CLI túneles
+### CLI túneles (sin UI)
 
 ```powershell
 python scripts\tunnel_manager.py list-sites
 python scripts\tunnel_manager.py start laarena --services both
 ```
 
-## API Token de Cloudflare
+### Cloudflare API Token
 
-Permisos de lectura: **Zero Trust** y **Access Applications**. Los tokens `cfat_…` se validan con el account ID correcto.
+Permisos de lectura: **Zero Trust** y **Access Applications**. Si la sync devuelve 403, revisa el token o configura **Zone ID** en Atlas VPN → Cloudflare.
 
-Si falla la sync con 403: revisa permisos del token o usa **Zone ID** en Atlas VPN (Cloudflare → Overview de la zona).
+---
 
-## Archivos locales (no subir al git)
+## Producción
 
-| Ruta | Contenido |
-|------|-----------|
-| `.atlas/auth.json` | Hash de contraseña |
-| `.atlas/settings.json` | Credenciales Cloudflare |
-| `.atlas/rancher.json` | URL/token Rancher (o `ATLAS_RANCHER_*` en env) |
-| `.atlas/stores.json` | URL Git del repo atlas-stores |
-| `scripts/tunnels.json` | Sitios y puertos VPN |
-| `.cloudflared-tunnels/state.json` | PIDs de `cloudflared` |
+| Servicio | URL |
+|----------|-----|
+| UI | https://atlas-ui.verkku.com |
+| API | https://api-atlas-vpn.verkku.com |
+| Swagger | https://api-atlas-vpn.verkku.com/swagger |
+
+En **atlas-api**, `ATLAS_CORS_ORIGINS` debe incluir `https://atlas-ui.verkku.com`.
+
+---
 
 ## Docker (desarrollo / RPi)
-
-Contenedores `atlas-api` y `atlas-ui`. Imágenes: `backend/Dockerfile` y `ui/Dockerfile` (contexto de build = raíz del repo). Ver `docker-compose.yml`.
-
-Deploy automático en push a `dev` o `feat/atlas-platform`: workflow **`.github/workflows/atlas-dev-deploy.yml`** (runner self-hosted Linux ARM64 en el RPi; sin `actions/checkout` de terceros).
 
 ```powershell
 docker compose build
 docker compose up -d
 ```
 
-Documentación interactiva del API (tras desplegar `atlas-api`): [https://api-atlas-vpn.verkku.com/swagger](https://api-atlas-vpn.verkku.com/swagger) · OpenAPI en `/openapi.json`.
+| Recurso | Nombre |
+|---------|--------|
+| Servicios | `atlas-api`, `atlas-ui` |
+| Proyecto Compose | `atlas` |
+| Datos | volumen → `/app/.atlas` |
 
-## URLs públicas Verkku
+Deploy automático en push a `dev` o `feat/atlas-platform`: [`.github/workflows/atlas-dev-deploy.yml`](.github/workflows/atlas-dev-deploy.yml) (runner self-hosted **Linux ARM64** en el RPi).
 
-| Servicio | URL |
-|----------|-----|
-| UI | `https://atlas-ui.verkku.com` |
-| API | `https://api-atlas-vpn.verkku.com` |
+---
 
-`ATLAS_CORS_ORIGINS` en **atlas-api** debe incluir `https://atlas-ui.verkku.com`.
+## Datos locales
 
-## Seguridad
+No subir al git:
 
-- Protege `.atlas/` (tokens sensibles).
-- Atlas VPN **no sustituye** Cloudflare Access: `cloudflared` y el navegador siguen pidiendo login cuando corresponda.
+| Ruta | Contenido |
+|------|-----------|
+| `.atlas/auth.json` | Hash de contraseña local |
+| `.atlas/settings.json` | Credenciales Cloudflare |
+| `.atlas/rancher.json` | Conexión Rancher |
+| `.atlas/stores.json` | URL Git del repo de tiendas |
+| `scripts/tunnels.json` | Inventario de sitios VPN |
+| `.cloudflared-tunnels/state.json` | PIDs de `cloudflared` |
+
+---
 
 ## Estructura del repositorio
 
+```
+VPN-Poslite/
+├── backend/
+│   ├── atlas_api/       # FastAPI + CLI (python -m atlas_api)
+│   ├── atlas_core/      # Auth, usuarios, paths
+│   ├── atlas_vpn/       # Cloudflare, túneles, SSH
+│   ├── atlas_rancher/   # Clusters, pods, deployments, rollout
+│   └── atlas_stores/    # Tiendas Git, YAML, plantillas
+├── ui/
+│   ├── src/views/       # Inicio, VPN, Tiendas, Equipos, Contenedores
+│   ├── src/components/  # Shell, AuthLoginPanel, …
+│   └── public/branding/ # Logos Atlas y Verkku
+├── scripts/             # tunnel_manager (cloudflared)
+├── docker-compose.yml
+└── .github/workflows/   # Deploy dev RPi
+```
+
 | Carpeta | Rol |
 |---------|-----|
-| `backend/atlas_core/` | Auth, usuarios, rutas compartidas |
-| `backend/atlas_vpn/` | Módulo Atlas VPN (Cloudflare, túneles, SSH) |
-| `backend/atlas_rancher/` | Rancher: clusters, pods, deployments, rollout |
-| `backend/atlas_stores/` | Tiendas Poslite en Git (YAML, plantillas, sync) |
-| `backend/atlas_api/` | FastAPI + entrada CLI (`python -m atlas_api`) |
-| `ui/src/views/` | Vistas: Inicio, VPN, Tiendas, Equipos, Contenedores |
-| `ui/src/components/AuthLoginPanel.tsx` | Pantalla de login |
-| `ui/public/branding/` | Logos Atlas y Verkku |
-| `scripts/` | CLI `tunnel_manager` (cloudflared) |
+| `backend/atlas_api/` | Entrada FastAPI y ventana WebView2 |
+| `backend/atlas_vpn/` | Módulo Atlas VPN |
+| `backend/atlas_rancher/` | API Rancher |
+| `backend/atlas_stores/` | API tiendas Poslite |
+| `ui/src/views/` | Pantallas React |
+| `ui/public/branding/` | Assets de marca |
 
-Detalle backend: [backend/README.md](backend/README.md).
+Más detalle del backend: [backend/README.md](backend/README.md).
+
+---
 
 ## Desarrollo
 
 ```powershell
 cd ui && npm run build
-PYTHONPATH=backend python -m atlas_api --browser
+$env:PYTHONPATH="backend"
+python -m atlas_api --browser
 ```
 
-Tipografía de marca en login: **Outfit** (`font-display` en Tailwind), cargada desde Google Fonts en `ui/index.html`.
+- UI: React + Vite + Tailwind (`cf-orange`, tema oscuro `#0b0d10`)
+- Login: tipografía **Outfit** (`font-display`), logos en `ui/public/branding/`
+- API: prefijos `/api/atlas-rancher/…`, `/api/atlas-stores/…`, auth, VPN
+
+```powershell
+python -m py_compile backend\atlas_api\app.py
+```
+
+---
+
+## Seguridad
+
+- Protege `.atlas/` — contiene tokens y secretos.
+- Atlas VPN **no sustituye** Cloudflare Access: `cloudflared` y el navegador siguen pidiendo autenticación cuando corresponda.
+
+---
 
 ## Licencia
 
-Uso interno Verkku.
+Uso interno **Verkku**.
+
+<p align="center">
+  <img src="ui/public/branding/verkku-logo.svg" alt="Verkkutech" width="120" />
+</p>
