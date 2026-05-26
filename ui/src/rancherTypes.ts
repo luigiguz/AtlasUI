@@ -39,6 +39,7 @@ export type RancherDeployment = {
   availableReplicas: number;
   image: string;
   imageTag: string;
+  images?: string[];
   createdAt?: string | null;
 };
 

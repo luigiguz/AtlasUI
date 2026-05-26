@@ -1,4 +1,4 @@
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { Box, Loader2, RefreshCw, RotateCw, Search, Server, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -45,6 +45,159 @@ function stateTone(state: string): string {
   return "text-zinc-400";
 }
 
+function RolloutConfirmModal({
+  deployment,
+  clusterLabel,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  deployment: RancherDeployment;
+  clusterLabel: string;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const targetReplicas = deployment.replicas > 0 ? deployment.replicas : 1;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy, onCancel]);
+
+  return (
+    <motion.div
+      role="presentation"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+      onClick={() => {
+        if (!busy) onCancel();
+      }}
+    >
+      <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rollout-confirm-title"
+        initial={{ opacity: 0, scale: 0.94, y: 16 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 10 }}
+        transition={{ type: "spring", damping: 28, stiffness: 360 }}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md overflow-hidden rounded-xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.08]"
+      >
+        <div className="border-b border-cf-line/60 bg-gradient-to-r from-cf-orange/10 via-transparent to-transparent px-5 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cf-orange/15 ring-1 ring-cf-orange/30">
+                <RotateCw className="h-5 w-5 text-cf-orange" aria-hidden />
+              </div>
+              <div>
+                <h2 id="rollout-confirm-title" className="text-sm font-semibold text-zinc-100">
+                  Actualizar imagen
+                </h2>
+                <p className="mt-0.5 text-xs text-zinc-500">{clusterLabel}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onCancel}
+              className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/10 disabled:opacity-40"
+              aria-label="Cerrar"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-4 px-5 py-4">
+          <p className="text-sm text-zinc-300">
+            ¿Forzar la descarga de la imagen en el nodo para{" "}
+            <span className="font-medium text-zinc-100">«{deployment.name}»</span>?
+          </p>
+
+          <div className="rounded-lg border border-cf-line/70 bg-black/30 p-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">Proceso</p>
+            <div className="mt-3 flex items-center justify-center gap-2 text-sm">
+              <span className="rounded-md bg-zinc-800 px-2.5 py-1 tabular-nums text-zinc-200 ring-1 ring-zinc-700">
+                0
+              </span>
+              <motion.span
+                className="text-cf-orange"
+                animate={{ x: [0, 4, 0] }}
+                transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
+                aria-hidden
+              >
+                →
+              </motion.span>
+              <span className="rounded-md bg-cf-orange/15 px-2.5 py-1 tabular-nums font-medium text-cf-orange ring-1 ring-cf-orange/40">
+                {targetReplicas}
+              </span>
+            </div>
+            <p className="mt-3 text-center text-[11px] leading-relaxed text-zinc-500">
+              Réplicas a 0, luego a {targetReplicas}. El pod nuevo hará pull según{" "}
+              <span className="text-zinc-400">imagePullPolicy</span>.
+            </p>
+          </div>
+
+          {deployment.image ? (
+            <div className="rounded-lg border border-cf-line/50 bg-black/20 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-zinc-600">Imagen actual</p>
+              <p className="mt-1 truncate font-mono text-[11px] text-zinc-400" title={deployment.image}>
+                {deployment.image}
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex gap-2 border-t border-cf-line/60 bg-black/20 px-5 py-4">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onCancel}
+            className="flex-1 rounded-lg border border-cf-line bg-zinc-900/80 py-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onConfirm}
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-cf-orange py-2.5 text-xs font-semibold text-black hover:brightness-110 disabled:opacity-60"
+          >
+            {busy ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Actualizando…
+              </>
+            ) : (
+              <>
+                <RotateCw className="h-3.5 w-3.5" />
+                Confirmar
+              </>
+            )}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function deploymentImageLabel(d: RancherDeployment): string {
+  if (d.imageTag) return d.imageTag;
+  if (d.image) {
+    const tail = d.image.includes("@") ? d.image.split("@")[0] : d.image;
+    return tail.split("/").pop() || d.image;
+  }
+  return "—";
+}
+
 function clusterRancherPaths(cluster: RancherCustomCluster) {
   const ns = encodeURIComponent(cluster.namespace);
   const nm = encodeURIComponent(cluster.name);
@@ -71,6 +224,7 @@ function ClusterWorkloadsTable({
   const [error, setError] = useState("");
   const [rolling, setRolling] = useState<string | null>(null);
   const [rolloutMsg, setRolloutMsg] = useState("");
+  const [confirmDeployment, setConfirmDeployment] = useState<RancherDeployment | null>(null);
 
   const loadDeployments = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -96,16 +250,13 @@ function ClusterWorkloadsTable({
     void loadDeployments();
   }, [loadDeployments]);
 
-  async function onRollout(dep: RancherDeployment) {
+  function openRolloutConfirm(dep: RancherDeployment) {
     if (!canEdit || rolling) return;
+    setConfirmDeployment(dep);
+  }
+
+  async function executeRollout(dep: RancherDeployment) {
     const label = dep.name;
-    if (
-      !window.confirm(
-        `¿Actualizar imagen de «${label}»?\n\nSe escalará a 0 réplicas y luego a ${dep.replicas > 0 ? dep.replicas : 1} para forzar la descarga de la imagen en el nodo.`
-      )
-    ) {
-      return;
-    }
     setRolling(dep.name);
     setRolloutMsg("");
     setError("");
@@ -117,12 +268,15 @@ function ClusterWorkloadsTable({
         `/api/atlas-rancher/custom-clusters/${ns}/${nm}/deployments/${depName}/rollout`,
         {
           method: "POST",
-          body: JSON.stringify({ steve_collection: cluster.steveCollection || "provisioning.cattle.io.customclusters" }),
+          body: JSON.stringify({
+            steve_collection: cluster.steveCollection || "provisioning.cattle.io.customclusters",
+          }),
         }
       );
       setRolloutMsg(
         `«${label}»: réplicas 0 → ${r.targetReplicas}. La imagen se volverá a descargar según imagePullPolicy.`
       );
+      setConfirmDeployment(null);
       await loadDeployments({ silent: true });
       onRolloutDone();
     } catch (e) {
@@ -178,8 +332,11 @@ function ClusterWorkloadsTable({
               {deployments.map((d) => (
                 <tr key={d.name} className="border-b border-cf-line/30 last:border-0">
                   <td className="px-4 py-2.5 font-medium text-zinc-200">{d.name}</td>
-                  <td className="max-w-[220px] truncate px-4 py-2.5 font-mono text-[11px] text-zinc-500" title={d.image}>
-                    {d.imageTag || d.image || "—"}
+                  <td
+                    className="max-w-[240px] truncate px-4 py-2.5 font-mono text-[11px] text-zinc-400"
+                    title={d.images?.length ? d.images.join("\n") : d.image || undefined}
+                  >
+                    {deploymentImageLabel(d)}
                   </td>
                   <td className="px-4 py-2.5 tabular-nums text-zinc-400">{d.replicas}</td>
                   <td className="px-4 py-2.5 tabular-nums text-zinc-400">
@@ -190,7 +347,7 @@ function ClusterWorkloadsTable({
                       <button
                         type="button"
                         disabled={rolling !== null}
-                        onClick={() => void onRollout(d)}
+                        onClick={() => openRolloutConfirm(d)}
                         className="inline-flex items-center gap-1 rounded border border-cf-orange/40 bg-cf-orange/10 px-2 py-1 text-[11px] font-medium text-cf-orange hover:bg-cf-orange/20 disabled:opacity-50"
                       >
                         {rolling === d.name ? (
@@ -219,6 +376,20 @@ function ClusterWorkloadsTable({
           Actualizar lista
         </button>
       </div>
+
+      <AnimatePresence>
+        {confirmDeployment ? (
+          <RolloutConfirmModal
+            deployment={confirmDeployment}
+            clusterLabel={clusterDisplayName(cluster)}
+            busy={rolling === confirmDeployment.name}
+            onCancel={() => {
+              if (rolling !== confirmDeployment.name) setConfirmDeployment(null);
+            }}
+            onConfirm={() => void executeRollout(confirmDeployment)}
+          />
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

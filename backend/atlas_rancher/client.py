@@ -450,17 +450,78 @@ def _deployment_path(mgmt_id: str, k8s_ns: str, deployment_name: str | None = No
     return f"{base}/{k8s_ns}?pagesize=500"
 
 
-def _first_container_image(spec: dict[str, Any]) -> str:
-    containers = spec.get("containers")
+def _images_from_container_list(containers: Any) -> list[str]:
+    out: list[str] = []
     if not isinstance(containers, list):
-        return ""
+        return out
     for c in containers:
         if isinstance(c, dict) and c.get("image"):
-            return str(c["image"])
+            img = str(c["image"]).strip()
+            if img and img not in out:
+                out.append(img)
+    return out
+
+
+def _collect_workload_images(spec: dict[str, Any]) -> list[str]:
+    """Imágenes en Deployment/DaemonSet (spec.template.spec.containers)."""
+    images: list[str] = []
+    images.extend(_images_from_container_list(spec.get("containers")))
+    template = _as_dict(spec.get("template"))
+    pod_spec = _as_dict(template.get("spec"))
+    for key in ("containers", "initContainers"):
+        images.extend(_images_from_container_list(pod_spec.get(key)))
+    # dedupe preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for img in images:
+        if img not in seen:
+            seen.add(img)
+            unique.append(img)
+    return unique
+
+
+def _image_display_parts(image: str) -> tuple[str, str]:
+    """(image completa, etiqueta corta para tabla)."""
+    img = image.strip()
+    if not img:
+        return "", ""
+    if "@" in img:
+        digest = img.split("@", 1)[1]
+        short = digest[:19] + ("…" if len(digest) > 19 else "")
+        return img, f"@{short}"
+    tail = img.rsplit("/", 1)[-1]
+    if ":" in tail:
+        return img, tail.split(":", 1)[1]
+    return img, tail or img
+
+
+def _deployment_name_from_pod(item: dict[str, Any]) -> str:
+    meta = _as_dict(item.get("metadata"))
+    for ref in meta.get("ownerReferences") or []:
+        if not isinstance(ref, dict):
+            continue
+        kind = str(ref.get("kind") or "")
+        name = str(ref.get("name") or "")
+        if kind == "ReplicaSet" and name and "-" in name:
+            return name.rsplit("-", 1)[0]
+    pod_name = str(meta.get("name") or "")
+    if "-" in pod_name:
+        return pod_name.rsplit("-", 1)[0]
     return ""
 
 
-def _normalize_deployment(item: dict[str, Any], *, k8s_ns: str) -> dict[str, Any]:
+def _pod_workload_image(item: dict[str, Any]) -> str:
+    pod_spec = _as_dict(item.get("spec"))
+    imgs = _images_from_container_list(pod_spec.get("containers"))
+    return imgs[0] if imgs else ""
+
+
+def _normalize_deployment(
+    item: dict[str, Any],
+    *,
+    k8s_ns: str,
+    image_override: str = "",
+) -> dict[str, Any]:
     meta = _as_dict(item.get("metadata"))
     spec = _as_dict(item.get("spec"))
     status = _as_dict(item.get("status"))
@@ -476,20 +537,44 @@ def _normalize_deployment(item: dict[str, Any], *, k8s_ns: str) -> dict[str, Any
         available = int(status.get("availableReplicas") or 0)
     except (TypeError, ValueError):
         available = 0
-    image = _first_container_image(spec)
-    tag = ""
-    if image and ":" in image.rsplit("/", 1)[-1]:
-        tag = image.rsplit(":", 1)[-1]
+    images = _collect_workload_images(spec)
+    image = image_override.strip() or (images[0] if images else "")
+    full, tag = _image_display_parts(image)
     return {
         "name": str(meta.get("name") or ""),
         "namespace": str(meta.get("namespace") or k8s_ns),
         "replicas": replicas,
         "readyReplicas": ready,
         "availableReplicas": available,
-        "image": image,
+        "image": full,
         "imageTag": tag,
+        "images": images,
         "createdAt": meta.get("creationTimestamp"),
     }
+
+
+def _enrich_deployments_images_from_pods(
+    deployments: list[dict[str, Any]],
+    pod_items: list[dict[str, Any]],
+) -> None:
+    """Si el listado de deployments no trae spec.template, usar imagen del pod en ejecución."""
+    by_name = {str(d.get("name") or ""): d for d in deployments if d.get("name")}
+    for pod in pod_items:
+        if not isinstance(pod, dict):
+            continue
+        dep_name = _deployment_name_from_pod(pod)
+        if not dep_name or dep_name not in by_name:
+            continue
+        dep = by_name[dep_name]
+        if dep.get("image"):
+            continue
+        img = _pod_workload_image(pod)
+        if not img:
+            continue
+        full, tag = _image_display_parts(img)
+        dep["image"] = full
+        dep["imageTag"] = tag
+        dep["images"] = [full]
 
 
 def list_custom_cluster_deployments(
@@ -526,8 +611,32 @@ def list_custom_cluster_deployments(
         if raw_ns and raw_ns != app_ns:
             continue
         deployments.append(_normalize_deployment(i, k8s_ns=app_ns))
+    if deployments and any(not d.get("image") for d in deployments):
+        try:
+            _, _, _, pod_items = _list_pod_items_for_cluster(settings, mgmt_id=mgmt_id, app_ns=app_ns)
+            _enrich_deployments_images_from_pods(deployments, pod_items)
+        except Exception as e:
+            log.debug("deployment image enrich from pods failed: %s", e)
     deployments.sort(key=lambda d: (d.get("name") or ""))
     return dep_path, mgmt_id, application, deployments
+
+
+def _list_pod_items_for_cluster(
+    settings: dict[str, str | bool],
+    *,
+    mgmt_id: str,
+    app_ns: str,
+) -> tuple[str, str, str, list[dict[str, Any]]]:
+    """Lista cruda de pods (items API) en el namespace de la aplicación."""
+    pods_path = f"k8s/clusters/{mgmt_id}/v1/pods/{app_ns}?pagesize=500"
+    try:
+        payload = rancher_get(settings, pods_path, timeout_s=RANCHER_POD_COUNT_TIMEOUT_S)
+    except RancherApiError as e:
+        if e.status != 404:
+            raise
+        pods_path = f"k8s/clusters/{mgmt_id}/v1/pods?pagesize=500"
+        payload = rancher_get(settings, pods_path, timeout_s=RANCHER_POD_COUNT_TIMEOUT_S)
+    return pods_path, mgmt_id, app_ns, _collect_items(payload) or []
 
 
 def _get_deployment_resource(
