@@ -116,20 +116,30 @@ jobs:
           ATLAS_UI_PORT: "8088"
         run: |
           set -euo pipefail
-          sleep 3
           api_url="http://127.0.0.1:${ATLAS_API_PORT}/api/health"
           ui_url="http://127.0.0.1:${ATLAS_UI_PORT}/"
+          api_code="000"
+          ui_code="000"
+          for attempt in $(seq 1 24); do
+            if command -v curl >/dev/null 2>&1; then
+              api_code="$(curl -fsS -o /dev/null -w "%{http_code}" "$api_url" 2>/dev/null || echo "000")"
+            elif command -v wget >/dev/null 2>&1; then
+              if wget -qO- "$api_url" >/dev/null 2>&1; then api_code="200"; else api_code="000"; fi
+            fi
+            echo "Intento ${attempt}/24 — API HTTP ${api_code} ${api_url}"
+            if [[ "$api_code" == "200" ]]; then
+              break
+            fi
+            sleep 5
+          done
+          [[ "$api_code" == "200" ]]
           if command -v curl >/dev/null 2>&1; then
-            api_code="$(curl -fsS -o /dev/null -w "%{http_code}" "$api_url" || true)"
-            echo "API HTTP $api_code $api_url"
-            [[ "$api_code" == "200" ]]
             ui_code="$(curl -fsS -o /dev/null -w "%{http_code}" "$ui_url" || true)"
-            echo "UI HTTP $ui_code $ui_url"
-            [[ "$ui_code" == "200" ]] || [[ "$ui_code" == "304" ]]
           elif command -v wget >/dev/null 2>&1; then
-            wget -qO- "$api_url" >/dev/null
-            wget -qO- "$ui_url" >/dev/null
+            if wget -qO- "$ui_url" >/dev/null 2>&1; then ui_code="200"; else ui_code="000"; fi
           fi
+          echo "UI HTTP ${ui_code} ${ui_url}"
+          [[ "$ui_code" == "200" ]] || [[ "$ui_code" == "304" ]]
 
       - name: Mantenimiento imágenes Docker
         if: success()

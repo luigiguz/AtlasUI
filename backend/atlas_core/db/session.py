@@ -70,8 +70,12 @@ def _run_alembic_upgrade() -> None:
     from alembic import command
     from alembic.config import Config
 
-    ini = Path(__file__).resolve().parents[2] / "alembic.ini"
-    command.upgrade(Config(str(ini)), "head")
+    backend_root = Path(__file__).resolve().parents[2]
+    ini_path = backend_root / "alembic.ini"
+    cfg = Config(str(ini_path))
+    cfg.set_main_option("script_location", str(backend_root / "alembic"))
+    cfg.set_main_option("prepend_sys_path", str(backend_root))
+    command.upgrade(cfg, "head")
 
 
 def init_db() -> None:
