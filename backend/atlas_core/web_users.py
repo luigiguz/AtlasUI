@@ -22,6 +22,8 @@ import re
 _ph = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 
 USER_RE = re.compile(r"^[a-zA-Z0-9_]{3,32}$")
+EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+NAME_RE = re.compile(r"^[\w\s\u00C0-\u024F'.-]{1,64}$", re.UNICODE)
 ROLES = frozenset({"admin", "operator", "viewer"})
 
 _DEFAULT_INITIAL_PASSWORD = "Atlas_Admin_Initial12"
@@ -57,7 +59,32 @@ def audit(event: str, username: str | None = None, detail: str = "") -> None:
         pass
 
 
-def create_user(username: str, password: str, role: str) -> None:
+def _normalize_email(raw: str) -> str:
+    return raw.strip().lower()
+
+
+def _validate_profile(*, email: str, first_name: str, last_name: str) -> tuple[str, str, str]:
+    em = _normalize_email(email)
+    if not em or not EMAIL_RE.match(em):
+        raise ValueError("Correo electrónico inválido.")
+    fn = first_name.strip()
+    ln = last_name.strip()
+    if not fn or not NAME_RE.match(fn):
+        raise ValueError("Nombre: 1-64 caracteres.")
+    if not ln or not NAME_RE.match(ln):
+        raise ValueError("Apellido: 1-64 caracteres.")
+    return em, fn, ln
+
+
+def create_user(
+    username: str,
+    password: str,
+    role: str,
+    *,
+    email: str,
+    first_name: str,
+    last_name: str,
+) -> None:
     if role not in ROLES:
         raise ValueError("Rol inválido.")
     u = username.strip()
@@ -65,6 +92,7 @@ def create_user(username: str, password: str, role: str) -> None:
         raise ValueError("Usuario: 3-32 caracteres, solo letras, números y guión bajo.")
     if len(password) < 12:
         raise ValueError("La contraseña debe tener al menos 12 caracteres.")
+    em, fn, ln = _validate_profile(email=email, first_name=first_name, last_name=last_name)
     h = _ph.hash(password)
     key = u.lower()
     try:
@@ -72,12 +100,18 @@ def create_user(username: str, password: str, role: str) -> None:
             session.add(
                 User(
                     username=key,
+                    email=em,
+                    first_name=fn,
+                    last_name=ln,
                     password_hash=h,
                     role=role,
                     created_at=datetime.now(timezone.utc),
                 )
             )
     except IntegrityError as e:
+        err = str(e).lower()
+        if "email" in err:
+            raise ValueError("Ese correo ya está registrado.") from e
         raise ValueError("Ese nombre de usuario ya existe.") from e
     audit("user_created", key, role)
 
@@ -112,6 +146,9 @@ def list_users() -> list[dict[str, Any]]:
                 {
                     "id": int(r.id),
                     "username": r.username,
+                    "email": r.email or "",
+                    "first_name": r.first_name or "",
+                    "last_name": r.last_name or "",
                     "role": r.role,
                     "created_at": created,
                 }
@@ -125,33 +162,51 @@ def update_user(
     actor_username: str,
     role: str | None = None,
     password: str | None = None,
+    email: str | None = None,
+    first_name: str | None = None,
+    last_name: str | None = None,
 ) -> None:
-    if role is None and (password is None or password == ""):
+    profile_change = any(x is not None for x in (email, first_name, last_name))
+    if role is None and (password is None or password == "") and not profile_change:
         raise ValueError("Nada que actualizar.")
     target_key = target_username.strip().lower()
     act_key = actor_username.strip().lower()
     if role is not None and role not in ROLES:
         raise ValueError("Rol inválido.")
-    with session_scope() as session:
-        row = session.scalar(select(User).where(User.username == target_key))
-        if not row:
-            raise ValueError("Usuario no encontrado.")
-        cur_role = str(row.role)
-        new_role = role if role is not None else cur_role
-        if cur_role == "admin" and new_role != "admin":
-            other = session.scalar(
-                select(func.count())
-                .select_from(User)
-                .where(User.role == "admin", User.username != target_key)
-            )
-            if not other or int(other) < 1:
-                raise ValueError("No se puede quitar el último administrador.")
-        if role is not None:
-            row.role = new_role
-        if password is not None and password != "":
-            if len(password) < 12:
-                raise ValueError("La contraseña debe tener al menos 12 caracteres.")
-            row.password_hash = _ph.hash(password)
+    try:
+        with session_scope() as session:
+            row = session.scalar(select(User).where(User.username == target_key))
+            if not row:
+                raise ValueError("Usuario no encontrado.")
+            cur_role = str(row.role)
+            new_role = role if role is not None else cur_role
+            if cur_role == "admin" and new_role != "admin":
+                other = session.scalar(
+                    select(func.count())
+                    .select_from(User)
+                    .where(User.role == "admin", User.username != target_key)
+                )
+                if not other or int(other) < 1:
+                    raise ValueError("No se puede quitar el último administrador.")
+            if role is not None:
+                row.role = new_role
+            if email is not None or first_name is not None or last_name is not None:
+                em, fn, ln = _validate_profile(
+                    email=email if email is not None else (row.email or ""),
+                    first_name=first_name if first_name is not None else (row.first_name or ""),
+                    last_name=last_name if last_name is not None else (row.last_name or ""),
+                )
+                row.email = em
+                row.first_name = fn
+                row.last_name = ln
+            if password is not None and password != "":
+                if len(password) < 12:
+                    raise ValueError("La contraseña debe tener al menos 12 caracteres.")
+                row.password_hash = _ph.hash(password)
+    except IntegrityError as e:
+        if "email" in str(e).lower():
+            raise ValueError("Ese correo ya está registrado.") from e
+        raise
     audit("user_updated", act_key, f"{target_key}")
 
 
@@ -191,4 +246,11 @@ def ensure_default_admin() -> None:
             "arranque en producción; si no, usa la contraseña inicial documentada (README / compose).",
             file=sys.stderr,
         )
-    create_user(username, pwd, "admin")
+    create_user(
+        username,
+        pwd,
+        "admin",
+        email=f"{username}@local",
+        first_name="Administrador",
+        last_name="Atlas",
+    )

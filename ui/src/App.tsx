@@ -232,16 +232,30 @@ function StatusPill({ kind }: { kind: string }) {
   );
 }
 
-type ListedUser = { id: number; username: string; role: string; created_at: number };
+type ListedUser = {
+  id: number;
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: string;
+  created_at: number;
+};
 
 function UsersAdminPage({ me }: { me: AuthUser }) {
   const [rows, setRows] = useState<ListedUser[]>([]);
   const [loadErr, setLoadErr] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editRole, setEditRole] = useState<"admin" | "operator" | "viewer">("operator");
+  const [editEmail, setEditEmail] = useState("");
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
   const [editPw, setEditPw] = useState("");
   const [editErr, setEditErr] = useState("");
   const [editBusy, setEditBusy] = useState(false);
+  const [cuFirstName, setCuFirstName] = useState("");
+  const [cuLastName, setCuLastName] = useState("");
+  const [cuEmail, setCuEmail] = useState("");
   const [cuName, setCuName] = useState("");
   const [cuPw, setCuPw] = useState("");
   const [cuRole, setCuRole] = useState<"admin" | "operator" | "viewer">("operator");
@@ -266,6 +280,9 @@ function UsersAdminPage({ me }: { me: AuthUser }) {
   const startEdit = (u: ListedUser) => {
     setEditing(u.username);
     setEditRole(u.role as typeof editRole);
+    setEditEmail(u.email);
+    setEditFirstName(u.first_name);
+    setEditLastName(u.last_name);
     setEditPw("");
     setEditErr("");
   };
@@ -280,7 +297,18 @@ function UsersAdminPage({ me }: { me: AuthUser }) {
     setEditErr("");
     setEditBusy(true);
     try {
-      const body: { role: typeof editRole; password?: string } = { role: editRole };
+      const body: {
+        role: typeof editRole;
+        email: string;
+        first_name: string;
+        last_name: string;
+        password?: string;
+      } = {
+        role: editRole,
+        email: editEmail.trim(),
+        first_name: editFirstName.trim(),
+        last_name: editLastName.trim(),
+      };
       const p = editPw.trim();
       if (p) body.password = p;
       await api(`/api/auth/users/${encodeURIComponent(editing)}`, {
@@ -308,9 +336,19 @@ function UsersAdminPage({ me }: { me: AuthUser }) {
     try {
       await api("/api/auth/users", {
         method: "POST",
-        body: JSON.stringify({ username: cuName.trim(), password: cuPw, role: cuRole }),
+        body: JSON.stringify({
+          username: cuName.trim(),
+          email: cuEmail.trim(),
+          first_name: cuFirstName.trim(),
+          last_name: cuLastName.trim(),
+          password: cuPw,
+          role: cuRole,
+        }),
       });
       setCuOk(`Usuario «${cuName.trim()}» creado.`);
+      setCuFirstName("");
+      setCuLastName("");
+      setCuEmail("");
       setCuName("");
       setCuPw("");
       setCuRole("operator");
@@ -349,7 +387,7 @@ function UsersAdminPage({ me }: { me: AuthUser }) {
       key="users"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="mx-auto w-full max-w-3xl space-y-6"
+      className="mx-auto w-full max-w-5xl space-y-6"
     >
       <div>
         <h2 className="text-lg font-semibold text-zinc-100">Usuarios y roles</h2>
@@ -369,14 +407,39 @@ function UsersAdminPage({ me }: { me: AuthUser }) {
         <div className="grid gap-3 sm:grid-cols-2">
           <input
             className="rounded-lg border border-cf-line bg-cf-panel px-3 py-2 text-sm"
-            placeholder="Nombre de usuario"
+            placeholder="Nombre"
+            value={cuFirstName}
+            onChange={(e) => setCuFirstName(e.target.value)}
+            autoComplete="given-name"
+            required
+          />
+          <input
+            className="rounded-lg border border-cf-line bg-cf-panel px-3 py-2 text-sm"
+            placeholder="Apellido"
+            value={cuLastName}
+            onChange={(e) => setCuLastName(e.target.value)}
+            autoComplete="family-name"
+            required
+          />
+          <input
+            className="rounded-lg border border-cf-line bg-cf-panel px-3 py-2 text-sm"
+            placeholder="Correo electrónico"
+            type="email"
+            value={cuEmail}
+            onChange={(e) => setCuEmail(e.target.value)}
+            autoComplete="email"
+            required
+          />
+          <input
+            className="rounded-lg border border-cf-line bg-cf-panel px-3 py-2 text-sm font-mono"
+            placeholder="Usuario (login)"
             value={cuName}
             onChange={(e) => setCuName(e.target.value)}
             autoComplete="off"
             required
           />
           <input
-            className="rounded-lg border border-cf-line bg-cf-panel px-3 py-2 text-sm"
+            className="rounded-lg border border-cf-line bg-cf-panel px-3 py-2 text-sm sm:col-span-2"
             placeholder="Contraseña (≥12)"
             type="password"
             value={cuPw}
@@ -412,9 +475,11 @@ function UsersAdminPage({ me }: { me: AuthUser }) {
           <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Cuentas</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[28rem] text-left text-sm">
+          <table className="w-full min-w-[48rem] text-left text-sm">
             <thead>
               <tr className="border-b border-cf-line/60 text-xs uppercase tracking-wide text-zinc-500">
+                <th className="px-4 py-3 font-medium">Nombre</th>
+                <th className="px-4 py-3 font-medium">Correo</th>
                 <th className="px-4 py-3 font-medium">Usuario</th>
                 <th className="px-4 py-3 font-medium">Rol</th>
                 <th className="px-4 py-3 font-medium">Alta</th>
@@ -424,6 +489,10 @@ function UsersAdminPage({ me }: { me: AuthUser }) {
             <tbody>
               {rows.map((u) => (
                 <tr key={u.id} className="border-b border-cf-line/40 last:border-0">
+                  <td className="px-4 py-3 text-zinc-200">
+                    {[u.first_name, u.last_name].filter(Boolean).join(" ") || "—"}
+                  </td>
+                  <td className="px-4 py-3 text-zinc-400">{u.email || "—"}</td>
                   <td className="px-4 py-3 font-mono text-zinc-200">{u.username}</td>
                   <td className="px-4 py-3 text-zinc-300">{u.role}</td>
                   <td className="px-4 py-3 text-xs text-zinc-500">{fmtDate(u.created_at)}</td>
@@ -463,6 +532,39 @@ function UsersAdminPage({ me }: { me: AuthUser }) {
             Editar <span className="font-mono text-cf-orange">{editing}</span>
           </p>
           {editErr ? <p className="text-xs text-rose-300">{editErr}</p> : null}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500">Nombre</label>
+              <input
+                className="w-full rounded-lg border border-cf-line bg-cf-panel px-3 py-2 text-sm"
+                value={editFirstName}
+                onChange={(e) => setEditFirstName(e.target.value)}
+                autoComplete="given-name"
+                required
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-zinc-500">Apellido</label>
+              <input
+                className="w-full rounded-lg border border-cf-line bg-cf-panel px-3 py-2 text-sm"
+                value={editLastName}
+                onChange={(e) => setEditLastName(e.target.value)}
+                autoComplete="family-name"
+                required
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-xs text-zinc-500">Correo</label>
+              <input
+                className="w-full rounded-lg border border-cf-line bg-cf-panel px-3 py-2 text-sm"
+                type="email"
+                value={editEmail}
+                onChange={(e) => setEditEmail(e.target.value)}
+                autoComplete="email"
+                required
+              />
+            </div>
+          </div>
           <label className="block text-xs text-zinc-500">Rol</label>
           <select
             className="w-full max-w-md rounded-lg border border-cf-line bg-cf-panel px-3 py-2 text-sm"

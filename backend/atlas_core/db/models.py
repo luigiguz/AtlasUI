@@ -20,9 +20,13 @@ PkType = BigInteger().with_variant(Integer, "sqlite")
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (Index("idx_users_email", "email", unique=True),)
 
     id: Mapped[int] = mapped_column(PkType, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    first_name: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
+    last_name: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(

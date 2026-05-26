@@ -130,12 +130,18 @@ class LoginBody(BaseModel):
 
 class CreateUserBody(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
+    email: str = Field(..., min_length=3, max_length=254)
+    first_name: str = Field(..., min_length=1, max_length=64)
+    last_name: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=12, max_length=256)
     role: Literal["admin", "operator", "viewer"] = "operator"
 
 
 class UpdateUserBody(BaseModel):
     role: Literal["admin", "operator", "viewer"] | None = None
+    email: str | None = Field(None, max_length=254)
+    first_name: str | None = Field(None, max_length=64)
+    last_name: str | None = Field(None, max_length=64)
     password: str | None = Field(None, max_length=256)
 
 
@@ -333,7 +339,14 @@ def create_app() -> FastAPI:
         _admin: dict[str, Any] = Depends(require_roles("admin")),
     ) -> dict[str, bool]:
         try:
-            create_user(body.username.strip(), body.password, body.role)
+            create_user(
+                body.username.strip(),
+                body.password,
+                body.role,
+                email=body.email,
+                first_name=body.first_name,
+                last_name=body.last_name,
+            )
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
         audit("user_created_by_admin", str(_admin.get("username")), body.username.strip().lower())
@@ -352,6 +365,9 @@ def create_app() -> FastAPI:
                 actor_username=str(admin.get("username") or ""),
                 role=body.role,
                 password=pw,
+                email=body.email.strip() if body.email is not None else None,
+                first_name=body.first_name.strip() if body.first_name is not None else None,
+                last_name=body.last_name.strip() if body.last_name is not None else None,
             )
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
