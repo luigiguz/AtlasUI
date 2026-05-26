@@ -28,8 +28,8 @@ on:
         type: boolean
 
 concurrency:
-  group: atlas-dev-selfhosted-${{ github.repository }}
-  cancel-in-progress: false
+  group: atlas-dev-selfhosted-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
