@@ -143,7 +143,8 @@ function QuickLink({
 export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, onNavigate }: Props) {
   const vpn = useMemo(() => computeVpnStats(sites), [sites]);
 
-  const [rancherLoading, setRancherLoading] = useState(true);
+  const [rancherClustersLoading, setRancherClustersLoading] = useState(true);
+  const [rancherPodsLoading, setRancherPodsLoading] = useState(false);
   const [rancherConfigured, setRancherConfigured] = useState(false);
   const [equipos, setEquipos] = useState(0);
   const [equiposReady, setEquiposReady] = useState(0);
@@ -154,8 +155,39 @@ export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, on
   const [storesCount, setStoresCount] = useState<number | null>(null);
   const [storesConfigured, setStoresConfigured] = useState(false);
 
+  const loadPodCounts = useCallback(async (clusterIds: string[]) => {
+    if (!clusterIds.length) {
+      setServiciosPods(null);
+      return;
+    }
+    setRancherPodsLoading(true);
+    try {
+      const pc = await api<{ ok: boolean; counts: Record<string, number | null> }>(
+        "/api/atlas-rancher/custom-clusters/pod-counts"
+      );
+      const counts = pc.counts ?? {};
+      let total = 0;
+      let hasAny = false;
+      for (const id of clusterIds) {
+        if (!Object.prototype.hasOwnProperty.call(counts, id)) continue;
+        const n = counts[id];
+        if (n != null) {
+          total += n;
+          hasAny = true;
+        }
+      }
+      setServiciosPods(hasAny ? total : null);
+    } catch {
+      setServiciosPods(null);
+    } finally {
+      setRancherPodsLoading(false);
+    }
+  }, []);
+
   const loadRancherMetrics = useCallback(async () => {
-    setRancherLoading(true);
+    setRancherClustersLoading(true);
+    setRancherPodsLoading(false);
+    setServiciosPods(null);
     try {
       const data = await api<ClustersResponse>("/api/atlas-rancher/custom-clusters");
       const list = data.clusters ?? [];
@@ -172,25 +204,8 @@ export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, on
       setEquiposReady(list.filter((c) => isClusterReady(normalizeState(c.state))).length);
       setEquiposOffline(list.filter((c) => isClusterDisconnected(normalizeState(c.state))).length);
 
-      try {
-        const pc = await api<{ ok: boolean; counts: Record<string, number | null> }>(
-          "/api/atlas-rancher/custom-clusters/pod-counts"
-        );
-        const counts = pc.counts ?? {};
-        let total = 0;
-        let hasAny = false;
-        for (const id of list.map((c) => c.id)) {
-          if (!Object.prototype.hasOwnProperty.call(counts, id)) continue;
-          const n = counts[id];
-          if (n != null) {
-            total += n;
-            hasAny = true;
-          }
-        }
-        setServiciosPods(hasAny ? total : null);
-      } catch {
-        setServiciosPods(null);
-      }
+      const ids = list.map((c) => c.id);
+      void loadPodCounts(ids);
     } catch {
       setRancherConfigured(false);
       setEquipos(0);
@@ -198,9 +213,9 @@ export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, on
       setEquiposOffline(0);
       setServiciosPods(null);
     } finally {
-      setRancherLoading(false);
+      setRancherClustersLoading(false);
     }
-  }, []);
+  }, [loadPodCounts]);
 
   const loadStoresMetric = useCallback(async () => {
     setStoresLoading(true);
@@ -276,7 +291,7 @@ export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, on
             label="Equipos"
             value={rancherConfigured ? equipos : "—"}
             hint={rancherConfigured ? "Clusters registrados" : "Rancher sin configurar"}
-            loading={rancherLoading}
+            loading={rancherClustersLoading}
             onClick={() => onNavigate("rancher-clusters")}
           />
           <MetricCard
@@ -284,7 +299,7 @@ export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, on
             value={rancherConfigured ? equiposReady : "—"}
             hint="Estado operativo"
             tone={equiposReady > 0 ? "ok" : "muted"}
-            loading={rancherLoading}
+            loading={rancherClustersLoading}
             onClick={() => onNavigate("rancher-clusters")}
           />
           <MetricCard
@@ -292,20 +307,16 @@ export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, on
             value={rancherConfigured ? equiposOffline : "—"}
             hint="Revisar enlace"
             tone={equiposOffline > 0 ? "warn" : "muted"}
-            loading={rancherLoading}
+            loading={rancherClustersLoading}
             onClick={() => onNavigate("rancher-clusters")}
           />
           <MetricCard
             label="Servicios"
             value={
-              !rancherConfigured
-                ? "—"
-                : serviciosPods == null
-                  ? "…"
-                  : serviciosPods
+              !rancherConfigured ? "—" : rancherPodsLoading ? "…" : serviciosPods ?? "—"
             }
             hint="Pods en namespace Poslite"
-            loading={rancherLoading && serviciosPods == null}
+            loading={rancherConfigured && rancherPodsLoading}
             onClick={() => onNavigate("rancher-pods")}
           />
           <MetricCard
