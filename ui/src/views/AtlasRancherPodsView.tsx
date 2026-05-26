@@ -1,20 +1,29 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  Box,
   ChevronDown,
   ChevronRight,
+  Layers,
   Loader2,
+  Network,
   RefreshCw,
+  RotateCcw,
   RotateCw,
   Search,
   Server,
   Star,
   Store,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../apiClient";
 import { normalizeApplication, normalizeDistro, normalizeState } from "../rancherLabels";
+import {
+  rememberTiendaForContainers,
+  TIENDA_SELECTED_KEY,
+} from "../rancherContainersNav";
 import type {
   ClustersResponse,
   DeploymentRolloutResponse,
@@ -26,12 +35,10 @@ import type {
 } from "../rancherTypes";
 
 const AUTO_REFRESH_MS = 15_000;
-const TIENDA_SELECTED_KEY = "atlas-containers-tienda-id";
 const TIENDA_RECENT_KEY = "atlas-containers-tiendas-recientes";
 const TIENDA_FAVORITES_KEY = "atlas-containers-tiendas-favoritas";
 const TIENDA_SEARCH_MIN = 2;
 const TIENDA_SUGGEST_MAX = 12;
-const TIENDA_RECENT_MAX = 6;
 const TIENDA_FAVORITES_MAX = 12;
 
 function tiendaSearchText(c: RancherCustomCluster): string {
@@ -48,19 +55,6 @@ function readRecentTiendaIds(): string[] {
     return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
   } catch {
     return [];
-  }
-}
-
-function rememberTienda(id: string): void {
-  try {
-    const prev = readRecentTiendaIds().filter((x) => x !== id);
-    localStorage.setItem(TIENDA_SELECTED_KEY, id);
-    localStorage.setItem(
-      TIENDA_RECENT_KEY,
-      JSON.stringify([id, ...prev].slice(0, TIENDA_RECENT_MAX))
-    );
-  } catch {
-    /* ignore */
   }
 }
 
@@ -95,6 +89,9 @@ function toggleFavoriteTiendaId(id: string, current: string[]): string[] {
 type Props = {
   canAdmin: boolean;
   canEdit: boolean;
+  /** Al venir desde Equipos: preseleccionar esta tienda. */
+  focusTiendaId?: string | null;
+  onFocusTiendaConsumed?: () => void;
 };
 
 type ContainerRow = {
@@ -327,6 +324,138 @@ function aggregatePodField(pods: RancherPod[], pick: (p: RancherPod) => string):
   return `${values[0]} +${values.length - 1}`;
 }
 
+function SpecTile({
+  icon: Icon,
+  label,
+  value,
+  mono,
+  tone = "default",
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  mono?: boolean;
+  tone?: "default" | "warn" | "ok";
+}) {
+  const valueCls =
+    tone === "warn"
+      ? "text-amber-400"
+      : tone === "ok"
+        ? "text-emerald-400"
+        : "text-zinc-200";
+  return (
+    <div className="rounded-lg border border-cf-line/35 bg-white/[0.03] px-2.5 py-2 ring-1 ring-white/[0.03]">
+      <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600">
+        <Icon className="h-3 w-3 shrink-0 text-zinc-500" aria-hidden />
+        {label}
+      </div>
+      <p
+        className={`mt-1 truncate text-xs font-medium ${mono ? "font-mono" : ""} ${valueCls}`}
+        title={value}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function ServiceExpandedDetails({
+  deployment,
+  pods,
+  ready,
+  replicas,
+  node,
+  ip,
+  restarts,
+  phase,
+}: {
+  deployment: RancherDeployment | null;
+  pods: RancherPod[];
+  ready: string;
+  replicas: number;
+  node: string;
+  ip: string;
+  restarts: number;
+  phase: string;
+}) {
+  const imageFull =
+    deployment?.image ||
+    (deployment?.images?.length ? deployment.images.join(", ") : "");
+  const imageTag = deployment?.imageTag || deploymentImageLabel(deployment);
+  const showPods = pods.length > 1;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: "auto" }}
+      exit={{ opacity: 0, height: 0 }}
+      transition={{ duration: 0.18, ease: "easeOut" }}
+      className="overflow-hidden border-t border-cf-line/25 bg-gradient-to-b from-black/35 to-transparent"
+    >
+      <div className="space-y-2.5 px-3 py-3 pl-11">
+        {imageFull ? (
+          <div className="rounded-lg border border-cf-line/40 bg-black/30 px-3 py-2.5 ring-1 ring-white/[0.04]">
+            <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600">
+              <Box className="h-3 w-3 text-zinc-500" aria-hidden />
+              Imagen
+              {imageTag && imageTag !== "—" ? (
+                <span className="rounded bg-zinc-800/80 px-1.5 py-px font-mono normal-case text-zinc-400">
+                  {imageTag}
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-1.5 break-all font-mono text-[11px] leading-relaxed text-zinc-400" title={imageFull}>
+              {imageFull}
+            </p>
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <SpecTile icon={Server} label="Nodo" value={node} />
+          <SpecTile icon={Network} label="IP del pod" value={ip} mono />
+          <SpecTile
+            icon={Layers}
+            label="Réplicas"
+            value={replicas > 0 ? `${ready} listas` : ready}
+            tone={phase.toLowerCase() === "running" ? "ok" : "default"}
+          />
+          <SpecTile
+            icon={RotateCcw}
+            label="Reinicios"
+            value={restarts > 0 ? String(restarts) : "Ninguno"}
+            tone={restarts > 0 ? "warn" : "default"}
+          />
+        </div>
+
+        {showPods ? (
+          <div className="rounded-lg border border-cf-line/35 bg-black/20 px-2.5 py-2">
+            <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600">
+              Instancias ({pods.length})
+            </p>
+            <ul className="space-y-1">
+              {pods.map((p) => (
+                <li
+                  key={p.name}
+                  className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md bg-white/[0.02] px-2 py-1.5 text-[11px]"
+                >
+                  <span className="min-w-0 flex-1 truncate font-medium text-zinc-300" title={p.name}>
+                    {p.name}
+                  </span>
+                  <span className={`shrink-0 ${podPhaseTone(p.phase)}`}>{p.phase}</span>
+                  {p.podIP ? (
+                    <span className="shrink-0 font-mono text-zinc-500">{p.podIP}</span>
+                  ) : null}
+                  {p.node ? <span className="shrink-0 text-zinc-600">{p.node}</span> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    </motion.div>
+  );
+}
+
 function TiendaPickerOption({
   tienda,
   active,
@@ -435,7 +564,7 @@ function TiendaPicker({
   }, []);
 
   function pick(id: string) {
-    rememberTienda(id);
+    rememberTiendaForContainers(id);
     onSelect(id);
     setQuery("");
     setOpen(false);
@@ -957,21 +1086,21 @@ function ClusterContainersPanel({
                       </button>
                     ) : null}
                   </div>
-                  {expanded ? (
-                    <div className="border-t border-cf-line/20 bg-black/25 px-3 py-2 pl-11 text-[11px] leading-relaxed text-zinc-500">
-                      <span>Nodo {node}</span>
-                      <span className="text-zinc-700"> · </span>
-                      <span className="font-mono">IP {ip}</span>
-                      <span className="text-zinc-700"> · </span>
-                      <span>Réplicas {replicas}</span>
-                      {restarts > 0 ? (
-                        <>
-                          <span className="text-zinc-700"> · </span>
-                          <span className="text-amber-500/90">{restarts} reinicio{restarts !== 1 ? "s" : ""}</span>
-                        </>
-                      ) : null}
-                    </div>
-                  ) : null}
+                  <AnimatePresence initial={false}>
+                    {expanded ? (
+                      <ServiceExpandedDetails
+                        key={row.serviceName}
+                        deployment={d}
+                        pods={row.pods}
+                        ready={ready}
+                        replicas={replicas}
+                        node={node}
+                        ip={ip}
+                        restarts={restarts}
+                        phase={phase}
+                      />
+                    ) : null}
+                  </AnimatePresence>
                 </li>
               );
             })}
@@ -1030,7 +1159,12 @@ function ClusterContainersPanel({
   );
 }
 
-export function AtlasRancherPodsView({ canAdmin: _canAdmin, canEdit }: Props) {
+export function AtlasRancherPodsView({
+  canAdmin: _canAdmin,
+  canEdit,
+  focusTiendaId = null,
+  onFocusTiendaConsumed,
+}: Props) {
   const [clusters, setClusters] = useState<RancherCustomCluster[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1074,6 +1208,15 @@ export function AtlasRancherPodsView({ canAdmin: _canAdmin, canEdit }: Props) {
   useEffect(() => {
     void loadClusters();
   }, [loadClusters]);
+
+  useEffect(() => {
+    if (!focusTiendaId || clusters.length === 0) return;
+    if (clusters.some((c) => c.id === focusTiendaId)) {
+      rememberTiendaForContainers(focusTiendaId);
+      setSelectedId(focusTiendaId);
+    }
+    onFocusTiendaConsumed?.();
+  }, [focusTiendaId, clusters, onFocusTiendaConsumed]);
 
   const selectedCluster = useMemo(
     () => clusters.find((c) => c.id === selectedId) ?? null,
@@ -1135,7 +1278,7 @@ export function AtlasRancherPodsView({ canAdmin: _canAdmin, canEdit }: Props) {
             tiendas={clusters}
             selectedId={selectedId}
             onSelect={(id) => {
-              rememberTienda(id);
+              rememberTiendaForContainers(id);
               setSelectedId(id);
             }}
           />

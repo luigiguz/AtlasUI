@@ -35,6 +35,7 @@ import {
   WebSshSessionsDock,
   type SshWebSession,
 } from "./WebSshSessionsDock";
+import { rememberTiendaForContainers } from "./rancherContainersNav";
 import { AtlasHomeView } from "./views/AtlasHomeView";
 import { AtlasRancherClustersView } from "./views/AtlasRancherClustersView";
 import { AtlasRancherPodsView } from "./views/AtlasRancherPodsView";
@@ -575,6 +576,8 @@ export default function App() {
   const [me, setMe] = useState<AuthUser | null>(null);
 
   const [tab, setTab] = useState<AtlasRouteId>("home");
+  /** Tienda a preseleccionar al abrir Contenedores desde Equipos. */
+  const [containersFocusId, setContainersFocusId] = useState<string | null>(null);
   const [sites, setSites] = useState<SiteRow[]>([]);
   /** Sitio con panel de acciones desplegado (acordeón). */
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -1055,6 +1058,11 @@ export default function App() {
           <AtlasRancherClustersView
             canAdmin={canAdmin}
             canEditLabels={me.role === "admin" || me.role === "operator"}
+            onOpenContainers={(clusterId) => {
+              rememberTiendaForContainers(clusterId);
+              setContainersFocusId(clusterId);
+              setTab("rancher-pods");
+            }}
           />
         )}
 
@@ -1062,6 +1070,8 @@ export default function App() {
           <AtlasRancherPodsView
             canAdmin={canAdmin}
             canEdit={me.role === "admin" || me.role === "operator"}
+            focusTiendaId={containersFocusId}
+            onFocusTiendaConsumed={() => setContainersFocusId(null)}
           />
         )}
 

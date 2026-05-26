@@ -3,6 +3,8 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Box,
+  ExternalLink,
   Filter,
   Loader2,
   Pencil,
@@ -51,6 +53,8 @@ type SettingsResponse = {
 type Props = {
   canAdmin: boolean;
   canEditLabels?: boolean;
+  /** Abre Contenedores con este equipo preseleccionado. */
+  onOpenContainers?: (clusterId: string) => void;
 };
 
 /** Actualización automática de la lista (estados en Rancher). */
@@ -569,7 +573,11 @@ function ClusterLabelsModal({
   );
 }
 
-export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Props) {
+export function AtlasRancherClustersView({
+  canAdmin,
+  canEditLabels = false,
+  onOpenContainers,
+}: Props) {
   const [clusters, setClusters] = useState<RancherCustomCluster[]>([]);
   const [source, setSource] = useState("");
   const [rancherUrl, setRancherUrl] = useState("");
@@ -835,7 +843,8 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
         <motion.div layout>
           <h1 className="text-lg font-semibold text-zinc-100">Equipos</h1>
           <p className="text-xs text-zinc-500">
-            Equipos (RPi) registrados en Rancher. La columna Servicios muestra cuántos pods hay; la configuración de software está en Tiendas.
+            Equipos (RPi) registrados en Rancher. Haz clic en <span className="text-zinc-400">Servicios</span> para
+            abrir Contenedores; la configuración de software está en Tiendas.
             {rancherUrl ? (
               <>
                 {" "}
@@ -1085,15 +1094,40 @@ export function AtlasRancherClustersView({ canAdmin, canEditLabels = false }: Pr
                               <td className="px-4 py-3 text-zinc-400">{c.application || "—"}</td>
                               <td className={`px-4 py-3 ${stateTone(c.state)}`}>{c.state || "—"}</td>
                               <td className="px-4 py-3 text-zinc-400">{c.kubernetesVersion || "—"}</td>
-                              <td
-                                className="px-4 py-3 text-center tabular-nums text-zinc-300"
-                                title={
-                                  c.application
-                                    ? `Pods en namespace ${c.application}`
-                                    : "Sin label application"
-                                }
-                              >
-                                {formatPodCount(c.podCount, podCountsLoading)}
+                              <td className="px-4 py-3 text-center">
+                                {onOpenContainers ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenContainers(c.id)}
+                                    className="group inline-flex items-center justify-center gap-1 rounded-lg px-2 py-1 tabular-nums text-zinc-300 transition hover:bg-cf-orange/10 hover:text-cf-orange"
+                                    title={
+                                      c.application
+                                        ? `Ver contenedores (${c.application})`
+                                        : "Ver contenedores de este equipo"
+                                    }
+                                  >
+                                    <Box
+                                      className="h-3.5 w-3.5 text-zinc-600 group-hover:text-cf-orange"
+                                      aria-hidden
+                                    />
+                                    <span>{formatPodCount(c.podCount, podCountsLoading)}</span>
+                                    <ExternalLink
+                                      className="h-3 w-3 opacity-0 transition group-hover:opacity-70"
+                                      aria-hidden
+                                    />
+                                  </button>
+                                ) : (
+                                  <span
+                                    className="tabular-nums text-zinc-300"
+                                    title={
+                                      c.application
+                                        ? `Pods en namespace ${c.application}`
+                                        : "Sin label application"
+                                    }
+                                  >
+                                    {formatPodCount(c.podCount, podCountsLoading)}
+                                  </span>
+                                )}
                               </td>
                               {canEditLabels ? (
                                 <td className="px-4 py-3">
