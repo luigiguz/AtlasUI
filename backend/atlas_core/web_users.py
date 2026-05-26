@@ -11,11 +11,20 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
 
-from atlas_core.db.models import AuditWeb, User
+from atlas_core.db.models import AuditWeb, Role, User, UserRole
 from atlas_core.db.session import init_db as init_db_engine, session_scope
 from atlas_core.env import atlas_env
 from atlas_core.paths import ATLAS_DATA_DIR, ensure_atlas_data_dir
+from atlas_core.permissions import SYSTEM_ROLE_OPERATOR
+from atlas_core.web_roles import (
+    count_users_with_role_slug,
+    ensure_system_roles,
+    load_user_auth,
+    resolve_role_ids,
+    set_user_roles,
+)
 
 import re
 
@@ -24,7 +33,6 @@ _ph = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 USER_RE = re.compile(r"^[a-zA-Z0-9_]{3,32}$")
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 NAME_RE = re.compile(r"^[\w\s\u00C0-\u024F'.-]{1,64}$", re.UNICODE)
-ROLES = frozenset({"admin", "operator", "viewer"})
 
 _DEFAULT_INITIAL_PASSWORD = "Atlas_Admin_Initial12"
 
@@ -37,6 +45,7 @@ def users_db_path():
 
 def init_db() -> None:
     init_db_engine()
+    ensure_system_roles()
 
 
 def count_users() -> int:
@@ -76,17 +85,29 @@ def _validate_profile(*, email: str, first_name: str, last_name: str) -> tuple[s
     return em, fn, ln
 
 
+def _resolve_role_ids_for_create(role_ids: list[int] | None, role_slug: str | None) -> list[int]:
+    ensure_system_roles()
+    if role_ids:
+        return list(dict.fromkeys(role_ids))
+    slug = (role_slug or SYSTEM_ROLE_OPERATOR).strip().lower()
+    with session_scope() as session:
+        row = session.scalar(select(Role).where(Role.slug == slug))
+        if not row:
+            raise ValueError("Rol inválido.")
+        return [int(row.id)]
+
+
 def create_user(
     username: str,
     password: str,
-    role: str,
     *,
     email: str,
     first_name: str,
     last_name: str,
+    role_ids: list[int] | None = None,
+    role: str | None = None,
 ) -> None:
-    if role not in ROLES:
-        raise ValueError("Rol inválido.")
+    ids = _resolve_role_ids_for_create(role_ids, role)
     u = username.strip()
     if not USER_RE.match(u):
         raise ValueError("Usuario: 3-32 caracteres, solo letras, números y guión bajo.")
@@ -97,23 +118,24 @@ def create_user(
     key = u.lower()
     try:
         with session_scope() as session:
-            session.add(
-                User(
-                    username=key,
-                    email=em,
-                    first_name=fn,
-                    last_name=ln,
-                    password_hash=h,
-                    role=role,
-                    created_at=datetime.now(timezone.utc),
-                )
+            user = User(
+                username=key,
+                email=em,
+                first_name=fn,
+                last_name=ln,
+                password_hash=h,
+                role=SYSTEM_ROLE_OPERATOR,
+                created_at=datetime.now(timezone.utc),
             )
+            session.add(user)
+            session.flush()
+            set_user_roles(session, user, ids)
     except IntegrityError as e:
         err = str(e).lower()
         if "email" in err:
             raise ValueError("Ese correo ya está registrado.") from e
         raise ValueError("Ese nombre de usuario ya existe.") from e
-    audit("user_created", key, role)
+    audit("user_created", key, ",".join(str(i) for i in ids))
 
 
 def verify_login(username: str, password: str) -> dict[str, Any] | None:
@@ -131,65 +153,88 @@ def verify_login(username: str, password: str) -> dict[str, Any] | None:
         except (VerifyMismatchError, InvalidHashError):
             time.sleep(0.55)
             return None
-        return {"id": int(row.id), "username": row.username, "role": row.role}
+    return load_user_auth(int(row.id))
+
+
+def _user_row_dict(r: User) -> dict[str, Any]:
+    ts = r.created_at
+    created = int(ts.timestamp()) if isinstance(ts, datetime) else int(time.time())
+    roles = [
+        {"id": int(ur.role.id), "slug": ur.role.slug, "name": ur.role.name}
+        for ur in (r.role_assignments or [])
+        if ur.role
+    ]
+    return {
+        "id": int(r.id),
+        "username": r.username,
+        "email": r.email or "",
+        "first_name": r.first_name or "",
+        "last_name": r.last_name or "",
+        "role": r.role,
+        "roles": roles,
+        "created_at": created,
+    }
 
 
 def list_users() -> list[dict[str, Any]]:
     init_db()
     out: list[dict[str, Any]] = []
     with session_scope() as session:
-        rows = session.scalars(select(User).order_by(User.username)).all()
+        rows = session.scalars(
+            select(User)
+            .options(joinedload(User.role_assignments).joinedload(UserRole.role))
+            .order_by(User.username)
+        ).all()
         for r in rows:
-            ts = r.created_at
-            created = int(ts.timestamp()) if isinstance(ts, datetime) else int(time.time())
-            out.append(
-                {
-                    "id": int(r.id),
-                    "username": r.username,
-                    "email": r.email or "",
-                    "first_name": r.first_name or "",
-                    "last_name": r.last_name or "",
-                    "role": r.role,
-                    "created_at": created,
-                }
-            )
+            out.append(_user_row_dict(r))
     return out
+
+
+def _assert_last_admin(
+  target_user_id: int,
+  *,
+  removing_admin: bool,
+) -> None:
+    if not removing_admin:
+        return
+    remaining = count_users_with_role_slug("admin", exclude_user_id=target_user_id)
+    if remaining < 1:
+        raise ValueError("Debe quedar al menos un usuario con rol Administrador.")
 
 
 def update_user(
     target_username: str,
     *,
     actor_username: str,
-    role: str | None = None,
+    role_ids: list[int] | None = None,
     password: str | None = None,
     email: str | None = None,
     first_name: str | None = None,
     last_name: str | None = None,
 ) -> None:
     profile_change = any(x is not None for x in (email, first_name, last_name))
-    if role is None and (password is None or password == "") and not profile_change:
+    if role_ids is None and (password is None or password == "") and not profile_change:
         raise ValueError("Nada que actualizar.")
     target_key = target_username.strip().lower()
     act_key = actor_username.strip().lower()
-    if role is not None and role not in ROLES:
-        raise ValueError("Rol inválido.")
     try:
         with session_scope() as session:
-            row = session.scalar(select(User).where(User.username == target_key))
+            row = session.scalar(
+                select(User)
+                .where(User.username == target_key)
+                .options(joinedload(User.role_assignments).joinedload(UserRole.role))
+            )
             if not row:
                 raise ValueError("Usuario no encontrado.")
-            cur_role = str(row.role)
-            new_role = role if role is not None else cur_role
-            if cur_role == "admin" and new_role != "admin":
-                other = session.scalar(
-                    select(func.count())
-                    .select_from(User)
-                    .where(User.role == "admin", User.username != target_key)
-                )
-                if not other or int(other) < 1:
-                    raise ValueError("No se puede quitar el último administrador.")
-            if role is not None:
-                row.role = new_role
+            had_admin = any(
+                ur.role and ur.role.slug == "admin" for ur in (row.role_assignments or [])
+            )
+            if role_ids is not None:
+                new_roles = resolve_role_ids(session, role_ids)
+                will_have_admin = any(r.slug == "admin" for r in new_roles)
+                if had_admin and not will_have_admin:
+                    _assert_last_admin(int(row.id), removing_admin=True)
+                set_user_roles(session, row, role_ids)
             if email is not None or first_name is not None or last_name is not None:
                 em, fn, ln = _validate_profile(
                     email=email if email is not None else (row.email or ""),
@@ -219,17 +264,18 @@ def delete_user(target_username: str, *, actor_username: str) -> None:
     if target_key == act_key:
         raise ValueError("No puedes eliminar tu propia cuenta.")
     with session_scope() as session:
-        row = session.scalar(select(User).where(User.username == target_key))
+        row = session.scalar(
+            select(User)
+            .where(User.username == target_key)
+            .options(joinedload(User.role_assignments).joinedload(UserRole.role))
+        )
         if not row:
             raise ValueError("Usuario no encontrado.")
-        if str(row.role) == "admin":
-            other = session.scalar(
-                select(func.count())
-                .select_from(User)
-                .where(User.role == "admin", User.username != target_key)
-            )
-            if not other or int(other) < 1:
-                raise ValueError("No se puede eliminar el último administrador.")
+        had_admin = any(
+            ur.role and ur.role.slug == "admin" for ur in (row.role_assignments or [])
+        )
+        if had_admin:
+            _assert_last_admin(int(row.id), removing_admin=True)
         session.delete(row)
     audit("user_deleted", act_key, target_key)
 
@@ -252,8 +298,8 @@ def ensure_default_admin() -> None:
     create_user(
         username,
         pwd,
-        "admin",
         email=f"{username}@local",
         first_name="Administrador",
         last_name="Atlas",
+        role="admin",
     )

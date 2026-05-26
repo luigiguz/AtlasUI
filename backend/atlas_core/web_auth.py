@@ -12,6 +12,7 @@ from fastapi import Depends, HTTPException, Request
 
 from atlas_core.env import atlas_env, atlas_env_flag
 from atlas_core.paths import ATLAS_DATA_DIR, ensure_atlas_data_dir
+from atlas_core.permissions import has_any_permission, has_permission
 from atlas_core.web_sessions import get_active_session, revoke_session
 from atlas_core.web_tokens import resolve_user_from_access_token
 
@@ -97,7 +98,7 @@ def resolve_user_dict(request: Request) -> dict[str, Any] | None:
         if u:
             return u
     raw = request.session.get("user")
-    if isinstance(raw, dict) and raw.get("username") and raw.get("role"):
+    if isinstance(raw, dict) and raw.get("username"):
         jti = raw.get("jti")
         if isinstance(jti, str) and jti:
             u = get_active_session(jti)
@@ -129,12 +130,39 @@ def current_user(request: Request) -> dict[str, Any]:
 
 
 def require_roles(*roles: str):
-    """Dependencia: usuario en sesión con uno de los roles indicados."""
+    """Dependencia legacy: slug de rol primario en uno de los indicados."""
 
     def _dep(request: Request) -> dict[str, Any]:
         u = current_user(request)
         if roles and u.get("role") not in roles:
+            slugs = [r.get("slug") for r in (u.get("roles") or []) if isinstance(r, dict)]
+            if not any(s in roles for s in slugs):
+                raise HTTPException(status_code=403, detail="Sin permiso para esta acción")
+        return u
+
+    return _dep
+
+
+def require_permission(*permissions: str):
+    """Dependencia: usuario con al menos uno de los permisos indicados."""
+
+    def _dep(request: Request) -> dict[str, Any]:
+        u = current_user(request)
+        if permissions and not has_any_permission(u, *permissions):
             raise HTTPException(status_code=403, detail="Sin permiso para esta acción")
+        return u
+
+    return _dep
+
+
+def require_all_permissions(*permissions: str):
+    """Dependencia: usuario con todos los permisos indicados."""
+
+    def _dep(request: Request) -> dict[str, Any]:
+        u = current_user(request)
+        for p in permissions:
+            if not has_permission(u, p):
+                raise HTTPException(status_code=403, detail="Sin permiso para esta acción")
         return u
 
     return _dep

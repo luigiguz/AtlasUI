@@ -1,22 +1,16 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Eye,
   Loader2,
   Pencil,
   Plus,
   Search,
-  Shield,
   Trash2,
-  UserCog,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
+import type { AtlasRoleRef, AuthUser } from "../atlasAuth";
 import { api } from "../apiClient";
-
-type UserRole = "admin" | "operator" | "viewer";
-
-type AuthUser = { username: string; role: UserRole };
 
 type ListedUser = {
   id: number;
@@ -25,35 +19,21 @@ type ListedUser = {
   first_name: string;
   last_name: string;
   role: string;
+  roles: AtlasRoleRef[];
   created_at: number;
+};
+
+type RoleOption = {
+  id: number;
+  slug: string;
+  name: string;
+  description: string;
+  is_system: boolean;
+  permissions: string[];
 };
 
 const inputClass =
   "mt-1 w-full rounded-lg border border-cf-line bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50 focus:ring-2 focus:ring-cf-orange/20";
-
-const ROLE_META: Record<
-  UserRole,
-  { label: string; hint: string; pill: string; icon: typeof Shield }
-> = {
-  admin: {
-    label: "Administrador",
-    hint: "Usuarios, credenciales Cloudflare y configuración global.",
-    pill: "bg-cf-orange/15 text-cf-orange ring-cf-orange/35",
-    icon: Shield,
-  },
-  operator: {
-    label: "Operador",
-    hint: "Túneles y operación; sin credenciales Cloudflare.",
-    pill: "bg-sky-500/15 text-sky-300 ring-sky-500/30",
-    icon: UserCog,
-  },
-  viewer: {
-    label: "Solo lectura",
-    hint: "Consulta de estado sin cambios.",
-    pill: "bg-zinc-500/15 text-zinc-300 ring-zinc-500/35",
-    icon: Eye,
-  },
-};
 
 function fmtDate(ts: number) {
   return new Date(ts * 1000).toLocaleString("es", {
@@ -76,15 +56,22 @@ function initials(u: ListedUser) {
   return (a + b).toUpperCase().slice(0, 2);
 }
 
-function RolePill({ role }: { role: string }) {
-  const r = (role in ROLE_META ? role : "viewer") as UserRole;
-  const meta = ROLE_META[r];
+function RolePills({ roles }: { roles: AtlasRoleRef[] }) {
+  if (!roles.length) {
+    return <span className="text-xs text-zinc-500">Sin roles</span>;
+  }
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ring-1 ${meta.pill}`}
-    >
-      {meta.label}
-    </span>
+    <div className="flex flex-wrap gap-1">
+      {roles.map((r) => (
+        <span
+          key={r.id}
+          className="inline-flex rounded-full bg-zinc-700/50 px-2 py-0.5 text-[11px] text-zinc-300 ring-1 ring-zinc-600/40"
+          title={r.slug}
+        >
+          {r.name}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -121,7 +108,6 @@ function Modal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.15 }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
       role="presentation"
@@ -129,22 +115,17 @@ function Modal({
       <motion.div
         initial={{ opacity: 0, scale: 0.97, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: 8 }}
-        transition={{ duration: 0.18 }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="atlas-user-modal-title"
-        className={`w-full rounded-2xl border border-cf-line bg-[#111418] shadow-2xl shadow-black/50 ring-1 ring-white/[0.06] ${wide ? "max-w-lg" : "max-w-md"}`}
+        className={`w-full rounded-2xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.06] ${wide ? "max-w-lg" : "max-w-md"}`}
       >
         <div className="flex items-start justify-between gap-3 border-b border-cf-line/80 px-5 py-4">
-          <h2 id="atlas-user-modal-title" className="text-sm font-semibold text-zinc-100">
-            {title}
-          </h2>
+          <h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-200"
+            className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
             aria-label="Cerrar"
           >
             <X className="h-4 w-4" />
@@ -156,10 +137,53 @@ function Modal({
   );
 }
 
+function RolePicker({
+  options,
+  selected,
+  onChange,
+}: {
+  options: RoleOption[];
+  selected: Set<number>;
+  onChange: (next: Set<number>) => void;
+}) {
+  const toggle = (id: number) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onChange(next);
+  };
+
+  return (
+    <div className="mt-2 space-y-2 rounded-xl border border-cf-line/70 bg-black/25 p-3">
+      {options.map((r) => (
+        <label
+          key={r.id}
+          className="flex cursor-pointer items-start gap-2 rounded-lg px-1 py-1 hover:bg-white/[0.03]"
+        >
+          <input
+            type="checkbox"
+            className="mt-1 rounded border-cf-line text-cf-orange focus:ring-cf-orange/30"
+            checked={selected.has(r.id)}
+            onChange={() => toggle(r.id)}
+          />
+          <span className="min-w-0">
+            <span className="text-sm font-medium text-zinc-200">{r.name}</span>
+            {r.is_system ? (
+              <span className="ml-2 text-[10px] uppercase text-zinc-500">sistema</span>
+            ) : null}
+            <span className="mt-0.5 block text-xs text-zinc-500">{r.description || r.slug}</span>
+          </span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
 type Props = { me: AuthUser };
 
 export function AtlasUsersView({ me }: Props) {
   const [rows, setRows] = useState<ListedUser[]>([]);
+  const [roleOptions, setRoleOptions] = useState<RoleOption[]>([]);
   const [loadErr, setLoadErr] = useState("");
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -167,7 +191,7 @@ export function AtlasUsersView({ me }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editUser, setEditUser] = useState<ListedUser | null>(null);
 
-  const [editRole, setEditRole] = useState<UserRole>("operator");
+  const [editRoleIds, setEditRoleIds] = useState<Set<number>>(new Set());
   const [editEmail, setEditEmail] = useState("");
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
@@ -180,7 +204,7 @@ export function AtlasUsersView({ me }: Props) {
   const [cuEmail, setCuEmail] = useState("");
   const [cuName, setCuName] = useState("");
   const [cuPw, setCuPw] = useState("");
-  const [cuRole, setCuRole] = useState<UserRole>("operator");
+  const [cuRoleIds, setCuRoleIds] = useState<Set<number>>(new Set());
   const [cuErr, setCuErr] = useState("");
   const [cuBusy, setCuBusy] = useState(false);
 
@@ -188,8 +212,14 @@ export function AtlasUsersView({ me }: Props) {
     setLoadErr("");
     setLoading(true);
     try {
-      const d = await api<{ users: ListedUser[] }>("/api/auth/users");
-      setRows(d.users);
+      const [usersRes, rolesRes] = await Promise.all([
+        api<{ users: ListedUser[] }>("/api/auth/users"),
+        api<{ roles: RoleOption[] }>("/api/auth/roles"),
+      ]);
+      setRows(usersRes.users);
+      setRoleOptions(rolesRes.roles);
+      const op = rolesRes.roles.find((r) => r.slug === "operator");
+      if (op) setCuRoleIds(new Set([op.id]));
     } catch (e) {
       setLoadErr(String(e));
     } finally {
@@ -205,22 +235,25 @@ export function AtlasUsersView({ me }: Props) {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((u) => {
-      const blob = [u.username, u.email, u.first_name, u.last_name, u.role].join(" ").toLowerCase();
+      const roleNames = u.roles.map((r) => r.name).join(" ");
+      const blob = [u.username, u.email, u.first_name, u.last_name, roleNames].join(" ").toLowerCase();
       return blob.includes(q);
     });
   }, [rows, query]);
 
-  const counts = useMemo(() => {
-    const c = { admin: 0, operator: 0, viewer: 0 };
+  const roleCounts = useMemo(() => {
+    const c = new Map<string, number>();
     for (const u of rows) {
-      if (u.role in c) c[u.role as UserRole]++;
+      for (const r of u.roles) {
+        c.set(r.slug, (c.get(r.slug) ?? 0) + 1);
+      }
     }
     return c;
   }, [rows]);
 
   const openEdit = (u: ListedUser) => {
     setEditUser(u);
-    setEditRole((u.role as UserRole) || "operator");
+    setEditRoleIds(new Set(u.roles.map((r) => r.id)));
     setEditEmail(u.email);
     setEditFirstName(u.first_name);
     setEditLastName(u.last_name);
@@ -228,23 +261,13 @@ export function AtlasUsersView({ me }: Props) {
     setEditErr("");
   };
 
-  const closeCreate = () => {
-    setCreateOpen(false);
-    setCuErr("");
-  };
-
-  const resetCreateForm = () => {
-    setCuFirstName("");
-    setCuLastName("");
-    setCuEmail("");
-    setCuName("");
-    setCuPw("");
-    setCuRole("operator");
-  };
-
   const submitEdit = async (e: FormEvent) => {
     e.preventDefault();
     if (!editUser) return;
+    if (!editRoleIds.size) {
+      setEditErr("Asigna al menos un rol.");
+      return;
+    }
     if (editPw.trim() && editPw.trim().length < 12) {
       setEditErr("La contraseña debe tener al menos 12 caracteres.");
       return;
@@ -252,14 +275,8 @@ export function AtlasUsersView({ me }: Props) {
     setEditErr("");
     setEditBusy(true);
     try {
-      const body: {
-        role: UserRole;
-        email: string;
-        first_name: string;
-        last_name: string;
-        password?: string;
-      } = {
-        role: editRole,
+      const body: Record<string, unknown> = {
+        role_ids: [...editRoleIds],
         email: editEmail.trim(),
         first_name: editFirstName.trim(),
         last_name: editLastName.trim(),
@@ -282,6 +299,10 @@ export function AtlasUsersView({ me }: Props) {
   const submitCreate = async (e: FormEvent) => {
     e.preventDefault();
     setCuErr("");
+    if (!cuRoleIds.size) {
+      setCuErr("Asigna al menos un rol.");
+      return;
+    }
     if (cuPw.length < 12) {
       setCuErr("La contraseña debe tener al menos 12 caracteres.");
       return;
@@ -296,11 +317,10 @@ export function AtlasUsersView({ me }: Props) {
           first_name: cuFirstName.trim(),
           last_name: cuLastName.trim(),
           password: cuPw,
-          role: cuRole,
+          role_ids: [...cuRoleIds],
         }),
       });
-      resetCreateForm();
-      closeCreate();
+      setCreateOpen(false);
       await reload();
     } catch (ex) {
       setCuErr(String(ex));
@@ -310,9 +330,7 @@ export function AtlasUsersView({ me }: Props) {
   };
 
   const doDelete = async (u: ListedUser) => {
-    if (!window.confirm(`¿Eliminar a «${displayName(u)}» (${u.username})? No se puede deshacer.`)) {
-      return;
-    }
+    if (!window.confirm(`¿Eliminar a «${displayName(u)}» (${u.username})?`)) return;
     try {
       await api(`/api/auth/users/${encodeURIComponent(u.username)}`, { method: "DELETE" });
       if (editUser?.username === u.username) setEditUser(null);
@@ -321,16 +339,6 @@ export function AtlasUsersView({ me }: Props) {
       window.alert(String(ex));
     }
   };
-
-  const roleSelect = (value: UserRole, onChange: (r: UserRole) => void) => (
-    <select value={value} onChange={(e) => onChange(e.target.value as UserRole)} className={inputClass}>
-      {(Object.keys(ROLE_META) as UserRole[]).map((r) => (
-        <option key={r} value={r}>
-          {ROLE_META[r].label} — {ROLE_META[r].hint}
-        </option>
-      ))}
-    </select>
-  );
 
   return (
     <motion.div
@@ -342,48 +350,34 @@ export function AtlasUsersView({ me }: Props) {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Administración</p>
-          <h2 className="mt-1 text-lg font-semibold text-zinc-100">Usuarios y roles</h2>
+          <h2 className="mt-1 text-lg font-semibold text-zinc-100">Usuarios</h2>
           <p className="mt-1 max-w-xl text-sm text-zinc-500">
-            Gestiona quién accede a Atlas y con qué permisos.
+            Cuentas de acceso y asignación de uno o varios roles.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => {
-            setCuErr("");
-            setCreateOpen(true);
-          }}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-cf-orange px-4 text-sm font-semibold text-black transition hover:brightness-110"
+          onClick={() => setCreateOpen(true)}
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-cf-orange px-4 text-sm font-semibold text-black hover:brightness-110"
         >
           <Plus className="h-4 w-4" />
           Nuevo usuario
         </button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        {(Object.keys(ROLE_META) as UserRole[]).map((r) => {
-          const Icon = ROLE_META[r].icon;
-          return (
-            <div
-              key={r}
-              className="rounded-xl border border-cf-line/80 bg-cf-card/60 px-4 py-3 ring-1 ring-white/[0.03]"
+      {roleOptions.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {roleOptions.map((r) => (
+            <span
+              key={r.id}
+              className="rounded-lg border border-cf-line/60 bg-cf-card/50 px-3 py-1.5 text-xs text-zinc-400"
             >
-              <div className="flex items-center gap-2">
-                <span
-                  className={`flex h-8 w-8 items-center justify-center rounded-lg ring-1 ${ROLE_META[r].pill}`}
-                >
-                  <Icon className="h-4 w-4" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-zinc-200">{ROLE_META[r].label}</p>
-                  <p className="text-lg font-semibold tabular-nums text-zinc-100">{counts[r]}</p>
-                </div>
-              </div>
-              <p className="mt-2 text-[11px] leading-snug text-zinc-500">{ROLE_META[r].hint}</p>
-            </div>
-          );
-        })}
-      </div>
+              <span className="font-medium text-zinc-300">{r.name}</span>
+              <span className="ml-2 tabular-nums text-zinc-500">{roleCounts.get(r.slug) ?? 0}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       <div className="overflow-hidden rounded-2xl border border-cf-line bg-cf-card/90 ring-1 ring-white/[0.03]">
         <div className="flex flex-col gap-3 border-b border-cf-line/80 bg-black/25 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -396,8 +390,8 @@ export function AtlasUsersView({ me }: Props) {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar nombre, correo o usuario…"
-              className="w-full rounded-lg border border-cf-line bg-black/40 py-2 pl-9 pr-3 text-sm text-zinc-100 outline-none focus:border-cf-orange/50"
+              placeholder="Buscar…"
+              className="w-full rounded-lg border border-cf-line bg-black/40 py-2 pl-9 pr-3 text-sm outline-none focus:border-cf-orange/50"
             />
           </div>
         </div>
@@ -405,50 +399,41 @@ export function AtlasUsersView({ me }: Props) {
         {loadErr ? (
           <p className="px-4 py-6 text-sm text-rose-300">{loadErr}</p>
         ) : loading ? (
-          <div className="flex items-center justify-center gap-2 px-4 py-16 text-sm text-zinc-500">
+          <div className="flex justify-center gap-2 py-16 text-sm text-zinc-500">
             <Loader2 className="h-5 w-5 animate-spin text-cf-orange" />
-            Cargando usuarios…
+            Cargando…
           </div>
-        ) : filtered.length === 0 ? (
-          <p className="px-4 py-12 text-center text-sm text-zinc-500">
-            {query ? "Ningún usuario coincide con la búsqueda." : "No hay usuarios registrados."}
-          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[44rem] text-left text-sm">
               <thead>
-                <tr className="border-b border-cf-line/60 text-[11px] uppercase tracking-wide text-zinc-500">
+                <tr className="border-b border-cf-line/60 text-[11px] uppercase text-zinc-500">
                   <th className="px-4 py-3 font-medium">Usuario</th>
                   <th className="px-4 py-3 font-medium">Correo</th>
-                  <th className="px-4 py-3 font-medium">Rol</th>
+                  <th className="px-4 py-3 font-medium">Roles</th>
                   <th className="px-4 py-3 font-medium">Alta</th>
-                  <th className="px-4 py-3 font-medium text-right">Acciones</th>
+                  <th className="px-4 py-3 text-right font-medium">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((u) => {
                   const isSelf = u.username === me.username;
                   return (
-                    <tr
-                      key={u.id}
-                      className="border-b border-cf-line/30 transition hover:bg-white/[0.02] last:border-0"
-                    >
+                    <tr key={u.id} className="border-b border-cf-line/30 hover:bg-white/[0.02]">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-zinc-700 to-zinc-900 text-xs font-semibold text-zinc-200 ring-1 ring-white/10">
+                          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-xs font-semibold">
                             {initials(u)}
                           </span>
-                          <div className="min-w-0">
-                            <p className="truncate font-medium text-zinc-100">{displayName(u)}</p>
-                            <p className="truncate font-mono text-xs text-zinc-500">{u.username}</p>
+                          <div>
+                            <p className="font-medium text-zinc-100">{displayName(u)}</p>
+                            <p className="font-mono text-xs text-zinc-500">{u.username}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="max-w-[12rem] truncate px-4 py-3 text-zinc-400">
-                        {u.email || "—"}
-                      </td>
+                      <td className="max-w-[12rem] truncate px-4 py-3 text-zinc-400">{u.email || "—"}</td>
                       <td className="px-4 py-3">
-                        <RolePill role={u.role} />
+                        <RolePills roles={u.roles} />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-xs text-zinc-500">
                         {fmtDate(u.created_at)}
@@ -458,8 +443,7 @@ export function AtlasUsersView({ me }: Props) {
                           <button
                             type="button"
                             onClick={() => openEdit(u)}
-                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-300 ring-1 ring-cf-line transition hover:bg-white/5 hover:text-zinc-100"
-                            title="Editar"
+                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs ring-1 ring-cf-line hover:bg-white/5"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                             Editar
@@ -468,8 +452,7 @@ export function AtlasUsersView({ me }: Props) {
                             type="button"
                             disabled={isSelf}
                             onClick={() => void doDelete(u)}
-                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-rose-300/90 ring-1 ring-rose-500/25 transition hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-40"
-                            title={isSelf ? "No puedes eliminar tu propia cuenta" : "Eliminar"}
+                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-rose-300 ring-1 ring-rose-500/25 disabled:opacity-40"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                             Eliminar
@@ -487,7 +470,7 @@ export function AtlasUsersView({ me }: Props) {
 
       <AnimatePresence>
         {createOpen ? (
-          <Modal title="Nuevo usuario" onClose={closeCreate} wide>
+          <Modal title="Nuevo usuario" onClose={() => setCreateOpen(false)} wide>
             <form className="space-y-4" onSubmit={(e) => void submitCreate(e)}>
               {cuErr ? (
                 <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
@@ -496,69 +479,30 @@ export function AtlasUsersView({ me }: Props) {
               ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Nombre">
-                  <input
-                    className={inputClass}
-                    value={cuFirstName}
-                    onChange={(e) => setCuFirstName(e.target.value)}
-                    autoComplete="given-name"
-                    required
-                  />
+                  <input className={inputClass} value={cuFirstName} onChange={(e) => setCuFirstName(e.target.value)} required />
                 </Field>
                 <Field label="Apellido">
-                  <input
-                    className={inputClass}
-                    value={cuLastName}
-                    onChange={(e) => setCuLastName(e.target.value)}
-                    autoComplete="family-name"
-                    required
-                  />
+                  <input className={inputClass} value={cuLastName} onChange={(e) => setCuLastName(e.target.value)} required />
                 </Field>
-                <Field label="Correo electrónico" className="sm:col-span-2">
-                  <input
-                    type="email"
-                    className={inputClass}
-                    value={cuEmail}
-                    onChange={(e) => setCuEmail(e.target.value)}
-                    autoComplete="email"
-                    required
-                  />
+                <Field label="Correo" className="sm:col-span-2">
+                  <input type="email" className={inputClass} value={cuEmail} onChange={(e) => setCuEmail(e.target.value)} required />
                 </Field>
-                <Field label="Usuario (login)">
-                  <input
-                    className={`${inputClass} font-mono`}
-                    value={cuName}
-                    onChange={(e) => setCuName(e.target.value)}
-                    autoComplete="off"
-                    required
-                  />
+                <Field label="Usuario">
+                  <input className={`${inputClass} font-mono`} value={cuName} onChange={(e) => setCuName(e.target.value)} required />
                 </Field>
-                <Field label="Contraseña inicial (≥ 12)">
-                  <input
-                    type="password"
-                    className={inputClass}
-                    value={cuPw}
-                    onChange={(e) => setCuPw(e.target.value)}
-                    autoComplete="new-password"
-                    required
-                  />
+                <Field label="Contraseña (≥ 12)">
+                  <input type="password" className={inputClass} value={cuPw} onChange={(e) => setCuPw(e.target.value)} required />
                 </Field>
               </div>
-              <Field label="Rol">{roleSelect(cuRole, setCuRole)}</Field>
-              <div className="flex flex-wrap justify-end gap-2 border-t border-cf-line/60 pt-4">
-                <button
-                  type="button"
-                  onClick={closeCreate}
-                  className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-300 ring-1 ring-cf-line hover:bg-white/5"
-                >
+              <Field label="Roles">
+                <RolePicker options={roleOptions} selected={cuRoleIds} onChange={setCuRoleIds} />
+              </Field>
+              <div className="flex justify-end gap-2 border-t border-cf-line/60 pt-4">
+                <button type="button" onClick={() => setCreateOpen(false)} className="rounded-lg px-4 py-2 text-sm ring-1 ring-cf-line">
                   Cancelar
                 </button>
-                <button
-                  type="submit"
-                  disabled={cuBusy}
-                  className="inline-flex items-center gap-2 rounded-lg bg-cf-orange px-4 py-2 text-sm font-semibold text-black disabled:opacity-50"
-                >
-                  {cuBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {cuBusy ? "Creando…" : "Crear usuario"}
+                <button type="submit" disabled={cuBusy} className="rounded-lg bg-cf-orange px-4 py-2 text-sm font-semibold text-black disabled:opacity-50">
+                  {cuBusy ? "Creando…" : "Crear"}
                 </button>
               </div>
             </form>
@@ -575,57 +519,27 @@ export function AtlasUsersView({ me }: Props) {
               ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Nombre">
-                  <input
-                    className={inputClass}
-                    value={editFirstName}
-                    onChange={(e) => setEditFirstName(e.target.value)}
-                    required
-                  />
+                  <input className={inputClass} value={editFirstName} onChange={(e) => setEditFirstName(e.target.value)} required />
                 </Field>
                 <Field label="Apellido">
-                  <input
-                    className={inputClass}
-                    value={editLastName}
-                    onChange={(e) => setEditLastName(e.target.value)}
-                    required
-                  />
+                  <input className={inputClass} value={editLastName} onChange={(e) => setEditLastName(e.target.value)} required />
                 </Field>
                 <Field label="Correo" className="sm:col-span-2">
-                  <input
-                    type="email"
-                    className={inputClass}
-                    value={editEmail}
-                    onChange={(e) => setEditEmail(e.target.value)}
-                    required
-                  />
+                  <input type="email" className={inputClass} value={editEmail} onChange={(e) => setEditEmail(e.target.value)} required />
                 </Field>
               </div>
-              <Field label="Rol">{roleSelect(editRole, setEditRole)}</Field>
-              <Field label="Nueva contraseña (opcional)">
-                <input
-                  type="password"
-                  className={inputClass}
-                  placeholder="Dejar vacío para no cambiar"
-                  value={editPw}
-                  onChange={(e) => setEditPw(e.target.value)}
-                  autoComplete="new-password"
-                />
+              <Field label="Roles">
+                <RolePicker options={roleOptions} selected={editRoleIds} onChange={setEditRoleIds} />
               </Field>
-              <div className="flex flex-wrap justify-end gap-2 border-t border-cf-line/60 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setEditUser(null)}
-                  className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-300 ring-1 ring-cf-line hover:bg-white/5"
-                >
+              <Field label="Nueva contraseña (opcional)">
+                <input type="password" className={inputClass} value={editPw} onChange={(e) => setEditPw(e.target.value)} />
+              </Field>
+              <div className="flex justify-end gap-2 border-t border-cf-line/60 pt-4">
+                <button type="button" onClick={() => setEditUser(null)} className="rounded-lg px-4 py-2 text-sm ring-1 ring-cf-line">
                   Cancelar
                 </button>
-                <button
-                  type="submit"
-                  disabled={editBusy}
-                  className="inline-flex items-center gap-2 rounded-lg bg-cf-orange px-4 py-2 text-sm font-semibold text-black disabled:opacity-50"
-                >
-                  {editBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {editBusy ? "Guardando…" : "Guardar cambios"}
+                <button type="submit" disabled={editBusy} className="rounded-lg bg-cf-orange px-4 py-2 text-sm font-semibold text-black disabled:opacity-50">
+                  {editBusy ? "Guardando…" : "Guardar"}
                 </button>
               </div>
             </form>

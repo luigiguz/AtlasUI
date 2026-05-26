@@ -8,7 +8,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from atlas_core.web_auth import current_user, require_roles
+from atlas_core.permissions import PERM_RANCHER_CONFIGURE, PERM_RANCHER_WRITE
+from atlas_core.web_auth import current_user, require_permission
 from atlas_rancher.client import (
     RancherApiError,
     RancherConfigError,
@@ -53,7 +54,9 @@ def rancher_health() -> dict[str, str]:
 
 
 @router.get("/settings")
-def get_rancher_settings(user: dict[str, Any] = Depends(require_roles("admin"))) -> dict[str, Any]:
+def get_rancher_settings(
+    user: dict[str, Any] = Depends(require_permission(PERM_RANCHER_CONFIGURE)),
+) -> dict[str, Any]:
     s = load_rancher_settings()
     return {
         "url": s["url"],
@@ -69,7 +72,7 @@ def get_rancher_settings(user: dict[str, Any] = Depends(require_roles("admin")))
 @router.post("/settings")
 def post_rancher_settings(
     body: RancherSettingsBody,
-    _admin: dict[str, Any] = Depends(require_roles("admin")),
+    _admin: dict[str, Any] = Depends(require_permission(PERM_RANCHER_CONFIGURE)),
 ) -> dict[str, bool]:
     if not body.url.strip() or not body.token.strip():
         raise HTTPException(400, "URL y token de Rancher son obligatorios.")
@@ -164,7 +167,7 @@ def patch_custom_cluster_labels(
     namespace: str,
     name: str,
     body: ClusterLabelsBody,
-    user: dict[str, Any] = Depends(require_roles("admin", "operator")),
+    user: dict[str, Any] = Depends(require_permission(PERM_RANCHER_WRITE)),
 ) -> dict[str, Any]:
     settings = load_rancher_settings()
     if not settings["url"] or not settings["token"]:
@@ -262,7 +265,7 @@ def post_deployment_rollout(
     name: str,
     deployment_name: str,
     body: DeploymentRolloutBody,
-    user: dict[str, Any] = Depends(require_roles("admin", "operator")),
+    user: dict[str, Any] = Depends(require_permission(PERM_RANCHER_WRITE)),
 ) -> dict[str, Any]:
     """Réplicas 0 → N para forzar descarga de imagen en el nodo."""
     settings = load_rancher_settings()

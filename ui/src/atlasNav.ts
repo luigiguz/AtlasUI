@@ -1,5 +1,26 @@
 import type { LucideIcon } from "lucide-react";
-import { Box, Cloud, Home, Info, Server, Settings, Shield, Store, Users, Wifi } from "lucide-react";
+import {
+  Box,
+  Cloud,
+  Home,
+  Info,
+  KeyRound,
+  Server,
+  Settings,
+  Shield,
+  Store,
+  Users,
+  Wifi,
+} from "lucide-react";
+
+import {
+  hasAnyPermission,
+  hasPermission,
+  PERM_CF_READ,
+  PERM_ROLES_LIST,
+  PERM_USERS_LIST,
+  type AuthUser,
+} from "./atlasAuth";
 
 /** Rutas de la consola web Atlas (plataforma). */
 export type AtlasRouteId =
@@ -11,6 +32,7 @@ export type AtlasRouteId =
   | "rancher-clusters"
   | "rancher-pods"
   | "users"
+  | "roles"
   | "about";
 
 /** Rutas del módulo Atlas VPN (sync CF, túneles, Poslite). */
@@ -44,11 +66,12 @@ export type AtlasNavGroup = {
 export type AtlasNavEntry = AtlasNavLeaf | AtlasNavGroup;
 
 /** Menú lateral: plataforma Atlas → productos → páginas. Ampliar `children` al añadir módulos. */
-export function buildAtlasNav(canAdmin: boolean): AtlasNavEntry[] {
+export function buildAtlasNav(user: AuthUser): AtlasNavEntry[] {
+  const canCf = hasPermission(user, PERM_CF_READ);
   const vpnChildren: AtlasNavLeaf[] = [
     { kind: "leaf", id: "vpn-conn", route: "conn", label: "Conexiones", icon: Wifi },
     { kind: "leaf", id: "vpn-poslite", route: "poslite", label: "Poslite", icon: Store },
-    ...(canAdmin
+    ...(canCf
       ? ([
           { kind: "leaf", id: "vpn-cf", route: "cf", label: "Cloudflare", icon: Cloud, adminOnly: true },
         ] satisfies AtlasNavLeaf[])
@@ -97,16 +120,35 @@ export function buildAtlasNav(canAdmin: boolean): AtlasNavEntry[] {
     },
   ];
 
-  if (canAdmin) {
+  const adminChildren: AtlasNavLeaf[] = [];
+  if (hasPermission(user, PERM_USERS_LIST)) {
+    adminChildren.push({
+      kind: "leaf",
+      id: "admin-users",
+      route: "users",
+      label: "Usuarios",
+      icon: Users,
+      adminOnly: true,
+    });
+  }
+  if (hasAnyPermission(user, PERM_ROLES_LIST)) {
+    adminChildren.push({
+      kind: "leaf",
+      id: "admin-roles",
+      route: "roles",
+      label: "Roles",
+      icon: KeyRound,
+      adminOnly: true,
+    });
+  }
+  if (adminChildren.length) {
     entries.push({
       kind: "group",
       id: "atlas-admin",
       label: "Administración",
       icon: Settings,
       defaultOpen: true,
-      children: [
-        { kind: "leaf", id: "admin-users", route: "users", label: "Usuarios", icon: Users, adminOnly: true },
-      ],
+      children: adminChildren,
     });
   }
 
@@ -133,6 +175,8 @@ export function routeMeta(route: AtlasRouteId): { title: string; breadcrumb: str
       return { title: "Contenedores", breadcrumb: ["Atlas", "Atlas Rancher", "Contenedores"] };
     case "users":
       return { title: "Usuarios", breadcrumb: ["Atlas", "Administración", "Usuarios"] };
+    case "roles":
+      return { title: "Roles y permisos", breadcrumb: ["Atlas", "Administración", "Roles"] };
     case "about":
       return { title: "Acerca de", breadcrumb: ["Atlas", "Acerca de"] };
     default:

@@ -162,10 +162,17 @@ def _user_from_token(token: str | None) -> dict[str, Any] | None:
     payload = decode_access_token(token.strip())
     if not payload:
         return None
+    perms = payload.get("permissions")
+    if isinstance(perms, list) and "atlas:vpn:Operate" in perms:
+        return {
+            "username": str(payload.get("sub") or ""),
+            "role": str(payload.get("role") or ""),
+            "permissions": perms,
+        }
     role = str(payload.get("role") or "")
-    if role not in ("admin", "operator"):
-        return None
-    return {"username": str(payload.get("sub") or ""), "role": role}
+    if role in ("admin", "operator"):
+        return {"username": str(payload.get("sub") or ""), "role": role}
+    return None
 
 
 def _ssh_connect_error_message(exc: BaseException, ssh_user: str) -> str:

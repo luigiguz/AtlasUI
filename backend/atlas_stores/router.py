@@ -8,7 +8,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from atlas_core.web_auth import current_user, require_roles
+from atlas_core.permissions import PERM_STORES_CONFIGURE, PERM_STORES_WRITE
+from atlas_core.web_auth import current_user, require_permission
 from atlas_stores.equipment import (
     EquipmentNotFoundError,
     RancherNotConfiguredError,
@@ -78,7 +79,9 @@ def stores_health() -> dict[str, str]:
 
 
 @router.get("/settings")
-def get_stores_settings(user: dict[str, Any] = Depends(require_roles("admin"))) -> dict[str, Any]:
+def get_stores_settings(
+    user: dict[str, Any] = Depends(require_permission(PERM_STORES_CONFIGURE)),
+) -> dict[str, Any]:
     s = load_stores_settings()
     configured = bool(s.get("repo_url"))
     return {
@@ -94,7 +97,7 @@ def get_stores_settings(user: dict[str, Any] = Depends(require_roles("admin"))) 
 @router.post("/settings")
 def post_stores_settings(
     body: StoresSettingsBody,
-    _admin: dict[str, Any] = Depends(require_roles("admin")),
+    _admin: dict[str, Any] = Depends(require_permission(PERM_STORES_CONFIGURE)),
 ) -> dict[str, bool]:
     if not body.repo_url.strip():
         raise HTTPException(400, "La URL Git del repositorio atlas-stores es obligatoria.")
@@ -110,7 +113,7 @@ def post_stores_settings(
 
 @router.post("/sync")
 def post_stores_sync(
-    _user: dict[str, Any] = Depends(require_roles("admin", "operator")),
+    _user: dict[str, Any] = Depends(require_permission(PERM_STORES_WRITE)),
 ) -> dict[str, Any]:
     settings = load_stores_settings()
     try:
@@ -158,7 +161,7 @@ def get_stores(
 @router.post("/stores/preview")
 def post_store_create_preview(
     body: CreateStoreBody,
-    user: dict[str, Any] = Depends(require_roles("admin", "operator")),
+    user: dict[str, Any] = Depends(require_permission(PERM_STORES_WRITE)),
 ) -> dict[str, Any]:
     """Resumen de configuración antes de commit/push (no escribe archivos)."""
     settings = load_stores_settings()
@@ -233,7 +236,7 @@ def get_store_detail(
 def put_store(
     folder_name: str,
     body: SaveStoreBody,
-    user: dict[str, Any] = Depends(require_roles("admin", "operator")),
+    user: dict[str, Any] = Depends(require_permission(PERM_STORES_WRITE)),
 ) -> dict[str, Any]:
     settings = load_stores_settings()
     try:
@@ -283,7 +286,7 @@ def get_store_templates(
 @router.post("/stores")
 def post_create_store(
     body: CreateStoreBody,
-    user: dict[str, Any] = Depends(require_roles("admin", "operator")),
+    user: dict[str, Any] = Depends(require_permission(PERM_STORES_WRITE)),
 ) -> dict[str, Any]:
     settings = load_stores_settings()
     store_id = (body.store_id or body.folder_name).strip()

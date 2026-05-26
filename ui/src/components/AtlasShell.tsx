@@ -20,6 +20,7 @@ import {
   type AtlasNavLeaf,
   type AtlasRouteId,
 } from "../atlasNav";
+import type { AuthUser } from "../atlasAuth";
 import { apiUrl } from "../apiClient";
 
 const SIDEBAR_COLLAPSED_KEY = "atlas.sidebarCollapsed";
@@ -28,13 +29,10 @@ const SIDEBAR_WIDTH_COLLAPSED = 56;
 const sidebarMotion = { duration: 0.28, ease: [0.32, 0.72, 0, 1] as const };
 const sidebarContentMotion = { duration: 0.18, ease: "easeOut" as const };
 
-type AuthUser = { username: string; role: "admin" | "operator" | "viewer" };
-
 type Props = {
   route: AtlasRouteId;
   onNavigate: (r: AtlasRouteId) => void;
   user: AuthUser;
-  canAdmin: boolean;
   onLogout: () => void;
   children: ReactNode;
 };
@@ -361,13 +359,13 @@ function SidebarQuickSearch({
   );
 }
 
-export function AtlasShell({ route, onNavigate, user, canAdmin, onLogout, children }: Props): ReactNode {
+export function AtlasShell({ route, onNavigate, user, onLogout, children }: Props): ReactNode {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [navQuery, setNavQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const meta = routeMeta(route);
-  const navEntries = useMemo(() => buildAtlasNav(canAdmin), [canAdmin]);
+  const navEntries = useMemo(() => buildAtlasNav(user), [user]);
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(() => ({
     "atlas-vpn": true,
     "atlas-admin": true,

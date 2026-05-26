@@ -2,12 +2,11 @@ import { motion } from "framer-motion";
 import { Loader2, Lock, User } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
+import { parseAuthUser, type AuthUser } from "../atlasAuth";
 import { api, apiUrl, setAccessToken, setRefreshToken } from "../apiClient";
 import { PoweredByVerkkutech } from "./PoweredByVerkkutech";
 
 const ATLAS_LOGO_FALLBACK = `/branding/${encodeURIComponent("Logo ATLAS - Sin Fondi.png")}`;
-
-type AuthUser = { username: string; role: "admin" | "operator" | "viewer" };
 
 type Props = {
   onDone: (u: AuthUser) => void;
@@ -42,7 +41,12 @@ export function AuthLoginPanel({ onDone }: Props) {
     try {
       const r = await api<{
         ok: boolean;
-        user: { username: string; role: string };
+        user: {
+          username: string;
+          role: string;
+          roles?: { id: number; slug: string; name: string }[];
+          permissions?: string[];
+        };
         access_token?: string;
         refresh_token?: string;
       }>("/api/auth/login", {
@@ -53,7 +57,7 @@ export function AuthLoginPanel({ onDone }: Props) {
       else setAccessToken(null);
       if (r.refresh_token) setRefreshToken(r.refresh_token);
       else setRefreshToken(null);
-      onDone({ username: r.user.username, role: r.user.role as AuthUser["role"] });
+      onDone(parseAuthUser(r.user));
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : String(ex));
     } finally {

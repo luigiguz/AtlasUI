@@ -83,12 +83,13 @@ def get_active_session(jti: str) -> dict[str, Any] | None:
         user = row.user
         if not user:
             return None
-        return {
-            "jti": row.id,
-            "username": user.username,
-            "role": user.role,
-            "id": int(user.id),
-        }
+        from atlas_core.web_roles import load_user_auth
+
+        auth = load_user_auth(int(user.id))
+        if not auth:
+            return None
+        auth["jti"] = row.id
+        return auth
 
 
 def refresh_access_session(refresh_token: str) -> tuple[str, str, dict[str, Any]] | None:
@@ -124,11 +125,11 @@ def refresh_access_session(refresh_token: str) -> tuple[str, str, dict[str, Any]
                 user_agent=row.user_agent,
             )
         )
-        user_dict = {
-            "username": user.username,
-            "role": user.role,
-            "id": int(user.id),
-        }
+        from atlas_core.web_roles import load_user_auth
+
+        user_dict = load_user_auth(int(user.id))
+        if not user_dict:
+            return None
     return new_jti, new_refresh, user_dict
 
 

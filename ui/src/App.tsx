@@ -24,6 +24,21 @@ import {
 
 import { API_BASE, api, apiUrl, bearerHeaders, clearAuthTokens } from "./apiClient";
 import { clearSessionActivity, touchSessionActivity, useIdleLogout } from "./useIdleLogout";
+import {
+  hasAnyPermission,
+  hasPermission,
+  parseAuthUser,
+  PERM_CF_READ,
+  PERM_CF_SYNC,
+  PERM_RANCHER_CONFIGURE,
+  PERM_RANCHER_WRITE,
+  PERM_ROLES_LIST,
+  PERM_STORES_CONFIGURE,
+  PERM_STORES_WRITE,
+  PERM_USERS_LIST,
+  PERM_VPN_OPERATE,
+  type AuthUser,
+} from "./atlasAuth";
 import type { AtlasRouteId } from "./atlasNav";
 import { AuthLoginPanel } from "./components/AuthLoginPanel";
 import { AtlasShell } from "./components/AtlasShell";
@@ -40,6 +55,7 @@ import { AtlasHomeView } from "./views/AtlasHomeView";
 import { AtlasRancherClustersView } from "./views/AtlasRancherClustersView";
 import { AtlasRancherPodsView } from "./views/AtlasRancherPodsView";
 import { AtlasStoresView } from "./views/AtlasStoresView";
+import { AtlasRolesView } from "./views/AtlasRolesView";
 import { AtlasUsersView } from "./views/AtlasUsersView";
 
 type SiteRow = {
@@ -63,11 +79,14 @@ function filterSitesByNameQuery(sites: SiteRow[], query: string): SiteRow[] {
   return sites.filter((s) => s.name.toLowerCase().includes(t) || s.id.toLowerCase().includes(t));
 }
 
-type AuthUser = { username: string; role: "admin" | "operator" | "viewer" };
-
 type AuthStatusResponse = {
   authenticated: boolean;
-  user?: { username: string; role: string };
+  user?: {
+    username: string;
+    role: string;
+    roles?: { id: number; slug: string; name: string }[];
+    permissions?: string[];
+  };
 };
 
 /** Resumen por sitio: prioriza caídos, luego activos, luego reposo. */
@@ -313,10 +332,7 @@ export default function App() {
         });
         const s = (await r.json()) as AuthStatusResponse;
         if (s.authenticated && s.user) {
-          setMe({
-            username: s.user.username,
-            role: s.user.role as AuthUser["role"],
-          });
+          setMe(parseAuthUser(s.user));
           setAuthPhase("app");
           return;
         }
@@ -451,7 +467,7 @@ export default function App() {
   );
 
   useEffect(() => {
-    if (authPhase !== "app" || me?.role !== "admin") return;
+    if (authPhase !== "app" || !me || !hasPermission(me, PERM_CF_SYNC)) return;
     if (!acc.trim() || !tok.trim()) return;
 
     void runCfSync({ silent: true });
@@ -679,8 +695,14 @@ export default function App() {
     );
   }
 
-  const canOperate = me.role !== "viewer";
-  const canAdmin = me.role === "admin";
+  const canOperate = hasPermission(me, PERM_VPN_OPERATE);
+  const canCfRead = hasPermission(me, PERM_CF_READ);
+  const canRancherConfigure = hasPermission(me, PERM_RANCHER_CONFIGURE);
+  const canRancherWrite = hasPermission(me, PERM_RANCHER_WRITE);
+  const canStoresConfigure = hasPermission(me, PERM_STORES_CONFIGURE);
+  const canStoresWrite = hasPermission(me, PERM_STORES_WRITE);
+  const canUsers = hasPermission(me, PERM_USERS_LIST);
+  const canRoles = hasAnyPermission(me, PERM_ROLES_LIST);
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#0b0d10] text-zinc-100">
@@ -697,13 +719,12 @@ export default function App() {
         route={tab}
         onNavigate={setTab}
         user={me}
-        canAdmin={canAdmin}
         onLogout={() => void doLogout()}
       >
         {tab === "home" && (
           <AtlasHomeView
             sites={sites}
-            canAdmin={canAdmin}
+            canAdmin={canCfRead}
             syncMsg={syncMsg}
             syncOk={syncOk}
             lastSyncAt={lastSyncAt}
@@ -712,16 +733,13 @@ export default function App() {
         )}
 
         {tab === "rancher-stores" && (
-          <AtlasStoresView
-            canAdmin={canAdmin}
-            canEdit={me.role === "admin" || me.role === "operator"}
-          />
+          <AtlasStoresView canAdmin={canStoresConfigure} canEdit={canStoresWrite} />
         )}
 
         {tab === "rancher-clusters" && (
           <AtlasRancherClustersView
-            canAdmin={canAdmin}
-            canEditLabels={me.role === "admin" || me.role === "operator"}
+            canAdmin={canRancherConfigure}
+            canEditLabels={canRancherWrite}
             onOpenContainers={(clusterId) => {
               rememberTiendaForContainers(clusterId);
               setContainersFocusId(clusterId);
@@ -732,8 +750,8 @@ export default function App() {
 
         {tab === "rancher-pods" && (
           <AtlasRancherPodsView
-            canAdmin={canAdmin}
-            canEdit={me.role === "admin" || me.role === "operator"}
+            canAdmin={canRancherConfigure}
+            canEdit={canRancherWrite}
             focusTiendaId={containersFocusId}
             onFocusTiendaConsumed={() => setContainersFocusId(null)}
           />
@@ -1042,7 +1060,7 @@ export default function App() {
           </motion.div>
         )}
 
-        {canAdmin && tab === "cf" && (
+        {canCfRead && tab === "cf" && (
           <motion.div
             key="cf"
             initial={{ opacity: 0, y: 8 }}
@@ -1173,7 +1191,9 @@ export default function App() {
           </motion.div>
         )}
 
-        {canAdmin && tab === "users" && me && <AtlasUsersView me={me} />}
+        {canUsers && tab === "users" && me && <AtlasUsersView me={me} />}
+
+        {canRoles && tab === "roles" && me && <AtlasRolesView me={me} />}
 
         {tab === "poslite" && (
           <motion.div

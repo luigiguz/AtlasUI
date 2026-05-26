@@ -30,15 +30,36 @@ from atlas_vpn.poslite_urls import poslite_links_for_site
 from atlas_core.env import atlas_env, atlas_env_flag
 from atlas_core.paths import PROJECT_ROOT, STATIC_WEB, resolve_logo_path
 from atlas_vpn.settings_store import load_settings, save_settings
+from atlas_core.permissions import (
+    PERM_CF_READ,
+    PERM_CF_SYNC,
+    PERM_CF_WRITE,
+    PERM_ROLES_LIST,
+    PERM_ROLES_MANAGE,
+    PERM_USERS_CREATE,
+    PERM_USERS_DELETE,
+    PERM_USERS_LIST,
+    PERM_USERS_UPDATE,
+    PERM_VPN_INIT,
+    PERM_VPN_OPERATE,
+    has_permission,
+)
 from atlas_core.web_auth import (
     assert_login_allowed,
     clear_failed_logins,
     current_user,
     register_failed_login,
-    require_roles,
+    require_permission,
     resolve_user_dict,
     revoke_request_session,
     session_middleware_config,
+)
+from atlas_core.web_roles import (
+    create_role,
+    delete_role,
+    list_roles,
+    permission_catalog,
+    update_role,
 )
 from atlas_core.web_sessions import create_user_session, refresh_access_session
 from atlas_rancher.router import router as atlas_rancher_router
@@ -146,15 +167,49 @@ class CreateUserBody(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=64)
     last_name: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=12, max_length=256)
-    role: Literal["admin", "operator", "viewer"] = "operator"
+    role_ids: list[int] = Field(default_factory=list)
+    role: Literal["admin", "operator", "viewer"] | None = None
 
 
 class UpdateUserBody(BaseModel):
-    role: Literal["admin", "operator", "viewer"] | None = None
+    role_ids: list[int] | None = None
     email: str | None = Field(None, max_length=254)
     first_name: str | None = Field(None, max_length=64)
     last_name: str | None = Field(None, max_length=64)
     password: str | None = Field(None, max_length=256)
+
+
+class RoleBody(BaseModel):
+    slug: str = Field(..., min_length=3, max_length=32)
+    name: str = Field(..., min_length=1, max_length=64)
+    description: str = Field(default="", max_length=256)
+    permissions: list[str] = Field(default_factory=list)
+
+
+class RoleUpdateBody(BaseModel):
+    name: str | None = Field(None, max_length=64)
+    description: str | None = Field(None, max_length=256)
+    permissions: list[str] | None = None
+
+
+def _public_user(u: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "username": str(u.get("username") or ""),
+        "role": str(u.get("role") or "viewer"),
+        "roles": u.get("roles") or [],
+        "permissions": u.get("permissions") or [],
+    }
+
+
+def _encode_token(u: dict[str, Any], jti: str) -> str:
+    return encode_access_token(
+        username=str(u["username"]),
+        role=str(u["role"]),
+        user_id=int(u["id"]),
+        jti=jti,
+        permissions=list(u.get("permissions") or []),
+        roles=list(u.get("roles") or []),
+    )
 
 
 def _proc_for_site_label(state: dict, site: str, label: str) -> dict | None:
@@ -301,11 +356,8 @@ def create_app() -> FastAPI:
     @app.get("/api/auth/status")
     def auth_status(request: Request) -> dict[str, Any]:
         u = resolve_user_dict(request)
-        if u and u.get("username") and u.get("role"):
-            return {
-                "authenticated": True,
-                "user": {"username": str(u["username"]), "role": str(u["role"])},
-            }
+        if u and u.get("username"):
+            return {"authenticated": True, "user": _public_user(u)}
         return {"authenticated": False}
 
     @app.post("/api/auth/login")
@@ -327,17 +379,14 @@ def create_app() -> FastAPI:
             "role": row["role"],
             "id": row["id"],
             "jti": jti,
+            "permissions": row.get("permissions") or [],
+            "roles": row.get("roles") or [],
         }
         audit("login_ok", row["username"], "")
-        token = encode_access_token(
-            username=str(row["username"]),
-            role=str(row["role"]),
-            user_id=int(row["id"]),
-            jti=jti,
-        )
+        token = _encode_token(row, jti)
         return {
             "ok": True,
-            "user": {"username": row["username"], "role": row["role"]},
+            "user": _public_user(row),
             "access_token": token,
             "refresh_token": refresh_token,
         }
@@ -348,15 +397,10 @@ def create_app() -> FastAPI:
         if not rotated:
             raise HTTPException(401, "Sesión expirada o inválida. Vuelve a iniciar sesión.")
         jti, refresh_token, user = rotated
-        token = encode_access_token(
-            username=str(user["username"]),
-            role=str(user["role"]),
-            user_id=int(user["id"]),
-            jti=jti,
-        )
+        token = _encode_token(user, jti)
         return {
             "ok": True,
-            "user": {"username": user["username"], "role": user["role"]},
+            "user": _public_user(user),
             "access_token": token,
             "refresh_token": refresh_token,
         }
@@ -370,41 +414,105 @@ def create_app() -> FastAPI:
         request.session.pop("user", None)
         return {"ok": True}
 
+    @app.get("/api/auth/permissions")
+    def auth_permission_catalog(
+        _user: dict[str, Any] = Depends(require_permission(PERM_ROLES_LIST, PERM_ROLES_MANAGE)),
+    ) -> dict[str, Any]:
+        return permission_catalog()
+
+    @app.get("/api/auth/roles")
+    def auth_list_roles(
+        _user: dict[str, Any] = Depends(
+            require_permission(PERM_ROLES_LIST, PERM_ROLES_MANAGE, PERM_USERS_LIST, PERM_USERS_CREATE)
+        ),
+    ) -> dict[str, Any]:
+        return {"roles": list_roles()}
+
+    @app.post("/api/auth/roles")
+    def auth_create_role(
+        body: RoleBody,
+        admin: dict[str, Any] = Depends(require_permission(PERM_ROLES_MANAGE)),
+    ) -> dict[str, Any]:
+        try:
+            row = create_role(
+                slug=body.slug,
+                name=body.name,
+                description=body.description,
+                permissions=body.permissions,
+            )
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        audit("role_created", str(admin.get("username")), body.slug)
+        return {"ok": True, "role": row}
+
+    @app.patch("/api/auth/roles/{slug}")
+    def auth_update_role(
+        slug: str,
+        body: RoleUpdateBody,
+        admin: dict[str, Any] = Depends(require_permission(PERM_ROLES_MANAGE)),
+    ) -> dict[str, Any]:
+        try:
+            row = update_role(
+                slug,
+                name=body.name,
+                description=body.description,
+                permissions=body.permissions,
+            )
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        audit("role_updated", str(admin.get("username")), slug)
+        return {"ok": True, "role": row}
+
+    @app.delete("/api/auth/roles/{slug}")
+    def auth_delete_role(
+        slug: str,
+        admin: dict[str, Any] = Depends(require_permission(PERM_ROLES_MANAGE)),
+    ) -> dict[str, bool]:
+        try:
+            delete_role(slug)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        audit("role_deleted_by_admin", str(admin.get("username")), slug)
+        return {"ok": True}
+
     @app.get("/api/auth/users")
-    def auth_list_users(_admin: dict[str, Any] = Depends(require_roles("admin"))) -> dict[str, Any]:
+    def auth_list_users(
+        _user: dict[str, Any] = Depends(require_permission(PERM_USERS_LIST)),
+    ) -> dict[str, Any]:
         return {"users": list_users()}
 
     @app.post("/api/auth/users")
     def auth_create_user(
         body: CreateUserBody,
-        _admin: dict[str, Any] = Depends(require_roles("admin")),
+        admin: dict[str, Any] = Depends(require_permission(PERM_USERS_CREATE)),
     ) -> dict[str, bool]:
         try:
             create_user(
                 body.username.strip(),
                 body.password,
-                body.role,
                 email=body.email,
                 first_name=body.first_name,
                 last_name=body.last_name,
+                role_ids=body.role_ids or None,
+                role=body.role,
             )
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
-        audit("user_created_by_admin", str(_admin.get("username")), body.username.strip().lower())
+        audit("user_created_by_admin", str(admin.get("username")), body.username.strip().lower())
         return {"ok": True}
 
     @app.patch("/api/auth/users/{username}")
     def auth_update_user(
         username: str,
         body: UpdateUserBody,
-        admin: dict[str, Any] = Depends(require_roles("admin")),
+        admin: dict[str, Any] = Depends(require_permission(PERM_USERS_UPDATE)),
     ) -> dict[str, bool]:
         pw = (body.password or "").strip() or None
         try:
             update_user(
                 username,
                 actor_username=str(admin.get("username") or ""),
-                role=body.role,
+                role_ids=body.role_ids,
                 password=pw,
                 email=body.email.strip() if body.email is not None else None,
                 first_name=body.first_name.strip() if body.first_name is not None else None,
@@ -417,7 +525,7 @@ def create_app() -> FastAPI:
     @app.delete("/api/auth/users/{username}")
     def auth_delete_user(
         username: str,
-        admin: dict[str, Any] = Depends(require_roles("admin")),
+        admin: dict[str, Any] = Depends(require_permission(PERM_USERS_DELETE)),
     ) -> dict[str, bool]:
         try:
             delete_user(username, actor_username=str(admin.get("username") or ""))
@@ -434,15 +542,17 @@ def create_app() -> FastAPI:
             "domain_suffix": s.get("domain_suffix", "asptienda.com"),
             "zone_id": s.get("zone_id", ""),
         }
-        if user.get("role") != "admin":
+        if not has_permission(user, PERM_CF_READ):
             out["api_token"] = ""
-            out["account_id"] = "" if user.get("role") == "viewer" else out["account_id"]
+            out["account_id"] = ""
+        elif not has_permission(user, PERM_CF_WRITE):
+            out["api_token"] = ""
         return out
 
     @app.post("/api/settings")
     def post_settings(
         body: SettingsBody,
-        _admin: dict[str, Any] = Depends(require_roles("admin")),
+        _admin: dict[str, Any] = Depends(require_permission(PERM_CF_WRITE)),
     ) -> dict[str, str]:
         save_settings(
             body.account_id,
@@ -459,7 +569,7 @@ def create_app() -> FastAPI:
     @app.post("/api/start")
     def post_start(
         body: StartBody,
-        _op: dict[str, Any] = Depends(require_roles("admin", "operator")),
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE)),
     ) -> dict[str, Any]:
         ok, lines = tm.start_site_services(
             body.site, body.services, tm.default_config_path()
@@ -469,7 +579,7 @@ def create_app() -> FastAPI:
     @app.post("/api/stop")
     def post_stop(
         body: StopBody,
-        _op: dict[str, Any] = Depends(require_roles("admin", "operator")),
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE)),
     ) -> dict[str, Any]:
         if body.label and body.site is None:
             raise HTTPException(
@@ -484,7 +594,7 @@ def create_app() -> FastAPI:
     @app.post("/api/sync")
     def post_sync(
         body: SyncBody,
-        _admin: dict[str, Any] = Depends(require_roles("admin")),
+        _admin: dict[str, Any] = Depends(require_permission(PERM_CF_SYNC)),
     ) -> dict[str, Any]:
         try:
             n, msg = sync_to_tunnels_json(
@@ -501,14 +611,14 @@ def create_app() -> FastAPI:
             )
 
     @app.post("/api/init-template")
-    def post_init(_admin: dict[str, Any] = Depends(require_roles("admin"))) -> dict[str, Any]:
+    def post_init(_admin: dict[str, Any] = Depends(require_permission(PERM_VPN_INIT))) -> dict[str, Any]:
         ok, msg = tm.init_config_from_example()
         return {"ok": ok, "message": msg}
 
     @app.post("/api/open-ssh-terminal")
     def post_open_ssh(
         body: OpenSshBody,
-        _op: dict[str, Any] = Depends(require_roles("admin", "operator")),
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE)),
     ) -> dict[str, Any]:
         cfg = tm.load_config_optional(tm.default_config_path())
         if not cfg:
@@ -570,7 +680,7 @@ def create_app() -> FastAPI:
     @app.post("/api/open-pgadmin")
     def post_open_pgadmin(
         body: OpenPgAdminBody,
-        _op: dict[str, Any] = Depends(require_roles("admin", "operator")),
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE)),
     ) -> dict[str, Any]:
         hint: str | None = None
         site = (body.site or "").strip()

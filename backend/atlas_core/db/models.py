@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -34,6 +34,45 @@ class User(Base):
     )
 
     sessions: Mapped[list["UserSession"]] = relationship(back_populates="user")
+    role_assignments: Mapped[list["UserRole"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class Role(Base):
+    """Rol con conjunto de permisos (RBAC). Los de sistema no se eliminan."""
+
+    __tablename__ = "roles"
+    __table_args__ = (Index("idx_roles_slug", "slug", unique=True),)
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True, autoincrement=True)
+    slug: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str] = mapped_column(String(256), nullable=False, server_default="")
+    is_system: Mapped[bool] = mapped_column(Boolean(), nullable=False, server_default="false")
+    permissions: Mapped[list] = mapped_column(JsonType, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    user_assignments: Mapped[list["UserRole"]] = relationship(
+        back_populates="role", cascade="all, delete-orphan"
+    )
+
+
+class UserRole(Base):
+    __tablename__ = "user_roles"
+    __table_args__ = (Index("idx_user_roles_role_id", "role_id"),)
+
+    user_id: Mapped[int] = mapped_column(
+        PkType, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role_id: Mapped[int] = mapped_column(
+        PkType, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True
+    )
+
+    user: Mapped["User"] = relationship(back_populates="role_assignments")
+    role: Mapped["Role"] = relationship(back_populates="user_assignments")
 
 
 class UserSession(Base):

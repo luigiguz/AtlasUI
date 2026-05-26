@@ -26,7 +26,15 @@ def jwt_ttl_seconds() -> int:
     return int(atlas_env("JWT_EXPIRE_SECONDS", "43200"))
 
 
-def encode_access_token(*, username: str, role: str, user_id: int, jti: str) -> str:
+def encode_access_token(
+    *,
+    username: str,
+    role: str,
+    user_id: int,
+    jti: str,
+    permissions: list[str] | None = None,
+    roles: list[dict[str, Any]] | None = None,
+) -> str:
     now = datetime.now(UTC)
     exp = now + timedelta(seconds=max(300, jwt_ttl_seconds()))
     payload: dict[str, Any] = {
@@ -38,6 +46,10 @@ def encode_access_token(*, username: str, role: str, user_id: int, jti: str) -> 
         "exp": int(exp.timestamp()),
         "typ": "access",
     }
+    if permissions is not None:
+        payload["permissions"] = permissions
+    if roles is not None:
+        payload["roles"] = roles
     return jwt.encode(payload, _jwt_secret(), algorithm=JWT_ALG)
 
 
@@ -52,13 +64,13 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
         return None
     if raw.get("typ") != "access":
         return None
-    if not raw.get("sub") or not raw.get("role") or not raw.get("jti"):
+    if not raw.get("sub") or not raw.get("jti"):
         return None
     return raw
 
 
 def resolve_user_from_access_token(token: str) -> dict[str, Any] | None:
-    """JWT válido + sesión activa en PostgreSQL."""
+    """JWT válido + sesión activa en PostgreSQL (permisos recargados desde BD)."""
     from atlas_core.web_sessions import get_active_session, touch_session
 
     payload = decode_access_token(token)
