@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from typing import Any
 
 from sqlalchemy import delete, func, select
@@ -11,7 +12,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload
 
 from atlas_core.db.models import Role, User, UserRole
-from atlas_core.db.session import init_db as init_db_engine, session_scope
+from atlas_core.db.session import get_engine, session_scope
 from atlas_core.permissions import (
     ALL_PERMISSIONS,
     PERM_ROLES_MANAGE,
@@ -24,6 +25,8 @@ from atlas_core.permissions import (
 
 SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]{2,31}$")
 _log = logging.getLogger(__name__)
+_system_roles_seeded = False
+_roles_seed_lock = threading.Lock()
 
 
 def _legacy_user_auth(row: User) -> dict[str, Any]:
@@ -41,29 +44,38 @@ def _legacy_user_auth(row: User) -> dict[str, Any]:
 
 
 def ensure_system_roles() -> None:
-    init_db_engine()
-    try:
-        with session_scope() as session:
-            for slug, meta in SYSTEM_ROLE_DEFINITIONS.items():
-                row = session.scalar(select(Role).where(Role.slug == slug))
-                perms = normalize_permissions(list(meta["permissions"]))
-                if row is None:
-                    session.add(
-                        Role(
-                            slug=slug,
-                            name=str(meta["name"]),
-                            description=str(meta.get("description") or ""),
-                            is_system=True,
-                            permissions=perms,
+    """Siembra roles de sistema una vez por proceso (no ejecuta Alembic)."""
+    global _system_roles_seeded
+    with _roles_seed_lock:
+        if _system_roles_seeded:
+            return
+        get_engine()
+        try:
+            with session_scope() as session:
+                for slug, meta in SYSTEM_ROLE_DEFINITIONS.items():
+                    row = session.scalar(select(Role).where(Role.slug == slug))
+                    perms = normalize_permissions(list(meta["permissions"]))
+                    if row is None:
+                        session.add(
+                            Role(
+                                slug=slug,
+                                name=str(meta["name"]),
+                                description=str(meta.get("description") or ""),
+                                is_system=True,
+                                permissions=perms,
+                            )
                         )
-                    )
-                else:
-                    row.name = str(meta["name"])
-                    row.description = str(meta.get("description") or "")
-                    row.is_system = True
-                    row.permissions = perms
-    except SQLAlchemyError as e:
-        _log.warning("ensure_system_roles omitido (¿migración 20260526_0004 pendiente?): %s", e)
+                    else:
+                        row.name = str(meta["name"])
+                        row.description = str(meta.get("description") or "")
+                        row.is_system = True
+                        row.permissions = perms
+        except SQLAlchemyError as e:
+            _log.warning(
+                "ensure_system_roles omitido (¿migración 20260526_0004 pendiente?): %s", e
+            )
+            return
+        _system_roles_seeded = True
 
 
 def permission_catalog() -> dict[str, Any]:

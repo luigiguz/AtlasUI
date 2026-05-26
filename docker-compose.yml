@@ -65,8 +65,8 @@ services:
     environment:
       TZ: America/Panama
       ATLAS_API_ONLY: "1"
-      ATLAS_SESSION_SECRET: atlas-session-secret-change-in-prod
-      ATLAS_JWT_SECRET: atlas-jwt-secret-change-in-prod
+      ATLAS_SESSION_SECRET: atlas-session-secret-change-in-prod-32b
+      ATLAS_JWT_SECRET: atlas-jwt-secret-change-in-prod-32bytes
       ATLAS_SECURE_COOKIES: "0"
       ATLAS_JWT_EXPIRE_SECONDS: "43200"
       ATLAS_SESSION_MAX_AGE: "43200"

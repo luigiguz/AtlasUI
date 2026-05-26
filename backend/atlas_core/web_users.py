@@ -43,13 +43,21 @@ def users_db_path():
     return ATLAS_DATA_DIR / "users.db"
 
 
+_roles_seeded = False
+
+
 def init_db() -> None:
+    global _roles_seeded
     init_db_engine()
-    ensure_system_roles()
+    if not _roles_seeded:
+        ensure_system_roles()
+        _roles_seeded = True
 
 
 def count_users() -> int:
-    init_db()
+    from atlas_core.db.session import get_engine
+
+    get_engine()
     with session_scope() as session:
         return int(session.scalar(select(func.count()).select_from(User)) or 0)
 
@@ -139,8 +147,13 @@ def create_user(
 
 
 def verify_login(username: str, password: str) -> dict[str, Any] | None:
-    init_db()
+    """Valida credenciales; no ejecuta migraciones (solo arranque de la API)."""
+    from atlas_core.db.session import get_engine
+    from atlas_core.web_roles import _legacy_user_auth, load_user_auth
+
+    get_engine()
     key = username.strip().lower()
+    user_id: int | None = None
     with session_scope() as session:
         row = session.scalar(select(User).where(User.username == key))
         if not row:
@@ -153,7 +166,17 @@ def verify_login(username: str, password: str) -> dict[str, Any] | None:
         except (VerifyMismatchError, InvalidHashError):
             time.sleep(0.55)
             return None
-    return load_user_auth(int(row.id))
+        user_id = int(row.id)
+    if user_id is None:
+        return None
+    try:
+        return load_user_auth(user_id)
+    except Exception:
+        with session_scope() as session:
+            row = session.scalar(select(User).where(User.id == user_id))
+            if row:
+                return _legacy_user_auth(row)
+        return None
 
 
 def _user_row_dict(r: User) -> dict[str, Any]:
@@ -177,7 +200,9 @@ def _user_row_dict(r: User) -> dict[str, Any]:
 
 
 def list_users() -> list[dict[str, Any]]:
-    init_db()
+    from atlas_core.db.session import get_engine
+
+    get_engine()
     out: list[dict[str, Any]] = []
     with session_scope() as session:
         rows = session.scalars(

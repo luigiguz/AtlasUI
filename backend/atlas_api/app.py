@@ -385,34 +385,42 @@ def create_app() -> FastAPI:
 
     @app.post("/api/auth/login")
     def auth_login(request: Request, body: LoginBody) -> dict[str, Any]:
-        assert_login_allowed(request)
-        row = verify_login(body.username.strip(), body.password)
-        if not row:
-            register_failed_login(request)
-            raise HTTPException(401, "Usuario o contraseña incorrectos.")
-        clear_failed_logins(request)
-        ip, ua = _request_client_meta(request)
-        jti, refresh_token = create_user_session(
-            user_id=int(row["id"]),
-            ip_address=ip,
-            user_agent=ua,
-        )
-        request.session["user"] = {
-            "username": row["username"],
-            "role": row["role"],
-            "id": row["id"],
-            "jti": jti,
-            "permissions": row.get("permissions") or [],
-            "roles": row.get("roles") or [],
-        }
-        audit("login_ok", row["username"], "")
-        token = _encode_token(row, jti)
-        return {
-            "ok": True,
-            "user": _public_user(row),
-            "access_token": token,
-            "refresh_token": refresh_token,
-        }
+        try:
+            assert_login_allowed(request)
+            row = verify_login(body.username.strip(), body.password)
+            if not row:
+                register_failed_login(request)
+                raise HTTPException(401, "Usuario o contraseña incorrectos.")
+            clear_failed_logins(request)
+            ip, ua = _request_client_meta(request)
+            jti, refresh_token = create_user_session(
+                user_id=int(row["id"]),
+                ip_address=ip,
+                user_agent=ua,
+            )
+            # Cookie de sesión mínima (permisos se recargan vía jti en BD).
+            request.session["user"] = {
+                "username": row["username"],
+                "role": row["role"],
+                "id": row["id"],
+                "jti": jti,
+            }
+            audit("login_ok", row["username"], "")
+            token = _encode_token(row, jti)
+            return {
+                "ok": True,
+                "user": _public_user(row),
+                "access_token": token,
+                "refresh_token": refresh_token,
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            _log.exception("auth_login failed", exc_info=e)
+            raise HTTPException(
+                status_code=500,
+                detail="No se pudo iniciar sesión. Revisa los logs del API o vuelve a intentar.",
+            ) from e
 
     @app.post("/api/auth/refresh")
     def auth_refresh(body: RefreshBody) -> dict[str, Any]:

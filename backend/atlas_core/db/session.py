@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from contextlib import contextmanager
 from typing import Iterator
@@ -16,6 +17,9 @@ from atlas_core.db.config import database_url, is_postgresql_url
 _engine: Engine | None = None
 _session_factory: sessionmaker[Session] | None = None
 _lock = threading.Lock()
+_db_initialized = False
+_init_lock = threading.Lock()
+_log = logging.getLogger(__name__)
 
 
 def get_engine() -> Engine:
@@ -79,15 +83,22 @@ def _run_alembic_upgrade() -> None:
 
 
 def init_db() -> None:
-    """Crea tablas, extensiones PG y migra datos legacy si aplica."""
-    engine = get_engine()
-    if is_postgresql():
-        with engine.connect() as conn:
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS citext"))
-            conn.commit()
-        _run_alembic_upgrade()
-    else:
-        Base.metadata.create_all(bind=engine)
-    from atlas_core.db.migrate_legacy import migrate_legacy_if_needed
+    """Crea tablas, extensiones PG y migra datos legacy (una vez por proceso)."""
+    global _db_initialized
+    with _init_lock:
+        if _db_initialized:
+            return
+        engine = get_engine()
+        if is_postgresql():
+            with engine.connect() as conn:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS citext"))
+                conn.commit()
+            _log.info("Alembic: upgrade head (arranque único por proceso)")
+            _run_alembic_upgrade()
+            _log.info("Alembic: listo")
+        else:
+            Base.metadata.create_all(bind=engine)
+        from atlas_core.db.migrate_legacy import migrate_legacy_if_needed
 
-    migrate_legacy_if_needed()
+        migrate_legacy_if_needed()
+        _db_initialized = True

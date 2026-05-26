@@ -8,6 +8,7 @@ from typing import Any
 import jwt
 
 from atlas_core.env import atlas_env
+from atlas_core.signing import hmac_signing_key
 
 JWT_ALG = "HS256"
 
@@ -15,10 +16,10 @@ JWT_ALG = "HS256"
 def _jwt_secret() -> str:
     j = atlas_env("JWT_SECRET")
     if j:
-        return j
+        return hmac_signing_key(j)
     from atlas_core.web_auth import get_session_secret
 
-    return get_session_secret()
+    return hmac_signing_key(get_session_secret())
 
 
 def jwt_ttl_seconds() -> int:
