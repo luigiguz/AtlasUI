@@ -1,20 +1,63 @@
-# AtlasVPN
+<p align="center">
+  <img src="ui/public/branding/Logo%20ATLAS%20-%20Sin%20Fondi.png" alt="Atlas" width="220" />
+</p>
 
-Aplicación para levantar en tu PC túneles **Cloudflare Access TCP** (`cloudflared access tcp`) hacia **SSH** y **bases de datos** publicadas detrás de Zero Trust (por ejemplo en Raspberry Pi con `*.asptienda.com`).
+<p align="center">
+  <strong>Plataforma Verkku</strong> para operar tiendas PosLite en el edge
+</p>
 
-Por defecto AtlasVPN abre una **ventana de escritorio de Windows** con la UI React dentro del control **WebView2** (el mismo motor que usa Edge, pero **no** se abre Microsoft Edge ni Google Chrome como navegador independiente: es una ventana de aplicación, como muchas apps modernas de Windows). Opcional: `python -m atlasvpn --browser` si quieres usar el navegador instalado, o `--tk` para la interfaz CustomTkinter sin HTML. Incluye **sincronización** desde la **API de Cloudflare** hacia `scripts/tunnels.json`.
+<p align="center">
+  <a href="https://atlas-ui.verkku.com">UI</a> ·
+  <a href="https://api-atlas-vpn.verkku.com/swagger">API</a> ·
+  Uso interno
+</p>
+
+---
+
+## Qué es Atlas
+
+**Atlas** es la consola web unificada: menú lateral, inicio con métricas en vivo y módulos operativos.
+
+| Módulo | Función |
+|--------|---------|
+| **Atlas VPN** | Túneles Cloudflare Access TCP (`cloudflared`) hacia SSH y bases de datos |
+| **Atlas Rancher** | Equipos Kubernetes, tiendas en Git (`atlas-stores`) y contenedores Poslite |
+| **Administración** | Usuarios y roles (admin / operador / visor) |
+
+Por defecto `python -m atlas_api` abre la app en **WebView2** (Windows) con la UI React integrada. También: `--browser`, `--no-browser` (solo API) o `--tk` (CustomTkinter legacy).
+
+> Los datos locales viven en `.atlas/` (se migra desde `.atlasvpn/` al primer arranque si existía).
+
+---
+
+## Tabla de contenidos
+
+- [Requisitos](#requisitos)
+- [Instalación](#instalación)
+- [Uso rápido](#uso-rápido)
+- [Producción](#producción)
+- [Docker](#docker-desarrollo--rpi)
+- [Datos locales](#datos-locales)
+- [Estructura del repo](#estructura-del-repositorio)
+- [Desarrollo](#desarrollo)
+- [Seguridad](#seguridad)
+
+---
 
 ## Requisitos
 
-- **Python 3.10+**
-- **Node.js 18+** y `npm` (solo para compilar la UI web en `ui/`; una vez hecho `npm run build`, no hace falta Node en el PC de destino si ya incluyes la carpeta `atlasvpn/static/web/`).
-- En Windows, la ventana integrada usa **WebView2** (suele venir con el sistema; si falla, instala [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)).
-- **`cloudflared`** instalado y en el `PATH` (el mismo que usas en consola).
-- Cuenta Cloudflare con **Zero Trust / Access** y aplicaciones publicadas cuyo dominio siga el patrón `NOMBRE-ssh.TUDOMINIO` y `NOMBRE-bd.TUDOMINIO` (por ejemplo `laarena-ssh.asptienda.com` y `laarena-bd.asptienda.com`, sitio agrupado `laarena`).
+| Componente | Versión / nota |
+|------------|----------------|
+| Python | 3.10+ |
+| Node.js | 18+ (`npm` para compilar `ui/`) |
+| WebView2 | Windows (ventana integrada) |
+| cloudflared | En el `PATH` (Atlas VPN) |
+| Cloudflare Zero Trust | Apps `NOMBRE-ssh` y `NOMBRE-bd` (VPN) |
+| Rancher + Git | Repo `atlas-stores` (Atlas Rancher) |
+
+---
 
 ## Instalación
-
-Desde la raíz del repositorio:
 
 ```powershell
 cd "ruta\a\VPN-Poslite"
@@ -27,99 +70,161 @@ npm run build
 cd ..
 ```
 
-La carpeta generada `atlasvpn/static/web/` está en `.gitignore`; sin el `npm run build` la app web no arrancará (el programa mostrará un mensaje indicando compilar la UI).
+---
 
 ## Uso rápido
 
-### Interfaz web (recomendado)
+### Consola web
 
 ```powershell
-python -m atlasvpn
+python -m atlas_api
 ```
 
-Se abre una **ventana propia** con la UI (misma URL interna `http://127.0.0.1:8765/`). **Navegador externo:** `python -m atlasvpn --browser`. **Solo API en consola** (tú abres la URL si quieres): `python -m atlasvpn --no-browser`. **Otro puerto:** `python -m atlasvpn --port 9000`.
+| Paso | Qué verás |
+|------|-----------|
+| Login | Logo Atlas, «Bienvenido a Atlas», pie Powered by **Verkku** |
+| Inicio | Métricas VPN, Rancher y Cloudflare (tarjetas clicables) |
+| Menú | Módulos según tu rol |
 
-O en Windows, doble clic en `scripts\launch_atlas_vpn.bat` (debe existir `python` en el PATH).
+**Atlas VPN**
 
-1. Pestaña **Cloudflare**: introduce **Account ID**, **API Token**, **sufijo** y opcionalmente **Zone ID**. **Guardar** y **Sincronizar** para generar/actualizar `scripts/tunnels.json`.
-2. Pestaña **Conexiones**: elige un sitio, **Iniciar SSH** / **BD** / **ambos**, o **Terminal SSH** (usuario fijo `admin@localhost` y el puerto del JSON).
+- Conexiones — túneles SSH/BD por sitio  
+- Poslite — portales cuando el túnel está activo  
+- Cloudflare — sync de sitios (admin)
 
-### Interfaz de escritorio (CustomTkinter)
+**Atlas Rancher**
+
+- Tiendas — configuración en Git, plantillas, publicación  
+- Equipos — clusters RPi en Rancher (columna **Servicios** → Contenedores)  
+- Contenedores — servicios por tienda, actualizar imagen  
+
+**Otros modos**
 
 ```powershell
-python -m atlasvpn --tk
+python -m atlas_api --browser      # Navegador externo
+python -m atlas_api --no-browser   # Solo API (Docker)
+python -m atlas_api --port 9000    # Puerto distinto
+python -m atlas_api --tk           # GUI legacy
 ```
 
-1. Pestaña **Cloudflare**: introduce **Account ID**, **API Token** (solo lectura recomendada; ver abajo) y el **sufijo de dominio** (p. ej. `asptienda.com`). Pulsa **Guardar** y luego **Sincronizar ahora** para generar/actualizar `scripts/tunnels.json`.
-2. Pestaña **Conexiones**: selecciona un sitio, **Iniciar SSH** / **BD** / **ambos**, y conéctate como siempre (`ssh usuario@localhost -p …` o cliente SQL al puerto local).
-
-### CLI (sin UI)
-
-Sigue disponible `scripts/tunnel_manager.py` (mismo `tunnels.json` y mismo estado en `.cloudflared-tunnels/state.json`).
+### CLI túneles (sin UI)
 
 ```powershell
 python scripts\tunnel_manager.py list-sites
 python scripts\tunnel_manager.py start laarena --services both
-python scripts\tunnel_manager.py stop --site laarena
 ```
 
-## API Token de Cloudflare
+### Cloudflare API Token
 
-Crea un token con permisos de **solo lectura** acordes a tu política, por ejemplo:
+Permisos de lectura: **Zero Trust** y **Access Applications**. Si la sync devuelve 403, revisa el token o configura **Zone ID** en Atlas VPN → Cloudflare.
 
-- **Account** → **Zero Trust** → **Read** (o permisos equivalentes que permitan listar **Access Applications**).
+---
 
-Al crear el token, en **Account resources** elige **Include** y selecciona **el mismo account** donde está configurado Zero Trust (no basta con permisos “globales” si el recurso no incluye esa cuenta).
+## Producción
 
-**Tokens `cfat_…` (Account API Token):** Cloudflare los valida con `GET /accounts/{account_id}/tokens/verify`, no con `/user/tokens/verify`. AtlasVPN usa el endpoint correcto según el prefijo del token; el **Account ID** debe ser el del account asociado a ese token.
+| Servicio | URL |
+|----------|-----|
+| UI | https://atlas-ui.verkku.com |
+| API | https://api-atlas-vpn.verkku.com |
+| Swagger | https://api-atlas-vpn.verkku.com/swagger |
 
-Si la **verificación** va bien pero al sincronizar aparece **403 / Authentication error**, el token **existe** pero no puede listar Access por account. Prueba en este orden: (1) permisos **Zero Trust → Read** y **Access: Apps and Policies → Read** en el token `cfat_`; (2) un **User API Token** (perfil → API Tokens) con los mismos permisos; (3) en AtlasVPN, campo **Zone ID** (Overview de la zona de `asptienda.com`) para listar con `…/zones/{zone_id}/access/apps`.
+En **atlas-api**, `ATLAS_CORS_ORIGINS` debe incluir `https://atlas-ui.verkku.com`.
 
-Si ves **401 Invalid API Token** con un token **sin** prefijo `cfat_`, suele ser token mal copiado, revocado o Global API Key en lugar de API Token.
+---
 
-El programa usa el **SDK oficial de Python** (`pip install cloudflare`): `zero_trust.access.applications.list` con `account_id` o, si indicas Zone ID, con `zone_id`.
+## Docker (desarrollo / RPi)
 
-`GET https://api.cloudflare.com/client/v4/accounts/{account_id}/access/apps`  
-o `GET …/zones/{zone_id}/access/apps` cuando usas Zone ID en la app.
+```powershell
+docker compose build
+docker compose up -d
+```
 
-## Archivos locales (no subir al git)
+| Recurso | Nombre |
+|---------|--------|
+| Servicios | `atlas-api`, `atlas-ui` |
+| Proyecto Compose | `atlas` |
+| Datos | volumen → `/app/.atlas` |
+
+Deploy automático en push a `dev` o `feat/atlas-platform`: [`.github/workflows/atlas-dev-deploy.yml`](.github/workflows/atlas-dev-deploy.yml) (runner self-hosted **Linux ARM64** en el RPi).
+
+---
+
+## Datos locales
+
+No subir al git:
 
 | Ruta | Contenido |
 |------|-----------|
-| `.atlasvpn/auth.json` | Hash PBKDF2 de la contraseña de la app |
-| `.atlasvpn/settings.json` | Account ID, API token, sufijo, Zone ID opcional |
-| `scripts/tunnels.json` | Sitios, hostnames y puertos locales (generado o sincronizado) |
-| `.cloudflared-tunnels/state.json` | PIDs de procesos `cloudflared` lanzados desde la app/CLI |
+| `.atlas/auth.json` | Hash de contraseña local |
+| `.atlas/settings.json` | Credenciales Cloudflare |
+| `.atlas/rancher.json` | Conexión Rancher |
+| `.atlas/stores.json` | URL Git del repo de tiendas |
+| `scripts/tunnels.json` | Inventario de sitios VPN |
+| `.cloudflared-tunnels/state.json` | PIDs de `cloudflared` |
 
-Están listados en `.gitignore`.
+---
 
-## Logos y marca
+## Estructura del repositorio
 
-Coloca los PNG de marca en `Logos/` (por ejemplo `Logo ATLAS.png`). La UI los escala para la cabecera y aplica una paleta en tonos **azul marino / pizarra** alineada con esos activos.
-
-## SSH y `known_hosts` (puertos locales)
-
-Si al conectar con `ssh …@localhost -p 2222` ves **REMOTE HOST IDENTIFICATION HAS CHANGED**, suele ser porque **antes** ese mismo puerto apuntaba a **otro** servidor (otra RPi, reinstalación, u otro sitio en `tunnels.json`). OpenSSH compara la clave guardada en `C:\Users\<tu_usuario>\.ssh\known_hosts` con la actual y corta por seguridad.
-
-**Arreglo recomendado** (borra solo la entrada de ese host:puerto):
-
-```powershell
-ssh-keygen -R "[localhost]:2222"
+```
+VPN-Poslite/
+├── backend/
+│   ├── atlas_api/       # FastAPI + CLI (python -m atlas_api)
+│   ├── atlas_core/      # Auth, usuarios, paths
+│   ├── atlas_vpn/       # Cloudflare, túneles, SSH
+│   ├── atlas_rancher/   # Clusters, pods, deployments, rollout
+│   └── atlas_stores/    # Tiendas Git, YAML, plantillas
+├── ui/
+│   ├── src/views/       # Inicio, VPN, Tiendas, Equipos, Contenedores
+│   ├── src/components/  # Shell, AuthLoginPanel, …
+│   └── public/branding/ # Logos Atlas y Verkku
+├── scripts/             # tunnel_manager (cloudflared)
+├── docker-compose.yml
+└── .github/workflows/   # Deploy dev RPi
 ```
 
-Luego vuelve a conectar; SSH pedirá confirmar la **nueva** huella la primera vez (léela si confías en la red/túnel). Si usas otros puertos (p. ej. 2224), cambia el número en el comando.
+| Carpeta | Rol |
+|---------|-----|
+| `backend/atlas_api/` | Entrada FastAPI y ventana WebView2 |
+| `backend/atlas_vpn/` | Módulo Atlas VPN |
+| `backend/atlas_rancher/` | API Rancher |
+| `backend/atlas_stores/` | API tiendas Poslite |
+| `ui/src/views/` | Pantallas React |
+| `ui/public/branding/` | Assets de marca |
 
-## Seguridad (resumen)
+Más detalle del backend: [backend/README.md](backend/README.md).
 
-- Los ajustes en **`.atlasvpn/`** (token, IDs) son sensibles: protege el directorio del proyecto y usa **tokens de mínimo privilegio** y rotación periódica.
-- AtlasVPN **no sustituye** a Cloudflare Access: el navegador o `cloudflared` seguirán pidiendo login de Access cuando corresponda.
+---
 
 ## Desarrollo
 
 ```powershell
-python -m py_compile atlasvpn\gui_main.py atlasvpn\cf_sync.py scripts\tunnel_manager.py
+cd ui && npm run build
+$env:PYTHONPATH="backend"
+python -m atlas_api --browser
 ```
+
+- UI: React + Vite + Tailwind (`cf-orange`, tema oscuro `#0b0d10`)
+- Login: tipografía **Outfit** (`font-display`), logos en `ui/public/branding/`
+- API: prefijos `/api/atlas-rancher/…`, `/api/atlas-stores/…`, auth, VPN
+
+```powershell
+python -m py_compile backend\atlas_api\app.py
+```
+
+---
+
+## Seguridad
+
+- Protege `.atlas/` — contiene tokens y secretos.
+- Atlas VPN **no sustituye** Cloudflare Access: `cloudflared` y el navegador siguen pidiendo autenticación cuando corresponda.
+
+---
 
 ## Licencia
 
-Uso interno del equipo / Verkku — ajusta según tu repositorio.
+Uso interno **Verkku**.
+
+<p align="center">
+  <img src="ui/public/branding/verkku-logo.svg" alt="Verkkutech" width="120" />
+</p>

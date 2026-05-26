@@ -15,6 +15,7 @@ module.exports = {
       },
       fontFamily: {
         sans: ["Segoe UI", "system-ui", "sans-serif"],
+        display: ["Outfit", "Segoe UI", "system-ui", "sans-serif"],
         mono: ["Consolas", "ui-monospace", "monospace"],
       },
       animation: {

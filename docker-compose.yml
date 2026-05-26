@@ -1,41 +1,37 @@
-# AtlasVPN: API + UI (nginx). Túnel típico:
-#   atlas-vpn.verkku.com       → localhost:8080 (UI)
-#   api-atlas-vpn.verkku.com   → localhost:8765 (API)
+# Plataforma Atlas (API + UI nginx). Túneles Cloudflare típicos:
+#   https://atlas-ui.verkku.com      → localhost:8088 (UI; puerto host ATLAS_UI_PORT)
+#   https://api-atlas-vpn.verkku.com → localhost:8765 (API)
 #
-# La UI debe saber la URL pública del API. Opción recomendada (sin rebuild): variable de entorno
-# en el contenedor UI al arrancar (escribe /atlasvpn-runtime-config.js):
-#   ATLASVPN_PUBLIC_API_URL=https://api-atlas-vpn.verkku.com
-# Opcional: también en build con el mismo nombre (VITE_API_BASE_URL vía build-arg).
-#
-# CORS del API: por defecto incluye https://atlas-vpn.verkku.com
+# UI: ATLAS_PUBLIC_API_URL en atlas-ui (escribe /atlas-runtime-config.js).
+# API: ATLAS_CORS_ORIGINS debe incluir el origen de la UI (https://atlas-ui.verkku.com).
 
-name: atlasvpn
+name: atlas
 
 services:
-  atlasvpn-api:
+  atlas-api:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: backend/Dockerfile
       args:
         CLOUDFLARED_VERSION: ${CLOUDFLARED_VERSION:-2026.5.0}
-    image: ${ATLASVPN_API_IMAGE:-atlasvpn-api}:${ATLASVPN_TAG:-latest}
-    container_name: atlasvpn-api
+    image: ${ATLAS_API_IMAGE:-atlas-api}:${ATLAS_TAG:-latest}
+    container_name: atlas-api
     restart: unless-stopped
     ports:
-      - "${ATLASVPN_API_PORT:-8765}:8765"
+      - "${ATLAS_API_PORT:-8765}:8765"
     environment:
       TZ: ${TZ:-UTC}
-      ATLASVPN_API_ONLY: "1"
-      ATLASVPN_SESSION_SECRET: ${ATLASVPN_SESSION_SECRET:-}
-      ATLASVPN_JWT_SECRET: ${ATLASVPN_JWT_SECRET:-}
-      ATLASVPN_SECURE_COOKIES: ${ATLASVPN_SECURE_COOKIES:-0}
-      ATLASVPN_SESSION_MAX_AGE: ${ATLASVPN_SESSION_MAX_AGE:-604800}
-      ATLASVPN_DEFAULT_ADMIN_USERNAME: ${ATLASVPN_DEFAULT_ADMIN_USERNAME:-admin}
-      ATLASVPN_DEFAULT_ADMIN_PASSWORD: ${ATLASVPN_DEFAULT_ADMIN_PASSWORD:-}
-      ATLASVPN_CORS_ORIGINS: ${ATLASVPN_CORS_ORIGINS:-https://atlas-vpn.verkku.com,http://127.0.0.1:5173,http://localhost:5173}
+      ATLAS_API_ONLY: "1"
+      ATLAS_SESSION_SECRET: ${ATLAS_SESSION_SECRET:-}
+      ATLAS_JWT_SECRET: ${ATLAS_JWT_SECRET:-}
+      ATLAS_SECURE_COOKIES: ${ATLAS_SECURE_COOKIES:-0}
+      ATLAS_SESSION_MAX_AGE: ${ATLAS_SESSION_MAX_AGE:-604800}
+      ATLAS_DEFAULT_ADMIN_USERNAME: ${ATLAS_DEFAULT_ADMIN_USERNAME:-admin}
+      ATLAS_DEFAULT_ADMIN_PASSWORD: ${ATLAS_DEFAULT_ADMIN_PASSWORD:-Atlas_Admin_Initial12}
+      ATLAS_CORS_ORIGINS: ${ATLAS_CORS_ORIGINS:-https://atlas-ui.verkku.com,https://atlas-vpn.verkku.com,http://127.0.0.1:5173,http://localhost:5173}
     volumes:
-      - atlasvpn_settings:/app/.atlasvpn
-      - atlasvpn_cloudflared:/app/.cloudflared-tunnels
+      - atlas_settings:/app/.atlas
+      - atlas_cloudflared:/app/.cloudflared-tunnels
       - ./scripts/tunnels.json:/app/scripts/tunnels.json:rw
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8765/api/health"]
@@ -44,22 +40,22 @@ services:
       retries: 3
       start_period: 25s
 
-  atlasvpn-ui:
+  atlas-ui:
     build:
       context: .
-      dockerfile: Dockerfile.ui
+      dockerfile: ui/Dockerfile
       args:
-        VITE_API_BASE_URL: ${ATLASVPN_PUBLIC_API_URL:-}
-    image: ${ATLASVPN_UI_IMAGE:-atlasvpn-ui}:${ATLASVPN_TAG:-latest}
-    container_name: atlasvpn-ui
+        VITE_API_BASE_URL: ${ATLAS_PUBLIC_API_URL:-}
+    image: ${ATLAS_UI_IMAGE:-atlas-ui}:${ATLAS_TAG:-latest}
+    container_name: atlas-ui
     restart: unless-stopped
     ports:
-      - "${ATLASVPN_UI_PORT:-8080}:80"
+      - "${ATLAS_UI_PORT:-8088}:80"
     depends_on:
-      atlasvpn-api:
+      atlas-api:
         condition: service_started
     environment:
-      ATLASVPN_PUBLIC_API_URL: https://api-atlas-vpn.verkku.com
+      ATLAS_PUBLIC_API_URL: https://api-atlas-vpn.verkku.com
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
       interval: 30s
@@ -68,5 +64,5 @@ services:
       start_period: 10s
 
 volumes:
-  atlasvpn_settings:
-  atlasvpn_cloudflared:
+  atlas_settings:
+  atlas_cloudflared:

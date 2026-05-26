@@ -9,7 +9,7 @@ __pycache__
 .cursor
 **/node_modules
 ui/node_modules
-atlasvpn/static/web
+ui/dist
 *.md
 !README.md
 terminals

@@ -4,36 +4,31 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Cloud,
   Database,
-  GripVertical,
   Loader2,
-  LogOut,
   Pencil,
   PlusCircle,
-  RefreshCw,
   Search,
-  Shield,
-  Store,
   Terminal,
   Trash2,
-  Users,
-  Wifi,
 } from "lucide-react";
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type Dispatch,
   type FormEvent,
-  type PointerEvent,
   type SetStateAction,
 } from "react";
 
 import { API_BASE, api, apiUrl, bearerHeaders, setAccessToken } from "./apiClient";
+import { clearSessionActivity, touchSessionActivity, useIdleLogout } from "./useIdleLogout";
+import type { AtlasRouteId } from "./atlasNav";
+import { AuthLoginPanel } from "./components/AuthLoginPanel";
+import { AtlasShell } from "./components/AtlasShell";
+import { PoweredByVerkkutech } from "./components/PoweredByVerkkutech";
 import {
   parseSshWebPopoutParams,
   SshWebPopoutApp,
@@ -41,6 +36,11 @@ import {
   WebSshSessionsDock,
   type SshWebSession,
 } from "./WebSshSessionsDock";
+import { rememberTiendaForContainers } from "./rancherContainersNav";
+import { AtlasHomeView } from "./views/AtlasHomeView";
+import { AtlasRancherClustersView } from "./views/AtlasRancherClustersView";
+import { AtlasRancherPodsView } from "./views/AtlasRancherPodsView";
+import { AtlasStoresView } from "./views/AtlasStoresView";
 
 type SiteRow = {
   id: string;
@@ -229,70 +229,6 @@ function StatusPill({ kind }: { kind: string }) {
       ) : null}
       {active ? "Activo" : kind === "dead" ? "Muerto" : "—"}
     </span>
-  );
-}
-
-function AuthLoginPanel({ onDone }: { onDone: (u: AuthUser) => void }) {
-  const [user, setUser] = useState("");
-  const [pw, setPw] = useState("");
-  const [err, setErr] = useState("");
-  const [busy, setBusy] = useState(false);
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setErr("");
-    setBusy(true);
-    try {
-      const r = await api<{ ok: boolean; user: { username: string; role: string }; access_token?: string }>(
-        "/api/auth/login",
-        {
-          method: "POST",
-          body: JSON.stringify({ username: user.trim(), password: pw }),
-        }
-      );
-      if (r.access_token) setAccessToken(r.access_token);
-      else setAccessToken(null);
-      onDone({ username: r.user.username, role: r.user.role as AuthUser["role"] });
-    } catch (ex) {
-      setErr(String(ex));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-cf-ink px-4 text-zinc-100 vpn-grid-bg">
-      <form
-        onSubmit={(e) => void submit(e)}
-        className="w-full max-w-sm space-y-4 rounded-2xl border border-cf-line bg-cf-card/90 p-8 ring-1 ring-white/5"
-      >
-        <h1 className="text-xl font-semibold">Iniciar sesión</h1>
-        <p className="text-sm text-zinc-400">Acceso a la consola AtlasVPN.</p>
-        {err ? <p className="text-sm text-rose-300">{err}</p> : null}
-        <input
-          className="w-full rounded-lg border border-cf-line bg-black/30 px-3 py-2 text-sm outline-none ring-cf-orange/40 focus:ring-2"
-          placeholder="Usuario"
-          value={user}
-          onChange={(e) => setUser(e.target.value)}
-          autoComplete="username"
-          required
-        />
-        <input
-          className="w-full rounded-lg border border-cf-line bg-black/30 px-3 py-2 text-sm outline-none ring-cf-orange/40 focus:ring-2"
-          placeholder="Contraseña"
-          type="password"
-          value={pw}
-          onChange={(e) => setPw(e.target.value)}
-          autoComplete="current-password"
-          required
-        />
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-xl bg-cf-orange py-2.5 text-sm font-semibold text-black disabled:opacity-50"
-        >
-          {busy ? "Entrando…" : "Entrar"}
-        </button>
-      </form>
-    </div>
   );
 }
 
@@ -568,27 +504,16 @@ function UsersAdminPage({ me }: { me: AuthUser }) {
   );
 }
 
-const CF_FAB_POS_STORAGE = "atlasvpn-cf-fab-pos";
-
-function readCfFabPosFromStorage(): { left: number; top: number } | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = sessionStorage.getItem(CF_FAB_POS_STORAGE);
-    if (!raw) return null;
-    const j = JSON.parse(raw) as { left?: unknown; top?: unknown };
-    if (typeof j.left !== "number" || typeof j.top !== "number") return null;
-    if (!Number.isFinite(j.left) || !Number.isFinite(j.top)) return null;
-    return { left: j.left, top: j.top };
-  } catch {
-    return null;
-  }
-}
+/** Sincronización automática Cloudflare → tunnels.json (mismo criterio que Rancher). */
+const CF_SYNC_INTERVAL_MS = 15_000;
 
 export default function App() {
   const [authPhase, setAuthPhase] = useState<"loading" | "login" | "app">("loading");
   const [me, setMe] = useState<AuthUser | null>(null);
 
-  const [tab, setTab] = useState<"conn" | "cf" | "users" | "poslite" | "about">("conn");
+  const [tab, setTab] = useState<AtlasRouteId>("home");
+  /** Tienda a preseleccionar al abrir Contenedores desde Equipos. */
+  const [containersFocusId, setContainersFocusId] = useState<string | null>(null);
   const [sites, setSites] = useState<SiteRow[]>([]);
   /** Sitio con panel de acciones desplegado (acordeón). */
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -635,7 +560,6 @@ export default function App() {
   }, [sshPopoutSite, openSshWebSession]);
 
   const logRef = useRef<HTMLPreElement>(null);
-  const autoSyncStarted = useRef(false);
 
   const [acc, setAcc] = useState("");
   const [tok, setTok] = useState("");
@@ -647,119 +571,10 @@ export default function App() {
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   /** Cloudflare: tras guardar, vista resumida para no editar Account ID por accidente. */
   const [cfCredentialsLocked, setCfCredentialsLocked] = useState(false);
-  const [cfFabPos, setCfFabPos] = useState<{ left: number; top: number } | null>(readCfFabPosFromStorage);
-  const cfFabPanelRef = useRef<HTMLDivElement>(null);
-  const cfFabDragRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    origLeft: number;
-    origTop: number;
-    w: number;
-    h: number;
-  } | null>(null);
-  const cfFabDidClampRef = useRef(false);
 
   const appendLog = useCallback((lines: string[]) => {
     setLogs((prev) => [...prev, ...lines].slice(-200));
   }, []);
-
-  const clampCfFabPos = useCallback((left: number, top: number, w: number, h: number) => {
-    const pad = 8;
-    return {
-      left: Math.round(Math.min(window.innerWidth - w - pad, Math.max(pad, left))),
-      top: Math.round(Math.min(window.innerHeight - h - pad, Math.max(pad, top))),
-    };
-  }, []);
-
-  const endCfFabDrag = useCallback((e: PointerEvent<HTMLDivElement>) => {
-    const d = cfFabDragRef.current;
-    if (!d || e.pointerId !== d.pointerId) return;
-    cfFabDragRef.current = null;
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      /* ignore */
-    }
-    setCfFabPos((cur) => {
-      if (cur) {
-        try {
-          sessionStorage.setItem(CF_FAB_POS_STORAGE, JSON.stringify(cur));
-        } catch {
-          /* ignore */
-        }
-      }
-      return cur;
-    });
-  }, []);
-
-  const onCfFabHandlePointerDown = useCallback(
-    (e: PointerEvent<HTMLDivElement>) => {
-      if (e.button !== 0) return;
-      const panel = cfFabPanelRef.current;
-      if (!panel) return;
-      const rect = panel.getBoundingClientRect();
-      const origLeft = cfFabPos != null ? cfFabPos.left : rect.left;
-      const origTop = cfFabPos != null ? cfFabPos.top : rect.top;
-      if (cfFabPos == null) {
-        setCfFabPos({ left: origLeft, top: origTop });
-      }
-      cfFabDragRef.current = {
-        pointerId: e.pointerId,
-        startX: e.clientX,
-        startY: e.clientY,
-        origLeft,
-        origTop,
-        w: rect.width,
-        h: rect.height,
-      };
-      e.currentTarget.setPointerCapture(e.pointerId);
-    },
-    [cfFabPos],
-  );
-
-  const onCfFabHandlePointerMove = useCallback(
-    (e: PointerEvent<HTMLDivElement>) => {
-      const d = cfFabDragRef.current;
-      if (!d || e.pointerId !== d.pointerId) return;
-      const nl = d.origLeft + (e.clientX - d.startX);
-      const nt = d.origTop + (e.clientY - d.startY);
-      setCfFabPos(clampCfFabPos(nl, nt, d.w, d.h));
-    },
-    [clampCfFabPos],
-  );
-
-  useEffect(() => {
-    const onResize = () => {
-      setCfFabPos((cur) => {
-        if (cur == null || !cfFabPanelRef.current) return cur;
-        const r = cfFabPanelRef.current.getBoundingClientRect();
-        return clampCfFabPos(cur.left, cur.top, r.width, r.height);
-      });
-    };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [clampCfFabPos]);
-
-  useLayoutEffect(() => {
-    if (me?.role !== "admin") {
-      cfFabDidClampRef.current = false;
-      return;
-    }
-    if (cfFabDidClampRef.current) return;
-    if (cfFabPos == null || !cfFabPanelRef.current) return;
-    const r = cfFabPanelRef.current.getBoundingClientRect();
-    const c = clampCfFabPos(cfFabPos.left, cfFabPos.top, r.width, r.height);
-    if (c.left !== cfFabPos.left || c.top !== cfFabPos.top) {
-      setCfFabPos(c);
-      try {
-        sessionStorage.setItem(CF_FAB_POS_STORAGE, JSON.stringify(c));
-      } catch {
-        /* ignore */
-      }
-    }
-    cfFabDidClampRef.current = true;
-  }, [me, cfFabPos, clampCfFabPos]);
 
   useEffect(() => {
     void (async () => {
@@ -784,18 +599,14 @@ export default function App() {
     })();
   }, []);
 
-  useEffect(() => {
-    const h = () => {
-      autoSyncStarted.current = false;
-      setAccessToken(null);
-      setMe(null);
-      setAuthPhase("login");
-      setTab("conn");
-      setSshWebSessions([]);
-      setActiveSshWebId(null);
-    };
-    window.addEventListener("atlasvpn-unauthorized", h);
-    return () => window.removeEventListener("atlasvpn-unauthorized", h);
+  const endSession = useCallback(() => {
+    clearSessionActivity();
+    setAccessToken(null);
+    setMe(null);
+    setAuthPhase("login");
+    setTab("conn");
+    setSshWebSessions([]);
+    setActiveSshWebId(null);
   }, []);
 
   const doLogout = useCallback(async () => {
@@ -804,14 +615,25 @@ export default function App() {
     } catch {
       /* ignore */
     }
-    setAccessToken(null);
-    autoSyncStarted.current = false;
-    setMe(null);
-    setAuthPhase("login");
-    setTab("conn");
-    setSshWebSessions([]);
-    setActiveSshWebId(null);
-  }, []);
+    endSession();
+  }, [endSession]);
+
+  useIdleLogout(authPhase === "app" && me !== null, () => {
+    void (async () => {
+      try {
+        await api("/api/auth/logout", { method: "POST", body: "{}" });
+      } catch {
+        /* ignore */
+      }
+      endSession();
+    })();
+  });
+
+  useEffect(() => {
+    const h = () => endSession();
+    window.addEventListener("atlas-unauthorized", h);
+    return () => window.removeEventListener("atlas-unauthorized", h);
+  }, [endSession]);
 
   const loadSites = useCallback(async () => {
     try {
@@ -856,15 +678,15 @@ export default function App() {
     })();
   }, [authPhase, me]);
 
-  useEffect(() => {
-    if (authPhase !== "app" || me?.role !== "admin") return;
-    if (autoSyncStarted.current) return;
-    if (!acc.trim() || !tok.trim()) return;
-    autoSyncStarted.current = true;
-    void (async () => {
-      setSyncing(true);
-      setSyncOk(false);
-      setSyncMsg("");
+  const runCfSync = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!acc.trim() || !tok.trim()) return;
+      const silent = opts?.silent ?? false;
+      if (!silent) {
+        setSyncing(true);
+        setSyncOk(false);
+        setSyncMsg("");
+      }
       try {
         const r = await api<{ ok: boolean; sitesCount: number; message: string }>("/api/sync", {
           method: "POST",
@@ -875,7 +697,6 @@ export default function App() {
             zone_id: zone,
           }),
         });
-        appendLog([`Sincronización automática: ${r.message}`]);
         setSyncOk(true);
         setSyncMsg(`${r.sitesCount} sitios`);
         setLastSyncAt(
@@ -887,18 +708,36 @@ export default function App() {
           })
         );
         await loadSites();
+        if (!silent) appendLog([r.message]);
       } catch (e) {
-        appendLog([`Sincronización automática: ${String(e)}`]);
-        setSyncOk(false);
-        setSyncMsg("");
+        if (!silent) {
+          appendLog([`ERROR sync: ${String(e)}`]);
+          setSyncOk(false);
+          setSyncMsg("");
+        }
       } finally {
-        setSyncing(false);
+        if (!silent) setSyncing(false);
       }
-    })();
-  }, [authPhase, me, acc, tok, suf, zone, appendLog, loadSites]);
+    },
+    [acc, tok, suf, zone, appendLog, loadSites]
+  );
 
   useEffect(() => {
-    if (me && me.role !== "admin" && (tab === "cf" || tab === "users")) setTab("conn");
+    if (authPhase !== "app" || me?.role !== "admin") return;
+    if (!acc.trim() || !tok.trim()) return;
+
+    void runCfSync({ silent: true });
+
+    const id = window.setInterval(() => {
+      if (document.hidden) return;
+      void runCfSync({ silent: true });
+    }, CF_SYNC_INTERVAL_MS);
+
+    return () => window.clearInterval(id);
+  }, [authPhase, me?.role, acc, tok, suf, zone, runCfSync]);
+
+  useEffect(() => {
+    if (me && me.role !== "admin" && (tab === "cf" || tab === "users")) setTab("home");
   }, [me, tab]);
 
   const doStart = async (site: string, services: "ssh" | "db" | "both") => {
@@ -957,48 +796,11 @@ export default function App() {
           zone_id: zone,
         }),
       });
-      appendLog(["Ajustes guardados en .atlasvpn/settings.json"]);
+      appendLog(["Ajustes guardados en .atlas/settings.json"]);
       setCfCredentialsLocked(true);
+      await runCfSync({ silent: false });
     } catch (e) {
       appendLog([String(e)]);
-    }
-  };
-
-  const doSync = async () => {
-    setSyncing(true);
-    setSyncOk(false);
-    setSyncMsg("");
-    try {
-      const r = await api<{ ok: boolean; sitesCount: number; message: string }>(
-        "/api/sync",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            account_id: acc,
-            api_token: tok,
-            domain_suffix: suf,
-            zone_id: zone,
-          }),
-        }
-      );
-      appendLog([r.message]);
-      setSyncOk(true);
-      setSyncMsg(`${r.sitesCount} sitios`);
-      setLastSyncAt(
-        new Date().toLocaleString("es", {
-          day: "2-digit",
-          month: "short",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      );
-      await loadSites();
-    } catch (e) {
-      appendLog([`ERROR sync: ${String(e)}`]);
-      setSyncOk(false);
-      setSyncMsg("");
-    } finally {
-      setSyncing(false);
     }
   };
 
@@ -1019,7 +821,7 @@ export default function App() {
   const deleteCfCredentials = async () => {
     if (
       !window.confirm(
-        "¿Eliminar las credenciales Cloudflare guardadas en este equipo (.atlasvpn/settings.json)?"
+        "¿Eliminar las credenciales Cloudflare guardadas en este equipo (.atlas/settings.json)?"
       )
     ) {
       return;
@@ -1039,7 +841,6 @@ export default function App() {
       setSuf("asptienda.com");
       setZone("");
       setCfCredentialsLocked(false);
-      autoSyncStarted.current = false;
       setSyncOk(false);
       setSyncMsg("");
       appendLog(["Credenciales Cloudflare eliminadas del archivo local."]);
@@ -1104,7 +905,15 @@ export default function App() {
       );
     }
     if (authPhase === "login") {
-      return <AuthLoginPanel onDone={(u) => { setMe(u); setAuthPhase("app"); }} />;
+      return (
+        <AuthLoginPanel
+          onDone={(u) => {
+            touchSessionActivity();
+            setMe(u);
+            setAuthPhase("app");
+          }}
+        />
+      );
     }
     if (!me) {
       return (
@@ -1124,7 +933,15 @@ export default function App() {
     );
   }
   if (authPhase === "login") {
-    return <AuthLoginPanel onDone={(u) => { setMe(u); setAuthPhase("app"); }} />;
+    return (
+      <AuthLoginPanel
+        onDone={(u) => {
+          touchSessionActivity();
+          setMe(u);
+          setAuthPhase("app");
+        }}
+      />
+    );
   }
   if (!me) {
     return (
@@ -1137,32 +954,8 @@ export default function App() {
   const canOperate = me.role !== "viewer";
   const canAdmin = me.role === "admin";
 
-  type TabId = "conn" | "cf" | "users" | "poslite" | "about";
-  const TabBtn = ({
-    id,
-    label,
-    Icon,
-  }: {
-    id: TabId;
-    label: string;
-    Icon: typeof Shield;
-  }) => (
-    <button
-      type="button"
-      onClick={() => setTab(id)}
-      className={
-        tab === id
-          ? "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all bg-cf-orange text-black shadow-lg shadow-cf-orange/25"
-          : "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-      }
-    >
-      <Icon className="h-4 w-4" />
-      {label}
-    </button>
-  );
-
   return (
-    <div className="relative flex min-h-screen flex-col overflow-hidden bg-cf-ink text-zinc-100 vpn-grid-bg">
+    <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#0b0d10] text-zinc-100">
       {sshWebSessions.length > 0 ? (
         <WebSshSessionsDock
           sessions={sshWebSessions}
@@ -1171,63 +964,60 @@ export default function App() {
           setActiveId={setActiveSshWebId}
         />
       ) : null}
-      <div className="pointer-events-none absolute -left-32 top-20 h-72 w-72 rounded-full bg-cf-orange/25 blur-[100px] animate-float" />
-      <div className="pointer-events-none absolute -right-20 bottom-32 h-80 w-80 rounded-full bg-sky-500/15 blur-[110px] animate-float [animation-delay:-6s]" />
 
-      <header className="relative z-10 border-b border-cf-line/80 glass">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <div className="flex min-w-0 flex-1 items-center gap-4">
-            <img
-              src={apiUrl("/api/logo")}
-              alt=""
-              className="h-10 w-auto max-w-[160px] object-contain opacity-95"
-              onError={(e) => {
-                e.currentTarget.style.display = "none";
-              }}
-            />
-            <div className="min-w-0">
-              <h1 className="truncate text-lg font-semibold tracking-tight sm:text-xl">
-                AtlasVPN
-              </h1>
-              <p className="truncate text-xs text-zinc-500 sm:text-sm">
-                SSH y bases de datos · Cloudflare Access TCP
-              </p>
-            </div>
-          </div>
-          <nav className="flex flex-wrap items-center gap-2 rounded-2xl bg-black/30 p-1 ring-1 ring-white/5 sm:gap-1.5">
-            <TabBtn id="conn" label="Conexiones" Icon={Wifi} />
-            <TabBtn id="poslite" label="Poslite" Icon={Store} />
-            {canAdmin ? <TabBtn id="cf" label="Cloudflare" Icon={Cloud} /> : null}
-            {canAdmin ? <TabBtn id="users" label="Usuarios" Icon={Users} /> : null}
-            <TabBtn id="about" label="Acerca de" Icon={Shield} />
-            <div className="mx-1 hidden h-8 w-px bg-white/10 sm:block" aria-hidden />
-            <div className="flex items-center gap-2 rounded-xl px-2 py-1 text-xs text-zinc-400">
-              <span className="max-w-[7rem] truncate font-medium text-zinc-200">{me.username}</span>
-              <span className="rounded-md bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] uppercase text-zinc-400">
-                {me.role}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => void doLogout()}
-              className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-zinc-400 ring-1 ring-transparent hover:bg-white/5 hover:text-zinc-200"
-              title="Cerrar sesión"
-            >
-              <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">Salir</span>
-            </button>
-          </nav>
-        </div>
-      </header>
+      <AtlasShell
+        route={tab}
+        onNavigate={setTab}
+        user={me}
+        canAdmin={canAdmin}
+        onLogout={() => void doLogout()}
+      >
+        {tab === "home" && (
+          <AtlasHomeView
+            sites={sites}
+            canAdmin={canAdmin}
+            syncMsg={syncMsg}
+            syncOk={syncOk}
+            lastSyncAt={lastSyncAt}
+            onNavigate={setTab}
+          />
+        )}
 
-      <main className="relative z-10 mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col px-4 py-6 sm:px-6">
+        {tab === "rancher-stores" && (
+          <AtlasStoresView
+            canAdmin={canAdmin}
+            canEdit={me.role === "admin" || me.role === "operator"}
+          />
+        )}
+
+        {tab === "rancher-clusters" && (
+          <AtlasRancherClustersView
+            canAdmin={canAdmin}
+            canEditLabels={me.role === "admin" || me.role === "operator"}
+            onOpenContainers={(clusterId) => {
+              rememberTiendaForContainers(clusterId);
+              setContainersFocusId(clusterId);
+              setTab("rancher-pods");
+            }}
+          />
+        )}
+
+        {tab === "rancher-pods" && (
+          <AtlasRancherPodsView
+            canAdmin={canAdmin}
+            canEdit={me.role === "admin" || me.role === "operator"}
+            focusTiendaId={containersFocusId}
+            onFocusTiendaConsumed={() => setContainersFocusId(null)}
+          />
+        )}
+
         {tab === "conn" && (
           <motion.div
             key="conn"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.22 }}
-            className="flex min-h-0 flex-1 flex-col gap-3"
+            className="flex min-h-[calc(100dvh-9rem)] flex-col gap-3"
           >
             <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
               <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
@@ -1540,8 +1330,14 @@ export default function App() {
                   <div className="min-w-0 flex-1">
                     <h2 className="text-base font-semibold text-zinc-100">Credenciales guardadas</h2>
                     <p className="mt-1 text-xs text-zinc-500">
-                      Los valores sensibles no se muestran completos para evitar cambios accidentales.
+                      Los valores sensibles no se muestran completos para evitar cambios accidentales. Los sitios se
+                      sincronizan solos cada 15 s mientras Atlas esté abierto.
                     </p>
+                    {syncOk && syncMsg && lastSyncAt ? (
+                      <p className="mt-2 text-xs text-emerald-400/90">
+                        {syncMsg} · última sync {lastSyncAt}
+                      </p>
+                    ) : null}
                     <dl className="mt-4 space-y-2 text-sm">
                       <div className="flex flex-wrap gap-2">
                         <dt className="text-zinc-500">Account ID</dt>
@@ -1746,7 +1542,7 @@ export default function App() {
               <h3 className="font-semibold text-cf-orange">Qué es</h3>
               <div className="mt-3 space-y-3 text-sm leading-relaxed text-zinc-300">
                 <p>
-                  <span className="font-medium text-zinc-200">AtlasVPN</span> es una aplicación web destinada a la
+                  <span className="font-medium text-zinc-200">Atlas</span> es la plataforma web; el módulo <span className="font-medium text-zinc-200">Atlas VPN</span> es una aplicación destinada a la
                   administración de accesos remotos hacia los sistemas de sus locales u oficinas. Ofrece un panel único
                   en el navegador desde el que se consulta el estado de cada sitio, se inician o detienen los túneles
                   cifrados cuando procede y se accede, cuando el túnel está activo, a utilidades como la terminal por
@@ -1767,95 +1563,13 @@ export default function App() {
                 </p>
               </div>
               <div className="mt-8 border-t border-cf-line/70 pt-6">
-                <p className="text-center text-[10px] font-semibold uppercase tracking-[0.32em] text-zinc-500">
-                  Desarrollo
-                </p>
-                <p className="mt-3 text-center text-xl font-bold tracking-tight text-zinc-100 sm:text-2xl">
-                  <span className="bg-gradient-to-r from-amber-100 via-cf-orange to-amber-100 bg-clip-text text-transparent drop-shadow-[0_0_24px_rgba(249,115,22,0.25)]">
-                    Luis Guzman
-                  </span>
-                </p>
+                <PoweredByVerkkutech />
               </div>
             </motion.div>
           </motion.div>
         )}
-      </main>
+      </AtlasShell>
 
-      {canAdmin ? (
-      <>
-      {/* Sincronización Cloudflare: flotante arrastrable (solo administradores) */}
-      <div
-        className={`pointer-events-none fixed z-[70] flex max-w-[min(100vw-1.5rem,20rem)] flex-col gap-1.5 ${
-          cfFabPos ? "items-start" : "items-end bottom-4 right-4 sm:bottom-5 sm:right-5"
-        }`}
-        style={cfFabPos ? { left: cfFabPos.left, top: cfFabPos.top } : undefined}
-      >
-        <div
-          ref={cfFabPanelRef}
-          className="pointer-events-auto flex flex-col gap-1.5 rounded-2xl border border-cf-line/90 bg-cf-panel/95 px-3 py-2.5 shadow-2xl shadow-black/40 ring-1 ring-white/10 backdrop-blur-md"
-        >
-          <div
-            role="presentation"
-            aria-label="Arrastra desde aquí para mover el panel de sincronización Cloudflare"
-            title="Arrastra para mover"
-            className="flex cursor-grab select-none items-center gap-1.5 border-b border-white/[0.06] pb-2 touch-none active:cursor-grabbing"
-            onPointerDown={onCfFabHandlePointerDown}
-            onPointerMove={onCfFabHandlePointerMove}
-            onPointerUp={endCfFabDrag}
-            onPointerCancel={endCfFabDrag}
-            onLostPointerCapture={endCfFabDrag}
-          >
-            <GripVertical className="h-4 w-4 shrink-0 text-zinc-600" aria-hidden />
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              {syncing ? (
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-cf-orange" aria-hidden />
-              ) : syncOk && syncMsg ? (
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" aria-hidden />
-              ) : (
-                <Cloud className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
-              )}
-              <div className="min-w-0 flex-1 text-left">
-                <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Cloudflare</p>
-                <p className="truncate text-xs text-zinc-200">
-                  {syncing
-                    ? "Sincronizando túneles…"
-                    : syncOk && syncMsg
-                      ? `Listo · ${syncMsg}`
-                      : "Pulsa para sincronizar"}
-                </p>
-                {lastSyncAt && !syncing ? (
-                  <p className="truncate text-[10px] text-zinc-500">Última: {lastSyncAt}</p>
-                ) : null}
-              </div>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-1.5 pt-0.5">
-            <button
-              type="button"
-              onClick={() => void doSync()}
-              disabled={syncing || !acc.trim() || !tok.trim()}
-              title={
-                !acc.trim() || !tok.trim()
-                  ? "Configura Account ID y API Token en la pestaña Cloudflare"
-                  : "Sincronizar con Cloudflare"
-              }
-              className="inline-flex items-center gap-1.5 rounded-lg bg-cf-orange px-2.5 py-1.5 text-xs font-semibold text-black shadow-md shadow-cf-orange/20 disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
-              Sincronizar
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("cf")}
-              className="rounded-lg bg-zinc-800 px-2 py-1.5 text-[10px] font-medium text-zinc-300 ring-1 ring-zinc-600 hover:bg-zinc-700"
-            >
-              Ajustes
-            </button>
-          </div>
-        </div>
-      </div>
-      </>
-      ) : null}
     </div>
   );
 }

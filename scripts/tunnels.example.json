@@ -1,6 +1,6 @@
 {
   "meta": {
-    "description": "Plantilla AtlasVPN. Rellena sitios a mano o usa Sincronizar (Cloudflare) en la app."
+    "description": "Plantilla Atlas VPN. Rellena sitios a mano o usa Sincronizar (Cloudflare) en Atlas."
   },
   "sites": {}
 }

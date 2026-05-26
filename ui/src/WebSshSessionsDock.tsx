@@ -17,6 +17,7 @@ import {
   Minus,
   Monitor,
   PanelBottomOpen,
+  Plus,
   Server,
   Terminal as TerminalIcon,
   User,
@@ -68,13 +69,17 @@ export function buildSshWebPopoutUrl(site: string, dockSessionId?: string | null
 }
 
 export function sshRelayChannelName(sessionId: string): string {
-  return `atlasvpn-ssh-relay-${sessionId}`;
+  return `atlas-ssh-relay-${sessionId}`;
 }
 
-/** Consola del navegador: `localStorage.setItem('atlasvpn_ssh_debug','1')` y recargar; en desarrollo también está activo. */
+/** Consola del navegador: `localStorage.setItem('atlas_ssh_debug','1')` y recargar; en desarrollo también está activo. */
 function sshTerminalWebDebug(): boolean {
   try {
-    return Boolean(import.meta.env.DEV) || globalThis.localStorage?.getItem("atlasvpn_ssh_debug") === "1";
+    return (
+      Boolean(import.meta.env.DEV) ||
+      globalThis.localStorage?.getItem("atlas_ssh_debug") === "1" ||
+      globalThis.localStorage?.getItem("atlasvpn_ssh_debug") === "1"
+    );
   } catch {
     return Boolean(import.meta.env.DEV);
   }
@@ -237,7 +242,7 @@ function SshHostStatusBar({
 }
 
 /** `postMessage` desde la ventana emergente hacia `window.opener` para reintegrar el terminal en el dock. */
-export const SSH_WEB_REATTACH_MESSAGE_TYPE = "atlasvpn-ssh-reattach" as const;
+export const SSH_WEB_REATTACH_MESSAGE_TYPE = "atlas-ssh-reattach" as const;
 
 export type SshWebReattachPayload = {
   type: typeof SSH_WEB_REATTACH_MESSAGE_TYPE;
@@ -258,7 +263,6 @@ type PaneProps = {
   sessionId: string;
   visible: boolean;
   onClose: () => void;
-  onMinimize: () => void;
   onSshSessionEnd?: () => void;
   /** En ventana emergente se oculta minimizar y se adaptan textos. */
   chrome?: "dock" | "popout";
@@ -275,7 +279,6 @@ function SshSessionPane({
   sessionId,
   visible,
   onClose,
-  onMinimize,
   onSshSessionEnd,
   chrome = "dock",
   onReattachToDock,
@@ -719,58 +722,53 @@ function SshSessionPane({
       className={`flex min-h-0 flex-1 flex-col overflow-hidden ${visible || relayPoppedOut ? "flex" : "hidden"}`}
       aria-hidden={!visible && !relayPoppedOut}
     >
-      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800 px-2 py-1.5">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <TerminalIcon className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
-          <span className="truncate font-mono text-xs text-emerald-300">{site}</span>
-          {chrome === "popout" ? (
-            <span className="hidden shrink-0 text-[10px] text-zinc-500 sm:inline" title="Usa el borde de la ventana para moverla a otro monitor">
-              · Ventana independiente
-            </span>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-1">
-          {cmd ? (
+      {chrome !== "dock" ? (
+        <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800 px-2 py-1.5">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <TerminalIcon className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
+            <span className="truncate font-mono text-xs text-emerald-300">{site}</span>
+            {chrome === "popout" ? (
+              <span
+                className="hidden shrink-0 text-[10px] text-zinc-500 sm:inline"
+                title="Usa el borde de la ventana para moverla a otro monitor"
+              >
+                · Ventana independiente
+              </span>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-1">
+            {cmd ? (
+              <button
+                type="button"
+                onClick={() => void copyCmd()}
+                className="inline-flex items-center gap-1 rounded-md bg-zinc-800 px-2 py-1 text-[11px] text-zinc-200 ring-1 ring-zinc-600 hover:bg-zinc-700"
+              >
+                <Copy className="h-3 w-3" />
+                Comando
+              </button>
+            ) : null}
+            {chrome === "popout" && onReattachToDock ? (
+              <button
+                type="button"
+                title="Volver a integrar en el panel inferior de la ventana principal"
+                onClick={onReattachToDock}
+                className="inline-flex items-center gap-1 rounded-md bg-zinc-800 px-2 py-1 text-[11px] text-zinc-200 ring-1 ring-zinc-600 hover:bg-zinc-700 hover:text-cf-orange"
+              >
+                <PanelBottomOpen className="h-3 w-3 shrink-0" aria-hidden />
+                <span className="hidden sm:inline">Al panel</span>
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={() => void copyCmd()}
-              className="inline-flex items-center gap-1 rounded-md bg-zinc-800 px-2 py-1 text-[11px] text-zinc-200 ring-1 ring-zinc-600 hover:bg-zinc-700"
+              title={chrome === "popout" ? "Cerrar ventana y sesión SSH" : "Cerrar sesión SSH"}
+              onClick={onClose}
+              className="inline-flex items-center rounded-md bg-zinc-800 p-1.5 text-rose-200 ring-1 ring-zinc-600 hover:bg-rose-950/50"
             >
-              <Copy className="h-3 w-3" />
-              Comando
+              <X className="h-3.5 w-3.5" />
             </button>
-          ) : null}
-          {chrome === "dock" ? (
-            <button
-              type="button"
-              title="Minimizar esta sesión (sigue en segundo plano)"
-              onClick={onMinimize}
-              className="inline-flex items-center rounded-md bg-zinc-800 p-1.5 text-zinc-200 ring-1 ring-zinc-600 hover:bg-zinc-700"
-            >
-              <Minus className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
-          {chrome === "popout" && onReattachToDock ? (
-            <button
-              type="button"
-              title="Volver a integrar en el panel inferior de la ventana principal"
-              onClick={onReattachToDock}
-              className="inline-flex items-center gap-1 rounded-md bg-zinc-800 px-2 py-1 text-[11px] text-zinc-200 ring-1 ring-zinc-600 hover:bg-zinc-700 hover:text-cf-orange"
-            >
-              <PanelBottomOpen className="h-3 w-3 shrink-0" aria-hidden />
-              <span className="hidden sm:inline">Al panel</span>
-            </button>
-          ) : null}
-          <button
-            type="button"
-            title={chrome === "popout" ? "Cerrar ventana y sesión SSH" : "Cerrar sesión SSH"}
-            onClick={onClose}
-            className="inline-flex items-center rounded-md bg-zinc-800 p-1.5 text-rose-200 ring-1 ring-zinc-600 hover:bg-rose-950/50"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </header>
+          </div>
+        </header>
+      ) : null}
       {banner && !fatal ? (
         <div className="shrink-0 border-b border-zinc-800 px-2 py-1 text-[11px] text-zinc-400">{banner}</div>
       ) : null}
@@ -790,7 +788,7 @@ function SshSessionPane({
         <div ref={wrapRef} className="min-h-0 flex-1 overflow-hidden" />
         {!fatal ? <SshHostStatusBar stats={hostStats} siteFallback={site} /> : null}
       </div>
-      {!fatal ? (
+      {!fatal && chrome !== "dock" ? (
         <p className="shrink-0 border-t border-zinc-800 px-2 py-1 text-[10px] leading-snug text-zinc-500">
           Copiar/pegar: clic derecho en el terminal · <kbd className="rounded bg-zinc-800 px-0.5">Ctrl+C</kbd> con texto
           seleccionado · <kbd className="rounded bg-zinc-800 px-0.5">Ctrl+V</kbd> /{" "}
@@ -1293,7 +1291,6 @@ export function SshWebPopoutApp({ site, dockSessionId }: { site: string; dockSes
         visible
         chrome="popout"
         onClose={handleClose}
-        onMinimize={handleClose}
         onSshSessionEnd={handleClose}
         onReattachToDock={handleReattachToDock}
       />
@@ -1426,7 +1423,7 @@ export function WebSshSessionsDock({
       flushSync(() => {
         setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, poppedOut: true } : s)));
       });
-      const win = window.open(url, `atlasvpn-ssh-${sess.id}`, feat);
+      const win = window.open(url, `atlas-ssh-${sess.id}`, feat);
       if (!win) {
         flushSync(() => {
           setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, poppedOut: false } : s)));
@@ -1437,22 +1434,6 @@ export function WebSshSessionsDock({
       }
     },
     [sessions, setSessions],
-  );
-
-  const minimizeSession = useCallback(
-    (id: string) => {
-      setSessions((prev) => {
-        const next = prev.map((s) => (s.id === id ? { ...s, minimized: true } : s));
-        queueMicrotask(() => {
-          setActiveId((cur) => {
-            if (cur !== id) return cur;
-            return next.find((s) => !s.minimized)?.id ?? cur;
-          });
-        });
-        return next;
-      });
-    },
-    [setSessions, setActiveId]
   );
 
   const activateTab = useCallback(
@@ -1466,6 +1447,16 @@ export function WebSshSessionsDock({
   const restoreAll = useCallback(() => {
     setDockMaximized(false);
     setSessions((prev) => prev.map((s) => ({ ...s, minimized: false })));
+  }, [setSessions]);
+
+  const expandDock = useCallback(() => {
+    setDockMaximized(true);
+    setSessions((prev) => prev.map((s) => ({ ...s, minimized: false })));
+  }, [setSessions]);
+
+  const collapseDock = useCallback(() => {
+    setDockMaximized(false);
+    setSessions((prev) => prev.map((s) => ({ ...s, minimized: true })));
   }, [setSessions]);
 
   if (sessions.length === 0) {
@@ -1510,28 +1501,33 @@ export function WebSshSessionsDock({
     >
       {!allMinimized ? (
         <>
-          {!dockMaximized ? (
-            <div
-              role="separator"
-              aria-orientation="horizontal"
-              aria-label="Arrastra para ajustar la altura del terminal"
-              title="Arrastra hacia arriba o abajo para cambiar la altura (panel inferior tipo Rancher)"
-              className="group relative z-20 flex h-3 shrink-0 cursor-ns-resize select-none items-center justify-center border-b border-zinc-700/90 bg-gradient-to-b from-zinc-800 via-zinc-800 to-zinc-950 hover:from-zinc-700 hover:to-zinc-900"
-              onPointerDown={(e) => {
-                if (e.button !== 0) return;
-                e.preventDefault();
-                dockResizeRef.current = { startY: e.clientY, startH: dockHeightPx };
-                setIsDockResizing(true);
-              }}
-            >
-              <GripHorizontal
-                className="pointer-events-none h-5 w-16 text-zinc-500 opacity-90 group-hover:text-cf-orange"
-                strokeWidth={2}
-                aria-hidden
-              />
-            </div>
-          ) : null}
-          <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-zinc-800 bg-zinc-900/90 px-2 py-1">
+          <div
+            className={`flex shrink-0 items-stretch border-b border-zinc-800 bg-zinc-900/90 ${
+              !dockMaximized && isDockResizing ? "ring-1 ring-inset ring-cf-orange/35" : ""
+            }`}
+          >
+            {!dockMaximized ? (
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="Arrastra para ajustar la altura del terminal"
+                title="Arrastra para cambiar la altura del panel"
+                className="group flex w-9 shrink-0 cursor-ns-resize select-none items-center justify-center border-r border-zinc-700/80 bg-zinc-800/90 hover:bg-zinc-700/90"
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return;
+                  e.preventDefault();
+                  dockResizeRef.current = { startY: e.clientY, startH: dockHeightPx };
+                  setIsDockResizing(true);
+                }}
+              >
+                <GripHorizontal
+                  className="pointer-events-none h-4 w-5 text-zinc-500 group-hover:text-cf-orange"
+                  strokeWidth={2}
+                  aria-hidden
+                />
+              </div>
+            ) : null}
+            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-2 py-1">
             {sessions.map((s) => {
               const active = s.id === activeId;
               return (
@@ -1548,7 +1544,9 @@ export function WebSshSessionsDock({
                   onDrop={(e) => {
                     e.preventDefault();
                     const from =
-                      e.dataTransfer.getData("application/x-atlasvpn-tab") || e.dataTransfer.getData("text/plain");
+                      e.dataTransfer.getData("application/x-atlas-tab") ||
+                      e.dataTransfer.getData("application/x-atlasvpn-tab") ||
+                      e.dataTransfer.getData("text/plain");
                     if (from) moveTab(from, s.id);
                     setDragTabId(null);
                     setDragOverTabId(null);
@@ -1558,7 +1556,7 @@ export function WebSshSessionsDock({
                     title="Arrastrar para reordenar pestañas"
                     draggable
                     onDragStart={(e) => {
-                      e.dataTransfer.setData("application/x-atlasvpn-tab", s.id);
+                      e.dataTransfer.setData("application/x-atlas-tab", s.id);
                       e.dataTransfer.setData("text/plain", s.id);
                       e.dataTransfer.effectAllowed = "move";
                       setDragTabId(s.id);
@@ -1597,15 +1595,7 @@ export function WebSshSessionsDock({
                   </button>
                   <button
                     type="button"
-                    title="Minimizar"
-                    onClick={() => minimizeSession(s.id)}
-                    className="rounded p-1 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
-                  >
-                    <Minus className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    title="Cerrar"
+                    title="Cerrar sesión"
                     onClick={() => closeSession(s.id)}
                     className="rounded p-1 text-zinc-400 hover:bg-rose-950/60 hover:text-rose-200"
                   >
@@ -1614,26 +1604,25 @@ export function WebSshSessionsDock({
                 </div>
               );
             })}
-            <div className="min-w-2 flex-1 shrink" aria-hidden />
-            <button
-              type="button"
-              title={
-                dockMaximized
-                  ? "Salir de pantalla completa (también Esc). Clic con Ctrl: minimizar todas las sesiones."
-                  : "Pantalla completa del terminal. Clic con Ctrl: minimizar todas las sesiones."
-              }
-              onClick={(e) => {
-                if (e.ctrlKey || e.metaKey) {
-                  setDockMaximized(false);
-                  setSessions((prev) => prev.map((s) => ({ ...s, minimized: true })));
-                  return;
-                }
-                setDockMaximized((v) => !v);
-              }}
-              className="shrink-0 rounded-lg bg-zinc-800 px-3 py-1.5 text-[11px] font-semibold text-zinc-200 ring-1 ring-zinc-600 hover:bg-zinc-700 hover:text-cf-orange"
-            >
-              {dockMaximized ? "Minimizar" : "Maximizar"}
-            </button>
+            </div>
+            <div className="flex shrink-0 items-center gap-0.5 self-stretch border-l border-zinc-700/80 px-1.5 py-1">
+              <button
+                type="button"
+                title="Maximizar panel (pantalla completa, Esc para salir)"
+                onClick={() => expandDock()}
+                className="inline-flex items-center justify-center rounded-md bg-zinc-800 p-1.5 text-zinc-200 ring-1 ring-zinc-600 hover:bg-zinc-700 hover:text-cf-orange"
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden />
+              </button>
+              <button
+                type="button"
+                title="Minimizar panel (barra inferior)"
+                onClick={() => collapseDock()}
+                className="inline-flex items-center justify-center rounded-md bg-zinc-800 p-1.5 text-zinc-200 ring-1 ring-zinc-600 hover:bg-zinc-700"
+              >
+                <Minus className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </div>
           </div>
           {minimizedSessions.length > 0 ? (
             <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-zinc-800/90 bg-zinc-950/90 px-2 py-1.5">
@@ -1720,7 +1709,6 @@ export function WebSshSessionsDock({
                   setSessions((prev) => prev.map((x) => (x.id === s.id ? { ...x, poppedOut: false } : x)));
                 }}
                 onClose={() => closeSession(s.id)}
-                onMinimize={() => minimizeSession(s.id)}
                 onSshSessionEnd={() => closeSession(s.id)}
               />
             </div>

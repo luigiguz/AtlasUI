@@ -1,25 +1,39 @@
 function resolveApiBase(): string {
   if (typeof window !== "undefined") {
-    const w = (window as unknown as { __ATLASVPN_API_BASE__?: string }).__ATLASVPN_API_BASE__;
-    if (typeof w === "string" && w.trim()) return w.replace(/\/$/, "");
+    const w = window as unknown as {
+      __ATLAS_API_BASE__?: string;
+      __ATLASVPN_API_BASE__?: string;
+    };
+    const runtime = w.__ATLAS_API_BASE__ ?? w.__ATLASVPN_API_BASE__;
+    if (typeof runtime === "string" && runtime.trim()) return runtime.replace(/\/$/, "");
   }
   const v = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() ?? "";
   return v.replace(/\/$/, "");
 }
 
-/** Base pública del API (p. ej. https://api-atlas-vpn.verkku.com). Vacío = mismo origen. */
+/** Base pública del API (p. ej. https://api-atlas-vpn.verkku.com). UI: https://atlas-ui.verkku.com. Vacío = mismo origen. */
 export const API_BASE = resolveApiBase();
 
-const TOKEN_KEY = "atlasvpn_access_token";
+const TOKEN_KEY = "atlas_access_token";
+const LEGACY_TOKEN_KEY = "atlasvpn_access_token";
 
 /** sessionStorage no se comparte entre ventanas emergentes; localStorage sí (mismo origen). */
 function migrateAccessTokenFromSessionStorage(): void {
   try {
-    const legacy = sessionStorage.getItem(TOKEN_KEY);
-    if (legacy) {
-      localStorage.setItem(TOKEN_KEY, legacy);
-      sessionStorage.removeItem(TOKEN_KEY);
+    for (const key of [TOKEN_KEY, LEGACY_TOKEN_KEY]) {
+      const legacy = sessionStorage.getItem(key);
+      if (legacy) {
+        localStorage.setItem(TOKEN_KEY, legacy);
+        sessionStorage.removeItem(TOKEN_KEY);
+        sessionStorage.removeItem(LEGACY_TOKEN_KEY);
+        break;
+      }
     }
+    const legacyLocal = localStorage.getItem(LEGACY_TOKEN_KEY);
+    if (legacyLocal && !localStorage.getItem(TOKEN_KEY)) {
+      localStorage.setItem(TOKEN_KEY, legacyLocal);
+    }
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
   } catch {
     /* ignore */
   }
@@ -60,9 +74,12 @@ export function setAccessToken(token: string | null): void {
     if (token) {
       localStorage.setItem(TOKEN_KEY, token);
       sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(LEGACY_TOKEN_KEY);
     } else {
       localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(LEGACY_TOKEN_KEY);
       sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(LEGACY_TOKEN_KEY);
     }
   } catch {
     /* ignore */
@@ -97,7 +114,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     detail?: string | { msg: string }[];
   };
   if (r.status === 401) {
-    window.dispatchEvent(new CustomEvent("atlasvpn-unauthorized"));
+    window.dispatchEvent(new CustomEvent("atlas-unauthorized"));
   }
   if (!r.ok) {
     let msg = data.message;

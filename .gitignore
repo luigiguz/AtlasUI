@@ -1,9 +1,10 @@
 .venv
 .cloudflared-tunnels
+.atlas/
 .atlasvpn/
 scripts/tunnels.json
 .cloudflared-tunnels/
 ui/node_modules/
-atlasvpn/static/web/
+ui/dist/
 scripts/__pycache__
 .cursor
