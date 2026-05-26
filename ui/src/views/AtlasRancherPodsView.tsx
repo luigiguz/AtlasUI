@@ -112,7 +112,6 @@ function ClusterWorkloadsTable({
     try {
       const ns = encodeURIComponent(cluster.namespace);
       const nm = encodeURIComponent(cluster.name);
-      const steve = encodeURIComponent(cluster.steveCollection || "provisioning.cattle.io.customclusters");
       const depName = encodeURIComponent(dep.name);
       const r = await api<DeploymentRolloutResponse>(
         `/api/atlas-rancher/custom-clusters/${ns}/${nm}/deployments/${depName}/rollout`,
