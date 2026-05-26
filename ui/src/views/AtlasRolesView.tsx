@@ -3,7 +3,9 @@ import { Loader2, Pencil, Plus, Shield, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
 import {
+  hasAnyPermission,
   hasPermission,
+  PERM_ROLES_LIST,
   PERM_ROLES_MANAGE,
   type AuthUser,
 } from "../atlasAuth";
@@ -73,7 +75,9 @@ function Modal({
 type Props = { me: AuthUser };
 
 export function AtlasRolesView({ me }: Props) {
+  const canView = hasAnyPermission(me, PERM_ROLES_LIST, PERM_ROLES_MANAGE);
   const canManage = hasPermission(me, PERM_ROLES_MANAGE);
+  const readOnly = canView && !canManage;
 
   const [rows, setRows] = useState<RoleRow[]>([]);
   const [groups, setGroups] = useState<PermGroup[]>([]);
@@ -81,6 +85,7 @@ export function AtlasRolesView({ me }: Props) {
   const [err, setErr] = useState("");
 
   const [editor, setEditor] = useState<RoleRow | "new" | null>(null);
+  const [editorReadOnly, setEditorReadOnly] = useState(false);
   const [slug, setSlug] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -110,6 +115,7 @@ export function AtlasRolesView({ me }: Props) {
   }, [reload]);
 
   const openNew = () => {
+    setEditorReadOnly(false);
     setEditor("new");
     setSlug("");
     setName("");
@@ -118,7 +124,8 @@ export function AtlasRolesView({ me }: Props) {
     setSaveErr("");
   };
 
-  const openEdit = (r: RoleRow) => {
+  const openEdit = (r: RoleRow, opts?: { readOnly?: boolean }) => {
+    setEditorReadOnly(Boolean(opts?.readOnly));
     setEditor(r);
     setSlug(r.slug);
     setName(r.name);
@@ -201,8 +208,11 @@ export function AtlasRolesView({ me }: Props) {
                     type="checkbox"
                     className="mt-0.5 rounded border-cf-line bg-black/40 text-cf-orange focus:ring-cf-orange/30"
                     checked={selected.has(p.id)}
-                    disabled={!canManage}
-                    onChange={() => togglePerm(p.id)}
+                    disabled={editorReadOnly || !canManage}
+                    onChange={() => {
+                      if (editorReadOnly || !canManage) return;
+                      togglePerm(p.id);
+                    }}
                   />
                   <span>
                     <span className="font-medium text-zinc-200">{p.label}</span>
@@ -214,7 +224,7 @@ export function AtlasRolesView({ me }: Props) {
           </ul>
         </div>
       )),
-    [groups, selected, canManage, editor]
+    [groups, selected, canManage, editorReadOnly, editor]
   );
 
   return (
@@ -245,6 +255,14 @@ export function AtlasRolesView({ me }: Props) {
       </div>
 
       {err ? <p className="text-sm text-rose-300">{err}</p> : null}
+
+      {readOnly ? (
+        <p className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90">
+          Tu cuenta puede <strong>ver</strong> roles pero no editarlos. Necesitas el permiso{" "}
+          <span className="font-mono text-xs">atlas:roles:Manage</span> (incluido en el rol
+          Administrador). Cierra sesión y vuelve a entrar tras un cambio de rol.
+        </p>
+      ) : null}
 
       <div className="overflow-hidden rounded-2xl border border-cf-line bg-cf-card/90 ring-1 ring-white/[0.03]">
         {loading ? (
@@ -294,6 +312,14 @@ export function AtlasRolesView({ me }: Props) {
                             <Pencil className="h-3.5 w-3.5" />
                             Editar
                           </button>
+                        ) : canView ? (
+                          <button
+                            type="button"
+                            onClick={() => openEdit(r, { readOnly: true })}
+                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs ring-1 ring-cf-line hover:bg-white/5"
+                          >
+                            Ver
+                          </button>
                         ) : null}
                         {canManage && !r.is_system ? (
                           <button
@@ -318,10 +344,22 @@ export function AtlasRolesView({ me }: Props) {
       <AnimatePresence>
         {editor ? (
           <Modal
-            title={editor === "new" ? "Nuevo rol" : `Editar — ${editor.name}`}
+            title={
+              editor === "new"
+                ? "Nuevo rol"
+                : editorReadOnly || !canManage
+                  ? `Ver — ${editor.name}`
+                  : `Editar — ${editor.name}`
+            }
             onClose={() => setEditor(null)}
           >
             <form className="space-y-4" onSubmit={(e) => void submit(e)}>
+              {editorReadOnly || (!canManage && editor !== "new") ? (
+                <p className="rounded-lg border border-cf-line/80 bg-black/30 px-3 py-2 text-xs text-zinc-400">
+                  Solo lectura. Para modificar permisos asigna{" "}
+                  <span className="font-mono text-zinc-300">atlas:roles:Manage</span> a tu usuario.
+                </p>
+              ) : null}
               {saveErr ? (
                 <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
                   {saveErr}
@@ -346,6 +384,7 @@ export function AtlasRolesView({ me }: Props) {
                   className={inputClass}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  readOnly={editorReadOnly || !canManage}
                   required
                 />
               </label>
@@ -355,18 +394,19 @@ export function AtlasRolesView({ me }: Props) {
                   className={inputClass}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
+                  readOnly={editorReadOnly || !canManage}
                 />
               </label>
               <div className="grid gap-3 sm:grid-cols-2">{permMatrix}</div>
-              {canManage ? (
-                <div className="flex justify-end gap-2 border-t border-cf-line/60 pt-4">
-                  <button
-                    type="button"
-                    onClick={() => setEditor(null)}
-                    className="rounded-lg px-4 py-2 text-sm ring-1 ring-cf-line hover:bg-white/5"
-                  >
-                    Cancelar
-                  </button>
+              <div className="flex justify-end gap-2 border-t border-cf-line/60 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setEditor(null)}
+                  className="rounded-lg px-4 py-2 text-sm ring-1 ring-cf-line hover:bg-white/5"
+                >
+                  {canManage && !editorReadOnly ? "Cancelar" : "Cerrar"}
+                </button>
+                {canManage && !editorReadOnly ? (
                   <button
                     type="submit"
                     disabled={busy}
@@ -375,8 +415,8 @@ export function AtlasRolesView({ me }: Props) {
                     {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                     Guardar
                   </button>
-                </div>
-              ) : null}
+                ) : null}
+              </div>
             </form>
           </Modal>
         ) : null}

@@ -33,6 +33,7 @@ import {
   PERM_RANCHER_CONFIGURE,
   PERM_RANCHER_WRITE,
   PERM_ROLES_LIST,
+  PERM_ROLES_MANAGE,
   PERM_STORES_CONFIGURE,
   PERM_STORES_WRITE,
   PERM_USERS_LIST,
@@ -702,7 +703,7 @@ export default function App() {
   const canStoresConfigure = hasPermission(me, PERM_STORES_CONFIGURE);
   const canStoresWrite = hasPermission(me, PERM_STORES_WRITE);
   const canUsers = hasPermission(me, PERM_USERS_LIST);
-  const canRoles = hasAnyPermission(me, PERM_ROLES_LIST);
+  const canRoles = hasAnyPermission(me, PERM_ROLES_LIST, PERM_ROLES_MANAGE);
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#0b0d10] text-zinc-100">

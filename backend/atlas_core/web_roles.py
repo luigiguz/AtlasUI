@@ -69,7 +69,9 @@ def ensure_system_roles() -> None:
                         row.name = str(meta["name"])
                         row.description = str(meta.get("description") or "")
                         row.is_system = True
-                        row.permissions = perms
+                        # No pisar permisos ya guardados (edición desde la UI).
+                        if not normalize_permissions(list(row.permissions or [])):
+                            row.permissions = perms
         except SQLAlchemyError as e:
             _log.warning(
                 "ensure_system_roles omitido (¿migración 20260526_0004 pendiente?): %s", e
