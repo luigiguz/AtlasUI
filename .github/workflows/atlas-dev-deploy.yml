@@ -1,4 +1,5 @@
-# Reemplaza atlas-dev-selfhosted.yml (run #45 atascado que GitHub no deja cancelar).
+# Deploy Atlas en runner self-hosted (VerkkuRunner / RPi).
+# Sin actions de terceros: el runner a veces no puede descargar desde codeload.github.com.
 
 name: Atlas — dev deploy (RPi)
 
@@ -23,47 +24,8 @@ permissions:
   contents: read
 
 jobs:
-  unblock:
-    name: Desbloquear cola
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: read
-    steps:
-      - name: Cancelar cualquier run en cola de esta rama
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const branch = context.ref.replace("refs/heads/", "");
-            const currentRunId = context.runId;
-
-            for (const status of ["queued", "waiting", "pending"]) {
-              const { data } = await github.rest.actions.listWorkflowRuns({
-                owner,
-                repo,
-                branch,
-                status,
-                per_page: 30,
-              });
-              for (const run of data.workflow_runs) {
-                if (run.id === currentRunId) continue;
-                console.log(`Cancelando #${run.run_number} ${run.name} (${run.status})`);
-                try {
-                  await github.rest.actions.cancelWorkflowRun({
-                    owner,
-                    repo,
-                    run_id: run.id,
-                  });
-                } catch (e) {
-                  console.log(`Skip #${run.run_number}: ${e.message}`);
-                }
-              }
-            }
-
   build-and-deploy:
     name: Build + Compose dev (RPi)
-    needs: unblock
     runs-on:
       - self-hosted
       - Linux
@@ -79,8 +41,25 @@ jobs:
       ATLAS_PUBLIC_API_URL: http://127.0.0.1:8765
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout (git nativo)
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          ref="${{ github.ref }}"
+          sha="${{ github.sha }}"
+          if [[ -d .git ]]; then
+            git remote set-url origin "$repo"
+            git fetch --depth=1 origin "$sha"
+            git checkout --force FETCH_HEAD
+          else
+            git clone --depth=1 "$repo" .
+            git fetch --depth=1 origin "$sha"
+            git checkout --force FETCH_HEAD
+          fi
+          echo "En $(pwd) @ $(git rev-parse --short HEAD)"
 
       - name: Asegurar tunnels.json
         shell: bash
@@ -89,7 +68,6 @@ jobs:
           if [[ -f scripts/tunnels.json ]]; then
             exit 0
           fi
-          echo "Creando scripts/tunnels.json (no presente en el checkout)."
           if [[ -f scripts/tunnels.example.json ]]; then
             cp scripts/tunnels.example.json scripts/tunnels.json
           else
