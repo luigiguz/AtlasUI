@@ -14,16 +14,17 @@ type Props = {
 };
 
 function AtlasLoginLogo() {
-  const [src, setSrc] = useState(apiUrl("/api/logo"));
+  const [src, setSrc] = useState(ATLAS_LOGO_FALLBACK);
 
   return (
     <img
       src={src}
       alt="Atlas"
       onError={() => {
-        if (src !== ATLAS_LOGO_FALLBACK) setSrc(ATLAS_LOGO_FALLBACK);
+        const apiLogo = apiUrl("/api/logo");
+        if (src !== apiLogo) setSrc(apiLogo);
       }}
-      className="mx-auto h-14 w-auto max-w-[220px] object-contain object-center sm:h-16"
+      className="mx-auto h-28 w-auto max-w-[min(100%,20rem)] object-contain object-center sm:h-36 sm:max-w-[26rem]"
     />
   );
 }
@@ -72,12 +73,14 @@ export function AuthLoginPanel({ onDone }: Props) {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, ease: "easeOut" }}
-        className="relative w-full max-w-[26rem]"
+        className="relative w-full max-w-md"
       >
-        <div className="mb-6 text-center">
+        <div className="mb-8 text-center">
           <AtlasLoginLogo />
-          <p className="mt-3 text-sm font-medium text-zinc-200">Plataforma Verkku</p>
-          <p className="mt-1 text-xs text-zinc-500">VPN · Rancher · Tiendas PosLite</p>
+          <h2 className="font-display mt-6 text-2xl font-light tracking-wide text-zinc-400 sm:text-[1.65rem]">
+            Bienvenido a{" "}
+            <span className="font-semibold text-zinc-100">Atlas</span>
+          </h2>
         </div>
 
         <form
