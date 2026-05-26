@@ -1,18 +1,12 @@
 import { motion } from "framer-motion";
-import {
-  ArrowRight,
-  Box,
-  Cloud,
-  GitBranch,
-  Server,
-  Shield,
-  Store,
-  Tags,
-  Wifi,
-} from "lucide-react";
-import type { ReactNode } from "react";
+import { ArrowRight, Box, Cloud, Loader2, Server, Store, Wifi } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { api } from "../apiClient";
 import type { AtlasRouteId } from "../atlasNav";
+import { normalizeState } from "../rancherLabels";
+import type { ClustersResponse } from "../rancherTypes";
+import type { StoresListResponse } from "../storeTypes";
 
 type SiteRow = {
   id: string;
@@ -30,51 +24,102 @@ type Props = {
   onNavigate: (route: AtlasRouteId) => void;
 };
 
-function countTunnels(sites: SiteRow[]) {
-  let active = 0;
-  let dead = 0;
+type VpnStats = {
+  siteCount: number;
+  tunnelsActive: number;
+  incidents: number;
+  sitesAllUp: number;
+};
+
+function computeVpnStats(sites: SiteRow[]): VpnStats {
+  let tunnelsActive = 0;
+  let incidents = 0;
+  let sitesAllUp = 0;
   for (const s of sites) {
-    if (s.sshStatus === "active") active++;
-    if (s.dbStatus === "active") active++;
-    if (s.sshStatus === "dead") dead++;
-    if (s.dbStatus === "dead") dead++;
+    const sshUp = s.sshStatus === "active";
+    const dbUp = s.dbStatus === "active";
+    if (sshUp) tunnelsActive++;
+    if (dbUp) tunnelsActive++;
+    if (s.sshStatus === "dead") incidents++;
+    if (s.dbStatus === "dead") incidents++;
+    if (sshUp && dbUp) sitesAllUp++;
   }
-  return { active, dead, siteCount: sites.length };
+  return { siteCount: sites.length, tunnelsActive, incidents, sitesAllUp };
 }
 
-function DashCard({
-  title,
-  subtitle,
-  children,
-  className = "",
+function isClusterReady(state: string): boolean {
+  const s = state.toLowerCase();
+  return s.includes("ready") || s === "active";
+}
+
+function isClusterDisconnected(state: string): boolean {
+  return state.toLowerCase().includes("disconnect");
+}
+
+function MetricCard({
+  label,
+  value,
+  hint,
+  tone = "neutral",
+  loading,
+  onClick,
 }: {
-  title: string;
-  subtitle?: string;
-  children: ReactNode;
-  className?: string;
+  label: string;
+  value: string | number;
+  hint?: string;
+  tone?: "neutral" | "ok" | "warn" | "muted";
+  loading?: boolean;
+  onClick?: () => void;
 }) {
+  const valueCls =
+    tone === "ok"
+      ? "text-emerald-400"
+      : tone === "warn"
+        ? "text-rose-400"
+        : tone === "muted"
+          ? "text-zinc-500"
+          : "text-zinc-50";
+
+  const body = (
+    <>
+      <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">{label}</p>
+      <p className={`mt-2 text-3xl font-semibold tabular-nums leading-none ${valueCls}`}>
+        {loading ? <Loader2 className="h-7 w-7 animate-spin text-zinc-600" aria-hidden /> : value}
+      </p>
+      {hint ? <p className="mt-1.5 text-[11px] text-zinc-600">{hint}</p> : null}
+    </>
+  );
+
+  const className =
+    "rounded-xl border border-white/[0.08] bg-[#111418]/90 p-4 text-left ring-1 ring-white/[0.03] transition " +
+    (onClick ? "hover:border-cf-orange/30 hover:ring-cf-orange/20 cursor-pointer" : "");
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={className}>
+        {body}
+      </button>
+    );
+  }
+  return <div className={className}>{body}</div>;
+}
+
+function SectionLabel({ children }: { children: string }) {
   return (
-    <motion.div
-      layout
-      className={`rounded-xl border border-white/[0.08] bg-[#111418]/90 p-4 ring-1 ring-white/[0.03] ${className}`}
-    >
-      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{title}</p>
-      {subtitle ? <p className="mt-0.5 text-[11px] text-zinc-600">{subtitle}</p> : null}
-      <motion.div layout className="mt-3">
-        {children}
-      </motion.div>
-    </motion.div>
+    <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-600">{children}</p>
   );
 }
 
-function NavButton({
+function QuickLink({
   label,
   route,
+  icon: Icon,
   primary,
   onNavigate,
 }: {
   label: string;
   route: AtlasRouteId;
+  icon: typeof Wifi;
   primary?: boolean;
   onNavigate: (route: AtlasRouteId) => void;
 }) {
@@ -84,200 +129,227 @@ function NavButton({
       onClick={() => onNavigate(route)}
       className={
         primary
-          ? "inline-flex items-center gap-1.5 rounded-lg bg-cf-orange px-3 py-2 text-xs font-semibold text-black"
-          : "inline-flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-200 ring-1 ring-zinc-600 hover:bg-zinc-700"
+          ? "inline-flex items-center gap-2 rounded-lg bg-cf-orange px-3 py-2 text-xs font-semibold text-black"
+          : "inline-flex items-center gap-2 rounded-lg bg-zinc-800/80 px-3 py-2 text-xs font-medium text-zinc-300 ring-1 ring-zinc-700/60 hover:bg-zinc-700/80"
       }
     >
+      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
       {label}
-      <ArrowRight className="h-3.5 w-3.5" />
+      <ArrowRight className="h-3 w-3 opacity-60" aria-hidden />
     </button>
   );
 }
 
 export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, onNavigate }: Props) {
-  const { active, dead, siteCount } = countTunnels(sites);
+  const vpn = useMemo(() => computeVpnStats(sites), [sites]);
+
+  const [rancherLoading, setRancherLoading] = useState(true);
+  const [rancherConfigured, setRancherConfigured] = useState(false);
+  const [equipos, setEquipos] = useState(0);
+  const [equiposReady, setEquiposReady] = useState(0);
+  const [equiposOffline, setEquiposOffline] = useState(0);
+  const [serviciosPods, setServiciosPods] = useState<number | null>(null);
+
+  const [storesLoading, setStoresLoading] = useState(true);
+  const [storesCount, setStoresCount] = useState<number | null>(null);
+  const [storesConfigured, setStoresConfigured] = useState(false);
+
+  const loadRancherMetrics = useCallback(async () => {
+    setRancherLoading(true);
+    try {
+      const data = await api<ClustersResponse>("/api/atlas-rancher/custom-clusters");
+      const list = data.clusters ?? [];
+      const configured = data.configured !== false;
+      setRancherConfigured(configured);
+      if (!configured) {
+        setEquipos(0);
+        setEquiposReady(0);
+        setEquiposOffline(0);
+        setServiciosPods(null);
+        return;
+      }
+      setEquipos(list.length);
+      setEquiposReady(list.filter((c) => isClusterReady(normalizeState(c.state))).length);
+      setEquiposOffline(list.filter((c) => isClusterDisconnected(normalizeState(c.state))).length);
+
+      try {
+        const pc = await api<{ ok: boolean; counts: Record<string, number | null> }>(
+          "/api/atlas-rancher/custom-clusters/pod-counts"
+        );
+        const counts = pc.counts ?? {};
+        let total = 0;
+        let hasAny = false;
+        for (const id of list.map((c) => c.id)) {
+          if (!Object.prototype.hasOwnProperty.call(counts, id)) continue;
+          const n = counts[id];
+          if (n != null) {
+            total += n;
+            hasAny = true;
+          }
+        }
+        setServiciosPods(hasAny ? total : null);
+      } catch {
+        setServiciosPods(null);
+      }
+    } catch {
+      setRancherConfigured(false);
+      setEquipos(0);
+      setEquiposReady(0);
+      setEquiposOffline(0);
+      setServiciosPods(null);
+    } finally {
+      setRancherLoading(false);
+    }
+  }, []);
+
+  const loadStoresMetric = useCallback(async () => {
+    setStoresLoading(true);
+    try {
+      const data = await api<StoresListResponse>("/api/atlas-stores/stores");
+      setStoresConfigured(data.configured !== false);
+      setStoresCount(data.configured === false ? null : (data.count ?? data.stores?.length ?? 0));
+    } catch {
+      setStoresConfigured(false);
+      setStoresCount(null);
+    } finally {
+      setStoresLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadRancherMetrics();
+    void loadStoresMetric();
+  }, [loadRancherMetrics, loadStoresMetric]);
+
+  const cfStatusLabel = syncOk ? "OK" : "Pendiente";
+  const cfHint =
+    lastSyncAt != null
+      ? `Última sync · ${lastSyncAt}`
+      : syncOk && syncMsg
+        ? syncMsg
+        : "Sin sincronizar";
 
   return (
-    <motion.div layout className="mx-auto max-w-6xl space-y-6">
-      <div className="rounded-2xl border border-cf-line/70 bg-cf-panel/40 p-5 ring-1 ring-white/[0.03]">
-        <h2 className="text-base font-semibold text-zinc-100">Bienvenido a Atlas</h2>
-        <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-          Consola unificada de <span className="text-zinc-200">Verkku</span> para operar tiendas PosLite en el edge:
-          acceso remoto con <span className="text-zinc-200">Atlas VPN</span> y despliegue GitOps con{" "}
-          <span className="text-zinc-200">Atlas Rancher</span> (equipos Kubernetes, configuración en Git y estado de
-          servicios).
-        </p>
-      </div>
-
-      <motion.div layout className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <DashCard title="Sitios VPN" subtitle="tunnels.json">
-          <p className="text-3xl font-semibold tabular-nums text-zinc-50">{siteCount}</p>
-          <p className="mt-1 text-xs text-zinc-500">Sincronizados desde Cloudflare Access</p>
-        </DashCard>
-        <DashCard title="Túneles activos" subtitle="SSH + BD">
-          <p className="text-3xl font-semibold tabular-nums text-emerald-400">{active}</p>
-          <p className="mt-1 text-xs text-zinc-500">Procesos cloudflared en ejecución</p>
-        </DashCard>
-        <DashCard title="Incidencias VPN" subtitle="estado dead">
-          <p className={`text-3xl font-semibold tabular-nums ${dead > 0 ? "text-rose-400" : "text-zinc-500"}`}>
-            {dead}
-          </p>
-          <p className="mt-1 text-xs text-zinc-500">Revisar en Conexiones</p>
-        </DashCard>
-      </motion.div>
-
-      <motion.div layout className="grid gap-4 lg:grid-cols-2">
-        <DashCard title="Atlas VPN" subtitle="Acceso remoto a sitios">
-          <ul className="space-y-2 text-sm text-zinc-300">
-            <li className="flex items-center gap-2">
-              <Wifi className="h-4 w-4 shrink-0 text-cf-orange" aria-hidden />
-              Túneles SSH y base de datos por sitio
-            </li>
-            <li className="flex items-center gap-2">
-              <Store className="h-4 w-4 shrink-0 text-cf-orange" aria-hidden />
-              Portales Poslite cuando el túnel está activo
-            </li>
-          </ul>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <NavButton label="Conexiones" route="conn" primary onNavigate={onNavigate} />
-            <NavButton label="Poslite" route="poslite" onNavigate={onNavigate} />
-            {canAdmin ? <NavButton label="Cloudflare" route="cf" onNavigate={onNavigate} /> : null}
-          </div>
-        </DashCard>
-
-        <DashCard title="Atlas Rancher" subtitle="GitOps PosLite en Kubernetes">
-          <ul className="space-y-2 text-sm text-zinc-300">
-            <li className="flex items-start gap-2">
-              <Server className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" aria-hidden />
-              <span>
-                <strong className="font-medium text-zinc-200">Equipos</strong> — clusters Rancher con etiquetas{" "}
-                <code className="text-[11px] text-zinc-400">store</code>,{" "}
-                <code className="text-[11px] text-zinc-400">distro</code>,{" "}
-                <code className="text-[11px] text-zinc-400">application</code>
-              </span>
-            </li>
-            <li className="flex items-start gap-2">
-              <Store className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" aria-hidden />
-              <span>
-                <strong className="font-medium text-zinc-200">Tiendas</strong> — edición del repo{" "}
-                <code className="text-[11px] text-zinc-400">atlas-stores</code>, plantillas Horustech/PAM/DB,
-                resumen antes de publicar y commit con tu usuario
-              </span>
-            </li>
-            <li className="flex items-start gap-2">
-              <Box className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" aria-hidden />
-              <span>
-                <strong className="font-medium text-zinc-200">Contenedores</strong> — servicios, estado y réplicas;
-                <strong className="font-medium text-zinc-200"> actualizar imagen</strong> cuando haya una versión nueva
-              </span>
-            </li>
-          </ul>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <NavButton label="Tiendas" route="rancher-stores" primary onNavigate={onNavigate} />
-            <NavButton label="Equipos" route="rancher-clusters" onNavigate={onNavigate} />
-            <NavButton label="Contenedores" route="rancher-pods" onNavigate={onNavigate} />
-          </div>
-        </DashCard>
-      </motion.div>
-
-      <DashCard title="Flujo: nueva tienda PosLite" subtitle="Atlas Rancher + repositorio Git">
-        <ol className="space-y-3 text-sm text-zinc-300">
-          <li className="flex gap-3">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-xs font-semibold text-zinc-200">
-              1
-            </span>
-            <span>
-              Registra el <strong className="text-zinc-200">equipo</strong> en Rancher (menú Equipos) con etiqueta{" "}
-              <code className="text-[11px]">store</code> y distribución <code className="text-[11px]">horustech</code> o{" "}
-              <code className="text-[11px]">pam</code>.
-            </span>
-          </li>
-          <li className="flex gap-3">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-xs font-semibold text-zinc-200">
-              2
-            </span>
-            <span>
-              En <strong className="text-zinc-200">Tiendas</strong>, configura la URL Git de{" "}
-              <code className="text-[11px]">atlas-stores</code> (admin) y usa <strong className="text-zinc-200">Nueva tienda</strong>
-              : elige plantilla, revisa el resumen y confirma la publicación al remoto.
-            </span>
-          </li>
-          <li className="flex gap-3">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-xs font-semibold text-zinc-200">
-              3
-            </span>
-            <span>
-              Completa IPs on-prem, URL iERP y servicios en la ficha; cada guardado genera commit{" "}
-              <code className="text-[11px]">Atlas: … [usuario]</code> y push a la rama configurada.
-            </span>
-          </li>
-          <li className="flex gap-3">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-xs font-semibold text-zinc-200">
-              4
-            </span>
-            <span>
-              <strong className="text-zinc-200">Rancher Fleet</strong> reconcilia los{" "}
-              <code className="text-[11px]">fleet.yaml</code> en el cluster. Supervisa el despliegue en{" "}
-              <strong className="text-zinc-200">Contenedores</strong>.
-            </span>
-          </li>
-        </ol>
-        <div className="mt-4 flex flex-wrap items-center gap-3 text-[11px] text-zinc-500">
-          <span className="inline-flex items-center gap-1">
-            <Tags className="h-3.5 w-3.5" aria-hidden />
-            Labels cluster
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <GitBranch className="h-3.5 w-3.5" aria-hidden />
-            templates/poslite/
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Shield className="h-3.5 w-3.5" aria-hidden />
-            namespace poslite
-          </span>
+    <motion.div layout className="mx-auto max-w-6xl space-y-8">
+      <section className="space-y-3">
+        <SectionLabel>Atlas VPN</SectionLabel>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricCard
+            label="Sitios"
+            value={vpn.siteCount}
+            hint="Cloudflare Access"
+            onClick={() => onNavigate("conn")}
+          />
+          <MetricCard
+            label="Túneles activos"
+            value={vpn.tunnelsActive}
+            hint="SSH + BD"
+            tone={vpn.tunnelsActive > 0 ? "ok" : "muted"}
+            onClick={() => onNavigate("conn")}
+          />
+          <MetricCard
+            label="Sitios al 100%"
+            value={vpn.sitesAllUp}
+            hint="SSH y BD activos"
+            tone={vpn.sitesAllUp > 0 ? "ok" : "muted"}
+            onClick={() => onNavigate("conn")}
+          />
+          <MetricCard
+            label="Incidencias"
+            value={vpn.incidents}
+            hint="Estado dead"
+            tone={vpn.incidents > 0 ? "warn" : "muted"}
+            onClick={() => onNavigate("conn")}
+          />
         </div>
-        <button
-          type="button"
-          onClick={() => onNavigate("rancher-stores")}
-          className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-cf-orange hover:underline"
-        >
-          Ir a Gestión de Tiendas
-          <ArrowRight className="h-3.5 w-3.5" />
-        </button>
-      </DashCard>
+        <div className="flex flex-wrap gap-2">
+          <QuickLink label="Conexiones" route="conn" icon={Wifi} primary onNavigate={onNavigate} />
+          <QuickLink label="Poslite" route="poslite" icon={Store} onNavigate={onNavigate} />
+          {canAdmin ? <QuickLink label="Cloudflare" route="cf" icon={Cloud} onNavigate={onNavigate} /> : null}
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <SectionLabel>Atlas Rancher</SectionLabel>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <MetricCard
+            label="Equipos"
+            value={rancherConfigured ? equipos : "—"}
+            hint={rancherConfigured ? "Clusters registrados" : "Rancher sin configurar"}
+            loading={rancherLoading}
+            onClick={() => onNavigate("rancher-clusters")}
+          />
+          <MetricCard
+            label="Ready"
+            value={rancherConfigured ? equiposReady : "—"}
+            hint="Estado operativo"
+            tone={equiposReady > 0 ? "ok" : "muted"}
+            loading={rancherLoading}
+            onClick={() => onNavigate("rancher-clusters")}
+          />
+          <MetricCard
+            label="Desconectados"
+            value={rancherConfigured ? equiposOffline : "—"}
+            hint="Revisar enlace"
+            tone={equiposOffline > 0 ? "warn" : "muted"}
+            loading={rancherLoading}
+            onClick={() => onNavigate("rancher-clusters")}
+          />
+          <MetricCard
+            label="Servicios"
+            value={
+              !rancherConfigured
+                ? "—"
+                : serviciosPods == null
+                  ? "…"
+                  : serviciosPods
+            }
+            hint="Pods en namespace Poslite"
+            loading={rancherLoading && serviciosPods == null}
+            onClick={() => onNavigate("rancher-pods")}
+          />
+          <MetricCard
+            label="Tiendas Git"
+            value={storesConfigured ? (storesCount ?? 0) : "—"}
+            hint={storesConfigured ? "Repo atlas-stores" : "Git sin configurar"}
+            loading={storesLoading}
+            onClick={() => onNavigate("rancher-stores")}
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <QuickLink label="Tiendas" route="rancher-stores" icon={Store} primary onNavigate={onNavigate} />
+          <QuickLink label="Equipos" route="rancher-clusters" icon={Server} onNavigate={onNavigate} />
+          <QuickLink label="Contenedores" route="rancher-pods" icon={Box} onNavigate={onNavigate} />
+        </div>
+      </section>
 
       {canAdmin ? (
-        <DashCard title="Cloudflare" subtitle="Sincronización de sitios VPN">
-          <div className="flex items-start gap-3">
-            <Cloud className="mt-0.5 h-5 w-5 shrink-0 text-sky-400" aria-hidden />
-            <div className="min-w-0">
-              <p className="text-sm text-zinc-200">
-                {syncOk && syncMsg
-                  ? `${syncMsg} · sincronización automática cada 15 s`
-                  : "Configura credenciales en Ajustes; los túneles se sincronizan solos."}
-              </p>
-              {lastSyncAt ? <p className="mt-1 text-[11px] text-zinc-500">Última sync: {lastSyncAt}</p> : null}
-              <button
-                type="button"
-                onClick={() => onNavigate("cf")}
-                className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-cf-orange hover:underline"
-              >
-                Ir a Cloudflare
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
+        <section className="space-y-3">
+          <SectionLabel>Cloudflare</SectionLabel>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <MetricCard
+              label="Sync"
+              value={cfStatusLabel}
+              hint={cfHint}
+              tone={syncOk ? "ok" : "warn"}
+              onClick={() => onNavigate("cf")}
+            />
+            <MetricCard
+              label="Sitios en catálogo"
+              value={vpn.siteCount}
+              hint="tunnels.json"
+              onClick={() => onNavigate("cf")}
+            />
+            <MetricCard
+              label="Intervalo"
+              value="15 s"
+              hint="Actualización automática"
+              tone="muted"
+              onClick={() => onNavigate("cf")}
+            />
           </div>
-        </DashCard>
-      ) : (
-        <DashCard title="Tu rol" subtitle="operador / visor">
-          <p className="text-sm leading-relaxed text-zinc-400">
-            Puedes usar <strong className="font-medium text-zinc-200">Atlas VPN → Conexiones</strong> para túneles y{" "}
-            <strong className="font-medium text-zinc-200">Atlas Rancher</strong> para consultar equipos, editar tiendas
-            (si tienes permiso de operador) y ver servicios en ejecución. La conexión Git del repositorio la configura un
-            administrador.
-          </p>
-        </DashCard>
-      )}
+        </section>
+      ) : null}
     </motion.div>
   );
 }
