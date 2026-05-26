@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 from sqlalchemy import delete, func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import joinedload
 
 from atlas_core.db.models import Role, User, UserRole
@@ -22,29 +23,47 @@ from atlas_core.permissions import (
 )
 
 SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]{2,31}$")
+_log = logging.getLogger(__name__)
+
+
+def _legacy_user_auth(row: User) -> dict[str, Any]:
+    """Fallback si la migración RBAC aún no está aplicada."""
+    slug = str(row.role or "viewer")
+    meta = SYSTEM_ROLE_DEFINITIONS.get(slug, SYSTEM_ROLE_DEFINITIONS["viewer"])
+    perms = normalize_permissions(list(meta["permissions"]))
+    return {
+        "id": int(row.id),
+        "username": row.username,
+        "role": slug,
+        "roles": [{"id": 0, "slug": slug, "name": str(meta["name"])}],
+        "permissions": perms,
+    }
 
 
 def ensure_system_roles() -> None:
     init_db_engine()
-    with session_scope() as session:
-        for slug, meta in SYSTEM_ROLE_DEFINITIONS.items():
-            row = session.scalar(select(Role).where(Role.slug == slug))
-            perms = normalize_permissions(list(meta["permissions"]))
-            if row is None:
-                session.add(
-                    Role(
-                        slug=slug,
-                        name=str(meta["name"]),
-                        description=str(meta.get("description") or ""),
-                        is_system=True,
-                        permissions=perms,
+    try:
+        with session_scope() as session:
+            for slug, meta in SYSTEM_ROLE_DEFINITIONS.items():
+                row = session.scalar(select(Role).where(Role.slug == slug))
+                perms = normalize_permissions(list(meta["permissions"]))
+                if row is None:
+                    session.add(
+                        Role(
+                            slug=slug,
+                            name=str(meta["name"]),
+                            description=str(meta.get("description") or ""),
+                            is_system=True,
+                            permissions=perms,
+                        )
                     )
-                )
-            else:
-                row.name = str(meta["name"])
-                row.description = str(meta.get("description") or "")
-                row.is_system = True
-                row.permissions = perms
+                else:
+                    row.name = str(meta["name"])
+                    row.description = str(meta.get("description") or "")
+                    row.is_system = True
+                    row.permissions = perms
+    except SQLAlchemyError as e:
+        _log.warning("ensure_system_roles omitido (¿migración 20260526_0004 pendiente?): %s", e)
 
 
 def permission_catalog() -> dict[str, Any]:
@@ -186,8 +205,7 @@ def set_user_roles(session, user: User, role_ids: list[int]) -> None:
     user.role = primary_role_slug(slugs)
 
 
-def load_user_auth(user_id: int) -> dict[str, Any] | None:
-    """Permisos efectivos y metadatos para JWT/sesión."""
+def _load_user_auth_rbac(user_id: int) -> dict[str, Any] | None:
     ensure_system_roles()
     with session_scope() as session:
         row = session.scalar(
@@ -208,14 +226,15 @@ def load_user_auth(user_id: int) -> dict[str, Any] | None:
             roles_out.append({"id": int(role.id), "slug": role.slug, "name": role.name})
             perm_lists.append(normalize_permissions(list(role.permissions or [])))
         if not slugs:
-            # Fallback legacy users.role sin user_roles
             legacy = session.scalar(select(Role).where(Role.slug == row.role))
             if legacy:
                 slugs = [legacy.slug]
                 roles_out = [{"id": int(legacy.id), "slug": legacy.slug, "name": legacy.name}]
                 perm_lists = [normalize_permissions(list(legacy.permissions or []))]
+        if not slugs:
+            return _legacy_user_auth(row)
         permissions = merge_permissions(perm_lists)
-        primary = primary_role_slug(slugs) if slugs else str(row.role or "viewer")
+        primary = primary_role_slug(slugs)
         return {
             "id": int(row.id),
             "username": row.username,
@@ -223,6 +242,19 @@ def load_user_auth(user_id: int) -> dict[str, Any] | None:
             "roles": roles_out,
             "permissions": permissions,
         }
+
+
+def load_user_auth(user_id: int) -> dict[str, Any] | None:
+    """Permisos efectivos y metadatos para JWT/sesión."""
+    try:
+        return _load_user_auth_rbac(user_id)
+    except SQLAlchemyError as e:
+        _log.warning("load_user_auth RBAC falló, usando legacy (user_id=%s): %s", user_id, e)
+        with session_scope() as session:
+            row = session.scalar(select(User).where(User.id == user_id))
+            if not row:
+                return None
+            return _legacy_user_auth(row)
 
 
 def count_users_with_role_slug(slug: str, *, exclude_user_id: int | None = None) -> int:

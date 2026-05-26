@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import shutil
 import socket
@@ -87,6 +88,9 @@ def _api_only() -> bool:
     return atlas_env_flag("API_ONLY")
 
 
+_log = logging.getLogger("atlas_api")
+
+
 def _cors_origins() -> list[str]:
     raw = atlas_env(
         "CORS_ORIGINS",
@@ -94,6 +98,12 @@ def _cors_origins() -> list[str]:
     )
     out = [x.strip() for x in raw.split(",") if x.strip()]
     return out if out else ["https://atlas-ui.verkku.com"]
+
+
+def _cors_origin_regex() -> str | None:
+    """Subdominios Verkku en producción (p. ej. atlas-ui, api-atlas-vpn)."""
+    raw = atlas_env("CORS_ORIGIN_REGEX", r"https://([a-z0-9-]+\.)*verkku\.com")
+    return raw.strip() or None
 
 
 def _wait_tcp(host: str, port: int, timeout: float = 20.0) -> None:
@@ -318,14 +328,27 @@ def create_app() -> FastAPI:
     _configure_openapi(app)
     app.include_router(atlas_rancher_router)
     app.include_router(atlas_stores_router)
-    app.add_middleware(SessionMiddleware, **session_middleware_config())
+    # CORS primero en el stack (último add_middleware) para que también cubra errores 4xx/5xx.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
+        allow_origin_regex=_cors_origin_regex(),
         allow_credentials=False,
         allow_methods=["*"],
-        allow_headers=["Authorization", "Content-Type", "Accept"],
+        allow_headers=["*"],
+        expose_headers=["*"],
     )
+    app.add_middleware(SessionMiddleware, **session_middleware_config())
+
+    @app.exception_handler(Exception)
+    async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        if isinstance(exc, HTTPException):
+            detail = exc.detail
+            if not isinstance(detail, (str, dict, list)):
+                detail = str(detail)
+            return JSONResponse(status_code=exc.status_code, content={"detail": detail})
+        _log.exception("Unhandled %s %s", request.method, request.url.path, exc_info=exc)
+        return JSONResponse(status_code=500, content={"detail": "Error interno del servidor."})
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
