@@ -510,7 +510,11 @@ def create_app() -> FastAPI:
     def auth_list_users(
         _user: dict[str, Any] = Depends(require_permission(PERM_USERS_LIST)),
     ) -> dict[str, Any]:
-        return {"users": list_users()}
+        try:
+            return {"users": list_users()}
+        except Exception as e:
+            _log.exception("auth_list_users failed", exc_info=e)
+            raise HTTPException(status_code=500, detail="No se pudo listar usuarios.") from e
 
     @app.post("/api/auth/users")
     def auth_create_user(

@@ -11,13 +11,13 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from atlas_core.db.models import AuditWeb, Role, User, UserRole
 from atlas_core.db.session import init_db as init_db_engine, session_scope
 from atlas_core.env import atlas_env
 from atlas_core.paths import ATLAS_DATA_DIR, ensure_atlas_data_dir
-from atlas_core.permissions import SYSTEM_ROLE_OPERATOR
+from atlas_core.permissions import SYSTEM_ROLE_DEFINITIONS, SYSTEM_ROLE_OPERATOR
 from atlas_core.web_roles import (
     count_users_with_role_slug,
     ensure_system_roles,
@@ -179,14 +179,23 @@ def verify_login(username: str, password: str) -> dict[str, Any] | None:
         return None
 
 
-def _user_row_dict(r: User) -> dict[str, Any]:
-    ts = r.created_at
-    created = int(ts.timestamp()) if isinstance(ts, datetime) else int(time.time())
+def _roles_for_listed_user(r: User) -> list[dict[str, Any]]:
     roles = [
         {"id": int(ur.role.id), "slug": ur.role.slug, "name": ur.role.name}
         for ur in (r.role_assignments or [])
         if ur.role
     ]
+    if roles:
+        return roles
+    slug = str(r.role or "viewer")
+    meta = SYSTEM_ROLE_DEFINITIONS.get(slug, SYSTEM_ROLE_DEFINITIONS.get("viewer", {}))
+    return [{"id": 0, "slug": slug, "name": str(meta.get("name") or slug)}]
+
+
+def _user_row_dict(r: User) -> dict[str, Any]:
+    ts = r.created_at
+    created = int(ts.timestamp()) if isinstance(ts, datetime) else int(time.time())
+    roles = _roles_for_listed_user(r)
     return {
         "id": int(r.id),
         "username": r.username,
@@ -204,15 +213,24 @@ def list_users() -> list[dict[str, Any]]:
 
     get_engine()
     out: list[dict[str, Any]] = []
-    with session_scope() as session:
-        rows = session.scalars(
-            select(User)
-            .options(joinedload(User.role_assignments).joinedload(UserRole.role))
-            .order_by(User.username)
-        ).all()
-        for r in rows:
-            out.append(_user_row_dict(r))
-    return out
+    try:
+        with session_scope() as session:
+            rows = session.scalars(
+                select(User)
+                .options(
+                    selectinload(User.role_assignments).selectinload(UserRole.role)
+                )
+                .order_by(User.username)
+            ).all()
+            for r in rows:
+                out.append(_user_row_dict(r))
+        return out
+    except Exception:
+        with session_scope() as session:
+            rows = session.scalars(select(User).order_by(User.username)).all()
+            for r in rows:
+                out.append(_user_row_dict(r))
+        return out
 
 
 def _assert_last_admin(
@@ -247,13 +265,15 @@ def update_user(
             row = session.scalar(
                 select(User)
                 .where(User.username == target_key)
-                .options(joinedload(User.role_assignments).joinedload(UserRole.role))
+                .options(
+                    selectinload(User.role_assignments).selectinload(UserRole.role)
+                )
             )
             if not row:
                 raise ValueError("Usuario no encontrado.")
             had_admin = any(
                 ur.role and ur.role.slug == "admin" for ur in (row.role_assignments or [])
-            )
+            ) or str(row.role) == "admin"
             if role_ids is not None:
                 new_roles = resolve_role_ids(session, role_ids)
                 will_have_admin = any(r.slug == "admin" for r in new_roles)
@@ -292,13 +312,15 @@ def delete_user(target_username: str, *, actor_username: str) -> None:
         row = session.scalar(
             select(User)
             .where(User.username == target_key)
-            .options(joinedload(User.role_assignments).joinedload(UserRole.role))
+            .options(
+                selectinload(User.role_assignments).selectinload(UserRole.role)
+            )
         )
         if not row:
             raise ValueError("Usuario no encontrado.")
         had_admin = any(
             ur.role and ur.role.slug == "admin" for ur in (row.role_assignments or [])
-        )
+        ) or str(row.role) == "admin"
         if had_admin:
             _assert_last_admin(int(row.id), removing_admin=True)
         session.delete(row)

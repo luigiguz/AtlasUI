@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from atlas_core.db.models import Role, User, UserRole
 from atlas_core.db.session import get_engine, session_scope
@@ -223,7 +223,9 @@ def _load_user_auth_rbac(user_id: int) -> dict[str, Any] | None:
         row = session.scalar(
             select(User)
             .where(User.id == user_id)
-            .options(joinedload(User.role_assignments).joinedload(UserRole.role))
+            .options(
+                selectinload(User.role_assignments).selectinload(UserRole.role)
+            )
         )
         if not row:
             return None
