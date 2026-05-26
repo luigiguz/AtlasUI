@@ -1058,7 +1058,12 @@ export default function App() {
           />
         )}
 
-        {tab === "rancher-pods" && <AtlasRancherPodsView canAdmin={canAdmin} />}
+        {tab === "rancher-pods" && (
+          <AtlasRancherPodsView
+            canAdmin={canAdmin}
+            canEdit={me.role === "admin" || me.role === "operator"}
+          />
+        )}
 
         {tab === "conn" && (
           <motion.div

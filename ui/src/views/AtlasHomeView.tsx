@@ -167,8 +167,8 @@ export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, on
             <li className="flex items-start gap-2">
               <Box className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" aria-hidden />
               <span>
-                <strong className="font-medium text-zinc-200">Servicios en ejecución</strong> — pods por namespace y
-                aplicación en los equipos
+                <strong className="font-medium text-zinc-200">Servicios en ejecución</strong> — contenedores y pods;
+                <strong className="font-medium text-zinc-200"> actualizar imagen</strong> (escala 0 → N para forzar pull)
               </span>
             </li>
           </ul>

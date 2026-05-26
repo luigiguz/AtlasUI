@@ -1,16 +1,27 @@
 import { motion } from "framer-motion";
-import { Box, Loader2, RefreshCw, Search, Server, X } from "lucide-react";
+import { Box, Loader2, RefreshCw, RotateCw, Search, Server, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "../apiClient";
 import { normalizeApplication, normalizeDistro, normalizeState } from "../rancherLabels";
-import type { ClustersResponse, PodsResponse, RancherCustomCluster, RancherPod } from "../rancherTypes";
+import type {
+  ClustersResponse,
+  DeploymentRolloutResponse,
+  DeploymentsResponse,
+  PodsResponse,
+  RancherCustomCluster,
+  RancherDeployment,
+  RancherPod,
+} from "../rancherTypes";
 
 const AUTO_REFRESH_MS = 15_000;
 
 type Props = {
   canAdmin: boolean;
+  canEdit: boolean;
 };
+
+type ClusterPanelTab = "workloads" | "pods";
 
 function clusterDisplayName(c: RancherCustomCluster): string {
   return (c.displayName || c.name).trim();
@@ -34,10 +45,191 @@ function stateTone(state: string): string {
   return "text-zinc-400";
 }
 
-function ClusterPodsTable({
+function clusterRancherPaths(cluster: RancherCustomCluster) {
+  const ns = encodeURIComponent(cluster.namespace);
+  const nm = encodeURIComponent(cluster.name);
+  const steve = encodeURIComponent(cluster.steveCollection || "provisioning.cattle.io.customclusters");
+  const base = `/api/atlas-rancher/custom-clusters/${ns}/${nm}`;
+  return {
+    deployments: `${base}/deployments?steve_collection=${steve}`,
+    pods: `${base}/pods?steve_collection=${steve}`,
+  };
+}
+
+function ClusterWorkloadsTable({
   cluster,
+  canEdit,
+  onRolloutDone,
 }: {
   cluster: RancherCustomCluster;
+  canEdit: boolean;
+  onRolloutDone: () => void;
+}) {
+  const [deployments, setDeployments] = useState<RancherDeployment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [rolling, setRolling] = useState<string | null>(null);
+  const [rolloutMsg, setRolloutMsg] = useState("");
+
+  const loadDeployments = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent ?? false;
+      if (silent) setRefreshing(true);
+      else setLoading(true);
+      setError("");
+      try {
+        const r = await api<DeploymentsResponse>(clusterRancherPaths(cluster).deployments);
+        setDeployments(r.deployments ?? []);
+      } catch (e) {
+        setDeployments([]);
+        setError(e instanceof Error ? e.message : "No se pudieron cargar los deployments.");
+      } finally {
+        if (silent) setRefreshing(false);
+        else setLoading(false);
+      }
+    },
+    [cluster]
+  );
+
+  useEffect(() => {
+    void loadDeployments();
+  }, [loadDeployments]);
+
+  async function onRollout(dep: RancherDeployment) {
+    if (!canEdit || rolling) return;
+    const label = dep.name;
+    if (
+      !window.confirm(
+        `¿Actualizar imagen de «${label}»?\n\nSe escalará a 0 réplicas y luego a ${dep.replicas > 0 ? dep.replicas : 1} para forzar la descarga de la imagen en el nodo.`
+      )
+    ) {
+      return;
+    }
+    setRolling(dep.name);
+    setRolloutMsg("");
+    setError("");
+    try {
+      const ns = encodeURIComponent(cluster.namespace);
+      const nm = encodeURIComponent(cluster.name);
+      const steve = encodeURIComponent(cluster.steveCollection || "provisioning.cattle.io.customclusters");
+      const depName = encodeURIComponent(dep.name);
+      const r = await api<DeploymentRolloutResponse>(
+        `/api/atlas-rancher/custom-clusters/${ns}/${nm}/deployments/${depName}/rollout`,
+        {
+          method: "POST",
+          body: JSON.stringify({ steve_collection: cluster.steveCollection || "provisioning.cattle.io.customclusters" }),
+        }
+      );
+      setRolloutMsg(
+        `«${label}»: réplicas 0 → ${r.targetReplicas}. La imagen se volverá a descargar según imagePullPolicy.`
+      );
+      await loadDeployments({ silent: true });
+      onRolloutDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo actualizar el deployment.");
+    } finally {
+      setRolling(null);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-1 items-center justify-center gap-2 p-12 text-sm text-zinc-500">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Cargando contenedores…
+      </div>
+    );
+  }
+
+  if (error && deployments.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8">
+        <p className="text-sm text-red-300">{error}</p>
+        <button type="button" onClick={() => void loadDeployments()} className="text-xs text-cf-orange hover:underline">
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {rolloutMsg ? <p className="shrink-0 border-b border-emerald-500/20 bg-emerald-500/5 px-4 py-2 text-xs text-emerald-300">{rolloutMsg}</p> : null}
+      {error ? <p className="shrink-0 border-b border-red-500/20 bg-red-500/5 px-4 py-2 text-xs text-red-300">{error}</p> : null}
+      <p className="shrink-0 border-b border-cf-line/40 px-4 py-2 text-[11px] text-zinc-500">
+        Deployments en el namespace del cluster. Usa <span className="text-zinc-400">Actualizar imagen</span> para escalar
+        0 → N y forzar pull (mismo procedimiento que en Rancher UI).
+      </p>
+      {deployments.length === 0 ? (
+        <p className="px-4 py-8 text-sm text-zinc-500">No hay deployments en este namespace.</p>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto">
+          <table className="w-full min-w-[640px] text-left text-xs">
+            <thead className="sticky top-0 bg-[#111418]">
+              <tr className="border-b border-cf-line/50 text-[10px] uppercase tracking-wide text-zinc-600">
+                <th className="px-4 py-2">Servicio</th>
+                <th className="px-4 py-2">Imagen</th>
+                <th className="px-4 py-2">Réplicas</th>
+                <th className="px-4 py-2">Listas</th>
+                {canEdit ? <th className="px-4 py-2">Acción</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {deployments.map((d) => (
+                <tr key={d.name} className="border-b border-cf-line/30 last:border-0">
+                  <td className="px-4 py-2.5 font-medium text-zinc-200">{d.name}</td>
+                  <td className="max-w-[220px] truncate px-4 py-2.5 font-mono text-[11px] text-zinc-500" title={d.image}>
+                    {d.imageTag || d.image || "—"}
+                  </td>
+                  <td className="px-4 py-2.5 tabular-nums text-zinc-400">{d.replicas}</td>
+                  <td className="px-4 py-2.5 tabular-nums text-zinc-400">
+                    {d.readyReplicas}/{d.replicas}
+                  </td>
+                  {canEdit ? (
+                    <td className="px-4 py-2.5">
+                      <button
+                        type="button"
+                        disabled={rolling !== null}
+                        onClick={() => void onRollout(d)}
+                        className="inline-flex items-center gap-1 rounded border border-cf-orange/40 bg-cf-orange/10 px-2 py-1 text-[11px] font-medium text-cf-orange hover:bg-cf-orange/20 disabled:opacity-50"
+                      >
+                        {rolling === d.name ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <RotateCw className="h-3 w-3" />
+                        )}
+                        Actualizar imagen
+                      </button>
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="flex shrink-0 items-center justify-end border-t border-cf-line/40 px-4 py-2">
+        <button
+          type="button"
+          onClick={() => void loadDeployments({ silent: true })}
+          disabled={refreshing}
+          className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-cf-orange disabled:opacity-50"
+        >
+          {refreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          Actualizar lista
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ClusterPodsTable({
+  cluster,
+  refreshKey,
+}: {
+  cluster: RancherCustomCluster;
+  refreshKey: number;
 }) {
   const [pods, setPods] = useState<RancherPod[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,14 +244,7 @@ function ClusterPodsTable({
       else setLoading(true);
       setError("");
       try {
-        const ns = encodeURIComponent(cluster.namespace);
-        const nm = encodeURIComponent(cluster.name);
-        const steve = encodeURIComponent(
-          cluster.steveCollection || "provisioning.cattle.io.customclusters"
-        );
-        const r = await api<PodsResponse>(
-          `/api/atlas-rancher/custom-clusters/${ns}/${nm}/pods?steve_collection=${steve}`
-        );
+        const r = await api<PodsResponse>(clusterRancherPaths(cluster).pods);
         setPods(r.pods ?? []);
         setPodNamespace(r.podNamespace || r.application || cluster.application || "");
       } catch (e) {
@@ -75,7 +260,7 @@ function ClusterPodsTable({
 
   useEffect(() => {
     void loadPods();
-  }, [loadPods]);
+  }, [loadPods, refreshKey]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -113,32 +298,6 @@ function ClusterPodsTable({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-cf-line/50 px-4 py-3">
-        <div>
-          <p className="text-sm font-medium text-zinc-200">{clusterDisplayName(cluster)}</p>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            Namespace <span className="font-medium text-zinc-300">{podNs}</span>
-            {cluster.store ? <span className="text-zinc-600"> · {cluster.store}</span> : null}
-            {cluster.managementClusterId ? (
-              <span className="text-zinc-600"> · {cluster.managementClusterId}</span>
-            ) : null}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void loadPods({ silent: true })}
-          disabled={refreshing}
-          className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-2.5 py-1.5 text-xs text-zinc-400 hover:border-cf-orange/40 hover:text-cf-orange disabled:opacity-50"
-        >
-          {refreshing ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <RefreshCw className="h-3.5 w-3.5" />
-          )}
-          Actualizar
-        </button>
-      </div>
-
       {pods.length === 0 ? (
         <p className="px-4 py-8 text-sm text-zinc-500">
           No hay pods en el namespace <span className="text-zinc-300">{podNs}</span> (application).
@@ -177,14 +336,81 @@ function ClusterPodsTable({
           </div>
         </>
       )}
-      <p className="shrink-0 border-t border-cf-line/40 px-4 py-2 text-[11px] text-zinc-600">
-        Actualización automática cada {AUTO_REFRESH_MS / 1000}s.
-      </p>
+      <div className="flex shrink-0 items-center justify-between border-t border-cf-line/40 px-4 py-2 text-[11px] text-zinc-600">
+        <span>Actualización automática cada {AUTO_REFRESH_MS / 1000}s</span>
+        <button
+          type="button"
+          onClick={() => void loadPods({ silent: true })}
+          disabled={refreshing}
+          className="inline-flex items-center gap-1 text-zinc-500 hover:text-cf-orange disabled:opacity-50"
+        >
+          {refreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          Actualizar
+        </button>
+      </div>
     </div>
   );
 }
 
-export function AtlasRancherPodsView({ canAdmin: _canAdmin }: Props) {
+function ClusterServicesPanel({
+  cluster,
+  canEdit,
+}: {
+  cluster: RancherCustomCluster;
+  canEdit: boolean;
+}) {
+  const [tab, setTab] = useState<ClusterPanelTab>("workloads");
+  const [podsRefreshKey, setPodsRefreshKey] = useState(0);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-cf-line/50 px-4 py-3">
+        <div>
+          <p className="text-sm font-medium text-zinc-200">{clusterDisplayName(cluster)}</p>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            Namespace <span className="font-medium text-zinc-300">{cluster.application || "—"}</span>
+            {cluster.store ? <span className="text-zinc-600"> · {cluster.store}</span> : null}
+          </p>
+        </div>
+        <div className="flex rounded-lg border border-cf-line bg-black/30 p-0.5 text-[11px]">
+          <button
+            type="button"
+            onClick={() => setTab("workloads")}
+            className={
+              tab === "workloads"
+                ? "rounded-md bg-cf-orange/20 px-2.5 py-1 font-medium text-cf-orange"
+                : "px-2.5 py-1 text-zinc-500 hover:text-zinc-300"
+            }
+          >
+            Contenedores
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("pods")}
+            className={
+              tab === "pods"
+                ? "rounded-md bg-cf-orange/20 px-2.5 py-1 font-medium text-cf-orange"
+                : "px-2.5 py-1 text-zinc-500 hover:text-zinc-300"
+            }
+          >
+            Pods
+          </button>
+        </div>
+      </div>
+      {tab === "workloads" ? (
+        <ClusterWorkloadsTable
+          cluster={cluster}
+          canEdit={canEdit}
+          onRolloutDone={() => setPodsRefreshKey((k) => k + 1)}
+        />
+      ) : (
+        <ClusterPodsTable cluster={cluster} refreshKey={podsRefreshKey} />
+      )}
+    </div>
+  );
+}
+
+export function AtlasRancherPodsView({ canAdmin: _canAdmin, canEdit }: Props) {
   const [clusters, setClusters] = useState<RancherCustomCluster[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -258,7 +484,7 @@ export function AtlasRancherPodsView({ canAdmin: _canAdmin }: Props) {
         <div>
           <h1 className="text-lg font-semibold text-zinc-100">Servicios en ejecución</h1>
           <p className="text-xs text-zinc-500">
-            Selecciona un cluster y gestiona los pods de su namespace (label application).
+            Contenedores (deployments) y pods por equipo. Actualiza imágenes con escala 0 → N.
           </p>
         </div>
         <button
@@ -357,7 +583,7 @@ export function AtlasRancherPodsView({ canAdmin: _canAdmin }: Props) {
                   pueden listar pods.
                 </p>
               ) : (
-                <ClusterPodsTable key={selectedCluster.id} cluster={selectedCluster} />
+                <ClusterServicesPanel key={selectedCluster.id} cluster={selectedCluster} canEdit={canEdit} />
               )
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-zinc-500">

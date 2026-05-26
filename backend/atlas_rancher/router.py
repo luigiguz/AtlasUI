@@ -13,9 +13,11 @@ from atlas_rancher.client import (
     RancherApiError,
     RancherConfigError,
     enrich_clusters_with_pod_counts,
+    list_custom_cluster_deployments,
     list_custom_cluster_pods,
     list_custom_clusters,
     list_pod_counts_for_clusters,
+    rollout_deployment_image_pull,
     update_custom_cluster_labels,
 )
 from atlas_rancher.settings_store import load_rancher_settings, save_rancher_settings
@@ -38,6 +40,10 @@ class ClusterLabelsBody(BaseModel):
     application: str = ""
     distro: str = ""
     atlas: str = ""
+    steve_collection: str = "provisioning.cattle.io.customclusters"
+
+
+class DeploymentRolloutBody(BaseModel):
     steve_collection: str = "provisioning.cattle.io.customclusters"
 
 
@@ -202,6 +208,101 @@ def patch_custom_cluster_labels(
         user.get("username"),
     )
     return {"ok": True, "cluster": cluster}
+
+
+@router.get("/custom-clusters/{namespace}/{name}/deployments")
+def get_custom_cluster_deployments(
+    namespace: str,
+    name: str,
+    steve_collection: str = Query(default="provisioning.cattle.io.customclusters"),
+    _user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    settings = load_rancher_settings()
+    if not settings["url"] or not settings["token"]:
+        raise HTTPException(
+            400,
+            "Configura la conexión a Rancher antes de consultar deployments.",
+        )
+    try:
+        source, mgmt_id, application, deployments = list_custom_cluster_deployments(
+            settings,
+            namespace=namespace,
+            name=name,
+            steve_collection=steve_collection.strip(),
+        )
+    except RancherConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RancherApiError as e:
+        status = 503 if e.status is None or e.status >= 500 else 502
+        if e.status == 404:
+            status = 404
+        elif e.status == 403:
+            status = 403
+        raise HTTPException(status_code=status, detail=str(e)) from e
+    except Exception as e:
+        log.exception("custom-cluster deployments failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al consultar deployments en Rancher.",
+        ) from e
+    return {
+        "ok": True,
+        "source": source,
+        "managementClusterId": mgmt_id,
+        "application": application,
+        "podNamespace": application,
+        "count": len(deployments),
+        "deployments": deployments,
+    }
+
+
+@router.post("/custom-clusters/{namespace}/{name}/deployments/{deployment_name}/rollout")
+def post_deployment_rollout(
+    namespace: str,
+    name: str,
+    deployment_name: str,
+    body: DeploymentRolloutBody,
+    user: dict[str, Any] = Depends(require_roles("admin", "operator")),
+) -> dict[str, Any]:
+    """Réplicas 0 → N para forzar descarga de imagen en el nodo."""
+    settings = load_rancher_settings()
+    if not settings["url"] or not settings["token"]:
+        raise HTTPException(
+            400,
+            "Configura la conexión a Rancher antes de gestionar contenedores.",
+        )
+    try:
+        result = rollout_deployment_image_pull(
+            settings,
+            namespace=namespace,
+            name=name,
+            steve_collection=body.steve_collection.strip(),
+            deployment_name=deployment_name,
+        )
+    except RancherConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RancherApiError as e:
+        status = 503 if e.status is None or e.status >= 500 else 502
+        if e.status == 404:
+            status = 404
+        elif e.status == 403:
+            status = 403
+        raise HTTPException(status_code=status, detail=str(e)) from e
+    except Exception as e:
+        log.exception("deployment rollout failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al actualizar el deployment.",
+        ) from e
+
+    log.info(
+        "deployment rollout namespace=%s cluster=%s deployment=%s user=%s",
+        namespace,
+        name,
+        deployment_name,
+        user.get("username"),
+    )
+    return {"ok": True, **result}
 
 
 @router.get("/custom-clusters/{namespace}/{name}/pods")

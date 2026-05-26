@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import ssl
+import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -29,6 +30,8 @@ STEVE_COLLECTION_CUSTOM = "provisioning.cattle.io.customclusters"
 STEVE_COLLECTION_CLUSTER = "provisioning.cattle.io.clusters"
 RANCHER_HTTP_TIMEOUT_S = 12.0
 RANCHER_POD_COUNT_TIMEOUT_S = 8.0
+ROLLOUT_WAIT_TIMEOUT_S = 120.0
+ROLLOUT_POLL_INTERVAL_S = 2.0
 POD_COUNT_MAX_WORKERS = 4
 # Cloudflare (p. ej. atlas.asptienda.com) suele bloquear Python-urllib; usar firma de navegador.
 _DEFAULT_USER_AGENT = (
@@ -405,13 +408,14 @@ def _normalize_pod(item: dict[str, Any], *, application_namespace: str) -> dict[
     }
 
 
-def list_custom_cluster_pods(
+def resolve_custom_cluster_context(
     settings: dict[str, str | bool],
     *,
     namespace: str,
     name: str,
     steve_collection: str,
-) -> tuple[str, str, str, list[dict[str, Any]]]:
+) -> tuple[str, str, str]:
+    """Devuelve (management_cluster_id, k8s_namespace, application)."""
     ns = namespace.strip()
     cluster_name = name.strip()
     if not ns or not cluster_name:
@@ -436,6 +440,253 @@ def list_custom_cluster_pods(
             "No se pudo resolver el cluster de gestión Rancher (status.clusterName). "
             "Comprueba que el custom cluster esté provisionado y activo."
         )
+    return mgmt_id, app_ns, application
+
+
+def _deployment_path(mgmt_id: str, k8s_ns: str, deployment_name: str | None = None) -> str:
+    base = f"k8s/clusters/{mgmt_id}/v1/apps.deployments"
+    if deployment_name:
+        return f"{base}/{k8s_ns}/{deployment_name}"
+    return f"{base}/{k8s_ns}?pagesize=500"
+
+
+def _first_container_image(spec: dict[str, Any]) -> str:
+    containers = spec.get("containers")
+    if not isinstance(containers, list):
+        return ""
+    for c in containers:
+        if isinstance(c, dict) and c.get("image"):
+            return str(c["image"])
+    return ""
+
+
+def _normalize_deployment(item: dict[str, Any], *, k8s_ns: str) -> dict[str, Any]:
+    meta = _as_dict(item.get("metadata"))
+    spec = _as_dict(item.get("spec"))
+    status = _as_dict(item.get("status"))
+    try:
+        replicas = int(spec.get("replicas") if spec.get("replicas") is not None else 1)
+    except (TypeError, ValueError):
+        replicas = 1
+    try:
+        ready = int(status.get("readyReplicas") or 0)
+    except (TypeError, ValueError):
+        ready = 0
+    try:
+        available = int(status.get("availableReplicas") or 0)
+    except (TypeError, ValueError):
+        available = 0
+    image = _first_container_image(spec)
+    tag = ""
+    if image and ":" in image.rsplit("/", 1)[-1]:
+        tag = image.rsplit(":", 1)[-1]
+    return {
+        "name": str(meta.get("name") or ""),
+        "namespace": str(meta.get("namespace") or k8s_ns),
+        "replicas": replicas,
+        "readyReplicas": ready,
+        "availableReplicas": available,
+        "image": image,
+        "imageTag": tag,
+        "createdAt": meta.get("creationTimestamp"),
+    }
+
+
+def list_custom_cluster_deployments(
+    settings: dict[str, str | bool],
+    *,
+    namespace: str,
+    name: str,
+    steve_collection: str,
+) -> tuple[str, str, str, list[dict[str, Any]]]:
+    mgmt_id, app_ns, application = resolve_custom_cluster_context(
+        settings,
+        namespace=namespace,
+        name=name,
+        steve_collection=steve_collection,
+    )
+    dep_path = _deployment_path(mgmt_id, app_ns)
+    try:
+        payload = rancher_get(settings, dep_path, timeout_s=RANCHER_POD_COUNT_TIMEOUT_S)
+    except RancherApiError as e:
+        if e.status != 404:
+            raise
+        dep_path = f"k8s/clusters/{mgmt_id}/v1/apps.deployments?pagesize=500"
+        payload = rancher_get(settings, dep_path, timeout_s=RANCHER_POD_COUNT_TIMEOUT_S)
+
+    items = _collect_items(payload) or []
+    deployments: list[dict[str, Any]] = []
+    for i in items:
+        if not isinstance(i, dict):
+            continue
+        meta = _as_dict(i.get("metadata"))
+        if not meta.get("name"):
+            continue
+        raw_ns = str(meta.get("namespace") or "").strip().lower()
+        if raw_ns and raw_ns != app_ns:
+            continue
+        deployments.append(_normalize_deployment(i, k8s_ns=app_ns))
+    deployments.sort(key=lambda d: (d.get("name") or ""))
+    return dep_path, mgmt_id, application, deployments
+
+
+def _get_deployment_resource(
+    settings: dict[str, str | bool],
+    *,
+    mgmt_id: str,
+    k8s_ns: str,
+    deployment_name: str,
+) -> dict[str, Any]:
+    path = _deployment_path(mgmt_id, k8s_ns, deployment_name)
+    resource = rancher_get(settings, path)
+    if not isinstance(resource, dict):
+        raise RancherApiError(f"No se encontró el deployment {deployment_name}.")
+    return resource
+
+
+def _deployment_status_replicas(resource: dict[str, Any]) -> tuple[int, int, int]:
+    spec = _as_dict(resource.get("spec"))
+    status = _as_dict(resource.get("status"))
+    try:
+        desired = int(spec.get("replicas") if spec.get("replicas") is not None else 1)
+    except (TypeError, ValueError):
+        desired = 1
+    try:
+        ready = int(status.get("readyReplicas") or 0)
+    except (TypeError, ValueError):
+        ready = 0
+    try:
+        available = int(status.get("availableReplicas") or 0)
+    except (TypeError, ValueError):
+        available = 0
+    return desired, ready, available
+
+
+def set_deployment_replicas(
+    settings: dict[str, str | bool],
+    *,
+    mgmt_id: str,
+    k8s_ns: str,
+    deployment_name: str,
+    replicas: int,
+) -> dict[str, Any]:
+    if replicas < 0:
+        raise ValueError("Las réplicas no pueden ser negativas.")
+    resource = _get_deployment_resource(
+        settings, mgmt_id=mgmt_id, k8s_ns=k8s_ns, deployment_name=deployment_name
+    )
+    spec = _as_dict(resource.get("spec"))
+    spec["replicas"] = replicas
+    resource["spec"] = spec
+    path = _deployment_path(mgmt_id, k8s_ns, deployment_name)
+    updated = rancher_put(settings, path, resource)
+    if not isinstance(updated, dict):
+        raise RancherApiError("Rancher no devolvió el deployment actualizado.")
+    return _normalize_deployment(updated, k8s_ns=k8s_ns)
+
+
+def _wait_deployment_replicas(
+    settings: dict[str, str | bool],
+    *,
+    mgmt_id: str,
+    k8s_ns: str,
+    deployment_name: str,
+    want_available: int,
+    timeout_s: float = ROLLOUT_WAIT_TIMEOUT_S,
+) -> None:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        resource = _get_deployment_resource(
+            settings, mgmt_id=mgmt_id, k8s_ns=k8s_ns, deployment_name=deployment_name
+        )
+        _, _, available = _deployment_status_replicas(resource)
+        if want_available == 0 and available == 0:
+            return
+        if want_available > 0 and available >= want_available:
+            return
+        time.sleep(ROLLOUT_POLL_INTERVAL_S)
+    raise RancherApiError(
+        f"Timeout esperando réplicas del deployment «{deployment_name}» "
+        f"(objetivo disponibles: {want_available})."
+    )
+
+
+def rollout_deployment_image_pull(
+    settings: dict[str, str | bool],
+    *,
+    namespace: str,
+    name: str,
+    steve_collection: str,
+    deployment_name: str,
+) -> dict[str, Any]:
+    """
+    Escala a 0 y vuelve al número de réplicas original para forzar pull de imagen
+  (patrón habitual con imagePullPolicy Always / IfNotPresent en edge).
+    """
+    dep_name = deployment_name.strip()
+    if not dep_name:
+        raise RancherConfigError("El nombre del deployment es obligatorio.")
+
+    mgmt_id, app_ns, application = resolve_custom_cluster_context(
+        settings,
+        namespace=namespace,
+        name=name,
+        steve_collection=steve_collection,
+    )
+    resource = _get_deployment_resource(
+        settings, mgmt_id=mgmt_id, k8s_ns=app_ns, deployment_name=dep_name
+    )
+    desired, _, _ = _deployment_status_replicas(resource)
+    target = desired if desired > 0 else 1
+
+    set_deployment_replicas(
+        settings,
+        mgmt_id=mgmt_id,
+        k8s_ns=app_ns,
+        deployment_name=dep_name,
+        replicas=0,
+    )
+    try:
+        _wait_deployment_replicas(
+            settings,
+            mgmt_id=mgmt_id,
+            k8s_ns=app_ns,
+            deployment_name=dep_name,
+            want_available=0,
+        )
+    except RancherApiError:
+        log.warning("rollout %s: timeout en escala a 0; continuando a %s", dep_name, target)
+
+    final = set_deployment_replicas(
+        settings,
+        mgmt_id=mgmt_id,
+        k8s_ns=app_ns,
+        deployment_name=dep_name,
+        replicas=target,
+    )
+    return {
+        "deployment": final,
+        "managementClusterId": mgmt_id,
+        "namespace": app_ns,
+        "application": application,
+        "targetReplicas": target,
+        "steps": ["scaled_to_0", f"scaled_to_{target}"],
+    }
+
+
+def list_custom_cluster_pods(
+    settings: dict[str, str | bool],
+    *,
+    namespace: str,
+    name: str,
+    steve_collection: str,
+) -> tuple[str, str, str, list[dict[str, Any]]]:
+    mgmt_id, app_ns, application = resolve_custom_cluster_context(
+        settings,
+        namespace=namespace,
+        name=name,
+        steve_collection=steve_collection,
+    )
 
     pods_path = f"k8s/clusters/{mgmt_id}/v1/pods/{app_ns}?pagesize=500"
     try:

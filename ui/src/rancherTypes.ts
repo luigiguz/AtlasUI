@@ -31,6 +31,33 @@ export type RancherPod = {
   createdAt?: string | null;
 };
 
+export type RancherDeployment = {
+  name: string;
+  namespace: string;
+  replicas: number;
+  readyReplicas: number;
+  availableReplicas: number;
+  image: string;
+  imageTag: string;
+  createdAt?: string | null;
+};
+
+export type DeploymentsResponse = {
+  ok: boolean;
+  managementClusterId: string;
+  application: string;
+  podNamespace: string;
+  count: number;
+  deployments: RancherDeployment[];
+};
+
+export type DeploymentRolloutResponse = {
+  ok: boolean;
+  deployment: RancherDeployment;
+  targetReplicas: number;
+  steps: string[];
+};
+
 export type PodsResponse = {
   ok: boolean;
   source: string;
