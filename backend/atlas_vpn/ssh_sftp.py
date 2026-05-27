@@ -15,17 +15,15 @@ from typing import Any, AsyncIterator
 import asyncssh
 from asyncssh.sftp import SFTPClient, SFTPName
 
-from atlas_vpn.ssh_shared import (
-    acquire_shared_ssh,
-    get_cached_ssh_password,
-    release_shared_ssh,
-)
+from atlas_vpn.ssh_shared import get_cached_ssh_password
 from atlas_vpn.ssh_tunnel import SshTunnelError, resolve_site_ssh
 
 log = logging.getLogger(__name__)
 
 SESSION_TTL_S = 1800.0
 _MAX_UPLOAD_BYTES = 256 * 1024 * 1024
+_CONNECT_TIMEOUT_S = 25.0
+_SFTP_START_TIMEOUT_S = 15.0
 
 
 @dataclass
@@ -91,48 +89,41 @@ async def open_session(
     password: str | None,
     atlas_user: str,
 ) -> dict[str, Any]:
+    """Abre SFTP en una conexión SSH propia (mismo túnel) usando la contraseña cacheada de la terminal."""
     await _purge_expired()
     site_key, port, ssh_user = resolve_site_ssh(site)
-    shared = False
-    conn: asyncssh.SSHClientConnection | None = None
-    owns_connection = False
+    pw = (password or "").strip() or (get_cached_ssh_password(atlas_user, site_key) or "")
+    if not pw:
+        raise SshTunnelError(
+            "No hay contraseña SSH en caché. Escribe la contraseña en la terminal web "
+            "(si la pide) y pulsa «Reintentar SFTP»."
+        )
 
-    shared_row = await acquire_shared_ssh(atlas_user, site_key)
-    if shared_row is not None:
-        conn = shared_row.conn
-        shared = True
-    else:
-        pw = (password or "").strip() or (get_cached_ssh_password(atlas_user, site_key) or "")
-        opts: dict[str, Any] = {
-            "host": "127.0.0.1",
-            "port": port,
-            "username": ssh_user,
-            "known_hosts": None,
-            "client_keys": None,
-        }
-        if pw:
-            opts["password"] = pw
-        try:
-            conn = await asyncssh.connect(**opts)
-            owns_connection = True
-        except (OSError, asyncssh.Error) as e:
-            raise SshTunnelError(
-                "No hay sesión SSH activa. Abre la terminal web, escribe la contraseña allí "
-                "y vuelve a intentar (el explorador SFTP reutiliza esa conexión)."
-                if not pw
-                else _auth_error_message(ssh_user, e)
-            ) from e
-
-    assert conn is not None
+    opts: dict[str, Any] = {
+        "host": "127.0.0.1",
+        "port": port,
+        "username": ssh_user,
+        "known_hosts": None,
+        "client_keys": None,
+        "password": pw,
+    }
     try:
-        sftp = await conn.start_sftp_client()
-        home = await sftp.realpath(".")
+        conn = await asyncio.wait_for(asyncssh.connect(**opts), timeout=_CONNECT_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        raise SshTunnelError("Tiempo de espera al conectar SFTP al túnel SSH.") from None
     except (OSError, asyncssh.Error) as e:
-        if owns_connection:
-            conn.close()
-            await conn.wait_closed()
-        elif shared:
-            await release_shared_ssh(atlas_user, site_key)
+        raise SshTunnelError(_auth_error_message(ssh_user, e)) from e
+
+    try:
+        sftp = await asyncio.wait_for(conn.start_sftp_client(), timeout=_SFTP_START_TIMEOUT_S)
+        home = await asyncio.wait_for(sftp.realpath("."), timeout=10.0)
+    except asyncio.TimeoutError:
+        conn.close()
+        await conn.wait_closed()
+        raise SshTunnelError("Tiempo de espera al iniciar el cliente SFTP.") from None
+    except (OSError, asyncssh.Error) as e:
+        conn.close()
+        await conn.wait_closed()
         raise SshTunnelError(f"No se pudo iniciar SFTP: {e}") from e
 
     session_id = secrets.token_urlsafe(24)
@@ -144,9 +135,9 @@ async def open_session(
             atlas_user=atlas_user,
             ssh_user=ssh_user,
             port=port,
-            conn=conn if owns_connection else None,
+            conn=conn,
             sftp=sftp,
-            owns_connection=owns_connection,
+            owns_connection=True,
             created_at=now,
             last_used=now,
         )
@@ -156,7 +147,7 @@ async def open_session(
         "user": ssh_user,
         "port": port,
         "home": home,
-        "reused_terminal_ssh": shared,
+        "reused_terminal_ssh": False,
     }
 
 
@@ -187,11 +178,9 @@ async def close_session(session_id: str) -> None:
         return
     with contextlib.suppress(Exception):
         row.sftp.exit()
-    if row.owns_connection and row.conn is not None:
+    if row.conn is not None:
         row.conn.close()
         await row.conn.wait_closed()
-    else:
-        await release_shared_ssh(row.atlas_user, row.site)
 
 
 async def list_directory(session_id: str, path: str) -> dict[str, Any]:

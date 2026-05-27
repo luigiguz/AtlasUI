@@ -295,6 +295,7 @@ function SshSessionPane({
   const relayBcRef = useRef<BroadcastChannel | null>(null);
   const relayPoppedOutRef = useRef(relayPoppedOut);
   relayPoppedOutRef.current = relayPoppedOut;
+
   const visibleRef = useRef(visible);
   visibleRef.current = visible || relayPoppedOut;
 
@@ -305,7 +306,17 @@ function SshSessionPane({
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; canCopy: boolean } | null>(null);
   const [sftpOpen, setSftpOpen] = useState(true);
   const [sshTerminalReady, setSshTerminalReady] = useState(false);
+  const sshTerminalReadyRef = useRef(false);
+  const cmdRef = useRef<string | null>(null);
   const [sftpWidth, setSftpWidth] = useState(280);
+
+  useEffect(() => {
+    sshTerminalReadyRef.current = sshTerminalReady;
+  }, [sshTerminalReady]);
+
+  useEffect(() => {
+    cmdRef.current = cmd;
+  }, [cmd]);
   const sftpResizeRef = useRef<{ startX: number; startW: number } | null>(null);
   const [sftpResizing, setSftpResizing] = useState(false);
   const sshEndedRef = useRef(false);
@@ -557,6 +568,11 @@ function SshSessionPane({
           if (j.type === "ssh_exit") {
             sshEndedRef.current = true;
             setSshTerminalReady(false);
+            try {
+              relayBcRef.current?.postMessage({ t: "ssh-ready", ready: false });
+            } catch {
+              /* ignore */
+            }
             setCtxMenu(null);
             try {
               relayBcRef.current?.postMessage({ t: "exit" });
@@ -587,8 +603,10 @@ function SshSessionPane({
           if (j.type === "ready" && j.command) {
             setCmd(j.command);
             setSshTerminalReady(true);
+            setBanner(null);
             try {
               relayBcRef.current?.postMessage({ t: "cmd", command: j.command });
+              relayBcRef.current?.postMessage({ t: "ssh-ready", ready: true });
             } catch {
               /* ignore */
             }
@@ -632,6 +650,11 @@ function SshSessionPane({
     };
     ws.onclose = () => {
       setSshTerminalReady(false);
+      try {
+        relayBcRef.current?.postMessage({ t: "ssh-ready", ready: false });
+      } catch {
+        /* ignore */
+      }
       if (sshEndedRef.current) return;
       setBanner((b) => b || "Conexión cerrada.");
     };
@@ -678,7 +701,23 @@ function SshSessionPane({
       if (!ws) return;
       const m = ev.data as { t?: string; d?: string; cols?: number; rows?: number } | null;
       if (!m || typeof m !== "object") return;
-      if (m.t === "relay-ready") return;
+      if (m.t === "relay-ready") {
+        if (sshTerminalReadyRef.current) {
+          try {
+            bc?.postMessage({ t: "ssh-ready", ready: true });
+          } catch {
+            /* ignore */
+          }
+        }
+        if (cmdRef.current) {
+          try {
+            bc?.postMessage({ t: "cmd", command: cmdRef.current });
+          } catch {
+            /* ignore */
+          }
+        }
+        return;
+      }
       if (m.t === "mirror-bye") {
         onRelayMirrorClosedRef.current?.();
         return;
@@ -947,6 +986,8 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
   const [banner, setBanner] = useState<string | null>(null);
   const [hostStats, setHostStats] = useState<SshHostStatsPayload | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; canCopy: boolean } | null>(null);
+  const [sshTerminalReady, setSshTerminalReady] = useState(false);
+  const [sftpOpen, setSftpOpen] = useState(true);
 
   useEffect(() => {
     setBanner("Conectando con el panel principal…");
@@ -1076,6 +1117,7 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
         buf?: ArrayBuffer;
         message?: string;
         command?: string;
+        ready?: boolean;
         stats?: unknown;
       } | null;
       if (!m || typeof m !== "object") return;
@@ -1096,6 +1138,7 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
         return;
       }
       if (m.t === "cmd" && typeof m.command === "string") setCmd(m.command);
+      if (m.t === "ssh-ready") setSshTerminalReady(Boolean(m.ready));
       if (m.t === "auth_hint" && typeof m.message === "string") setBanner(m.message);
       if (m.t === "fatal" && typeof m.message === "string") {
         setFatal(m.message);
@@ -1243,7 +1286,24 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
       {banner && !fatal ? (
         <div className="shrink-0 border-b border-zinc-800 px-2 py-1 text-[11px] text-zinc-400">{banner}</div>
       ) : null}
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-1">
+      {!fatal ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-900/50 px-2 py-1">
+          <button
+            type="button"
+            onClick={() => setSftpOpen((v) => !v)}
+            title={sftpOpen ? "Ocultar explorador SFTP" : "Mostrar explorador SFTP"}
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] ring-1 ${
+              sftpOpen
+                ? "bg-cf-orange/15 text-cf-orange ring-cf-orange/40"
+                : "text-zinc-400 ring-zinc-700 hover:bg-zinc-800"
+            }`}
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            SFTP
+          </button>
+        </div>
+      ) : null}
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {fatal ? (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[#0a0a0b]/95 px-3">
             <p className="max-w-sm text-center text-sm text-rose-100">{fatal}</p>
@@ -1256,13 +1316,22 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
             </button>
           </div>
         ) : null}
-        <div ref={wrapRef} className="min-h-0 flex-1 overflow-hidden" />
-        {!fatal ? <SshHostStatusBar stats={hostStats} siteFallback={site} /> : null}
+        {!fatal && sftpOpen ? (
+          <div
+            className="flex min-h-0 w-[min(280px,38vw)] shrink-0 flex-col overflow-hidden border-r border-zinc-800"
+          >
+            <SshFileTransferPanel site={site} sshReady={sshTerminalReady} variant="sidebar" />
+          </div>
+        ) : null}
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-1">
+          <div ref={wrapRef} className="min-h-0 flex-1 overflow-hidden" />
+          {!fatal ? <SshHostStatusBar stats={hostStats} siteFallback={site} /> : null}
+        </div>
       </div>
       {!fatal ? (
         <p className="shrink-0 border-t border-zinc-800 px-2 py-1 text-[10px] leading-snug text-zinc-500">
-          Misma sesión SSH que en el panel principal. Copiar/pegar: clic derecho o{" "}
-          <kbd className="rounded bg-zinc-800 px-0.5">Ctrl+V</kbd>.
+          Misma sesión SSH que en el panel principal (SFTP usa la contraseña de la terminal). Copiar/pegar: clic derecho
+          o <kbd className="rounded bg-zinc-800 px-0.5">Ctrl+V</kbd>.
         </p>
       ) : null}
       {ctxMenu
