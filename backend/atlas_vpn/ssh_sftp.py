@@ -15,11 +15,7 @@ from typing import Any, AsyncIterator
 import asyncssh
 from asyncssh.sftp import SFTPClient, SFTPName
 
-from atlas_vpn.ssh_shared import (
-    acquire_shared_ssh,
-    get_cached_ssh_password,
-    release_shared_ssh,
-)
+from atlas_vpn.ssh_shared import get_cached_ssh_password
 from atlas_vpn.ssh_tunnel import SshTunnelError, resolve_site_ssh
 
 log = logging.getLogger(__name__)
@@ -87,12 +83,16 @@ async def _purge_expired() -> None:
         await close_session(sid)
 
 
-async def _open_sftp_on_connection(
-    conn: asyncssh.SSHClientConnection,
-) -> tuple[SFTPClient, str]:
-    sftp = await asyncio.wait_for(conn.start_sftp_client(), timeout=_SFTP_START_TIMEOUT_S)
-    home = await asyncio.wait_for(sftp.realpath("."), timeout=10.0)
-    return sftp, home
+async def _sftp_home_dir(sftp: SFTPClient) -> str:
+    """Directorio inicial del usuario remoto (conexión SFTP dedicada, no compartida con el shell)."""
+    try:
+        home = await asyncio.wait_for(sftp.realpath("."), timeout=10.0)
+    except (OSError, asyncssh.Error, asyncio.TimeoutError):
+        home = "/"
+    home = (home or "/").strip().replace("\\", "/")
+    if not home.startswith("/"):
+        home = f"/{home}"
+    return home or "/"
 
 
 async def open_session(
@@ -101,59 +101,42 @@ async def open_session(
     password: str | None,
     atlas_user: str,
 ) -> dict[str, Any]:
-    """SFTP: primero canal sobre la SSH de la terminal; si falla, conexión propia con contraseña en caché."""
+    """SFTP en conexión SSH propia (el shell de la terminal usa otra conexión paralela)."""
     await _purge_expired()
     site_key, port, ssh_user = resolve_site_ssh(site)
     pw = (password or "").strip() or (get_cached_ssh_password(atlas_user, site_key) or "")
-    reused = False
+    if not pw:
+        raise SshTunnelError(
+            "No hay contraseña SSH en caché. Escribe la contraseña en la terminal web "
+            "(si la pide) y pulsa «Reintentar SFTP»."
+        )
+
     conn: asyncssh.SSHClientConnection | None = None
-    owns_connection = False
-    sftp: SFTPClient | None = None
-    home = "/"
+    try:
+        conn = await asyncssh.connect(
+            host="127.0.0.1",
+            port=port,
+            username=ssh_user,
+            password=pw,
+            known_hosts=None,
+            client_keys=None,
+            connect_timeout=_CONNECT_TIMEOUT_S,
+            login_timeout=_CONNECT_TIMEOUT_S,
+        )
+        sftp = await asyncio.wait_for(conn.start_sftp_client(), timeout=_SFTP_START_TIMEOUT_S)
+        home = await _sftp_home_dir(sftp)
+        log.info("sftp: sesión abierta site=%s port=%s home=%s", site_key, port, home)
+    except asyncio.TimeoutError:
+        if conn is not None:
+            conn.close()
+            await conn.wait_closed()
+        raise SshTunnelError("Tiempo de espera al conectar SFTP al túnel SSH.") from None
+    except (OSError, asyncssh.Error) as e:
+        if conn is not None:
+            conn.close()
+            await conn.wait_closed()
+        raise SshTunnelError(_auth_error_message(ssh_user, e)) from e
 
-    shared_row = await acquire_shared_ssh(atlas_user, site_key)
-    if shared_row is not None:
-        try:
-            sftp, home = await _open_sftp_on_connection(shared_row.conn)
-            reused = True
-            log.info("sftp: canal sobre terminal web site=%s user=%s", site_key, atlas_user)
-        except Exception as e:
-            await release_shared_ssh(atlas_user, site_key)
-            log.warning("sftp: fallo canal compartido site=%s: %s", site_key, e)
-            sftp = None
-
-    if sftp is None:
-        if not pw:
-            raise SshTunnelError(
-                "No hay contraseña SSH en caché. Escribe la contraseña en la terminal web "
-                "(si la pide) y pulsa «Reintentar SFTP»."
-            )
-        try:
-            conn = await asyncssh.connect(
-                host="127.0.0.1",
-                port=port,
-                username=ssh_user,
-                password=pw,
-                known_hosts=None,
-                client_keys=None,
-                connect_timeout=_CONNECT_TIMEOUT_S,
-                login_timeout=_CONNECT_TIMEOUT_S,
-            )
-            owns_connection = True
-            sftp, home = await _open_sftp_on_connection(conn)
-            log.info("sftp: conexión dedicada site=%s port=%s", site_key, port)
-        except asyncio.TimeoutError:
-            if conn is not None:
-                conn.close()
-                await conn.wait_closed()
-            raise SshTunnelError("Tiempo de espera al conectar SFTP al túnel SSH.") from None
-        except (OSError, asyncssh.Error) as e:
-            if conn is not None:
-                conn.close()
-                await conn.wait_closed()
-            raise SshTunnelError(_auth_error_message(ssh_user, e)) from e
-
-    assert sftp is not None
     session_id = secrets.token_urlsafe(24)
     now = time.monotonic()
     async with _lock:
@@ -163,9 +146,9 @@ async def open_session(
             atlas_user=atlas_user,
             ssh_user=ssh_user,
             port=port,
-            conn=conn if owns_connection else None,
+            conn=conn,
             sftp=sftp,
-            owns_connection=owns_connection,
+            owns_connection=True,
             created_at=now,
             last_used=now,
         )
@@ -175,7 +158,7 @@ async def open_session(
         "user": ssh_user,
         "port": port,
         "home": home,
-        "reused_terminal_ssh": reused,
+        "reused_terminal_ssh": False,
     }
 
 
@@ -206,11 +189,9 @@ async def close_session(session_id: str) -> None:
         return
     with contextlib.suppress(Exception):
         row.sftp.exit()
-    if row.owns_connection and row.conn is not None:
+    if row.conn is not None:
         row.conn.close()
         await row.conn.wait_closed()
-    else:
-        await release_shared_ssh(row.atlas_user, row.site)
 
 
 async def list_directory(session_id: str, path: str) -> dict[str, Any]:
