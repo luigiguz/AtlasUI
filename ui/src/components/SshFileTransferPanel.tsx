@@ -37,7 +37,8 @@ type ListResponse = {
 
 type Props = {
   site: string;
-  /** Panel estrecho junto a la terminal (estilo MobaXterm). */
+  /** La terminal web ya autenticó SSH (reutiliza la misma sesión). */
+  sshReady: boolean;
   variant?: "sidebar" | "full";
 };
 
@@ -46,8 +47,8 @@ function isHiddenName(name: string): boolean {
 }
 
 function MobaFolderIcon({ hidden }: { hidden?: boolean }): ReactElement {
-  const fill = hidden ? "#b8956a" : "#f5c842";
-  const stroke = hidden ? "#8a7048" : "#c9a020";
+  const fill = hidden ? "#78716c" : "#eab308";
+  const stroke = hidden ? "#57534e" : "#ca8a04";
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" className="shrink-0" aria-hidden>
       <path
@@ -62,8 +63,8 @@ function MobaFolderIcon({ hidden }: { hidden?: boolean }): ReactElement {
 }
 
 function MobaFileIcon({ hidden, ext }: { hidden?: boolean; ext?: string }): ReactElement {
-  const body = hidden ? "#9a9a9a" : "#f8f8f8";
-  const fold = hidden ? "#7a7a7a" : "#e8e8e8";
+  const body = hidden ? "#52525b" : "#a1a1aa";
+  const fold = hidden ? "#3f3f46" : "#71717a";
   const accent =
     ext === "json"
       ? "#4a90d9"
@@ -116,14 +117,14 @@ function ToolbarBtn({
       title={title}
       disabled={disabled}
       onClick={onClick}
-      className={`flex h-[22px] w-[24px] items-center justify-center rounded-sm border border-transparent hover:border-[#a0a0a0] hover:bg-white/80 disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
+      className={`flex h-[22px] w-[24px] items-center justify-center rounded-sm border border-transparent text-zinc-300 hover:border-zinc-600 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
     >
       {children}
     </button>
   );
 }
 
-export function SshFileTransferPanel({ site, variant = "sidebar" }: Props) {
+export function SshFileTransferPanel({ site, sshReady, variant = "sidebar" }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [cwd, setCwd] = useState("/");
   const [pathInput, setPathInput] = useState("/");
@@ -132,8 +133,6 @@ export function SshFileTransferPanel({ site, variant = "sidebar" }: Props) {
   const [loading, setLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPasswordForm, setShowPasswordForm] = useState(true);
   const [busyName, setBusyName] = useState<string | null>(null);
   const [selected, setSelected] = useState<SftpEntry | "parent" | null>(null);
   const [pathDropOpen, setPathDropOpen] = useState(false);
@@ -186,30 +185,36 @@ export function SshFileTransferPanel({ site, variant = "sidebar" }: Props) {
     [pushHistory],
   );
 
-  const connect = useCallback(
-    async (pw: string) => {
-      setConnecting(true);
+  const connect = useCallback(async () => {
+    setConnecting(true);
+    setError("");
+    try {
+      const res = await api<{ session_id: string; home: string }>(
+        `/api/sftp/${encodeURIComponent(site)}/session`,
+        { method: "POST", body: JSON.stringify({ password: "" }) },
+      );
+      setSessionId(res.session_id);
+      await loadDir(res.session_id, res.home || "/");
+    } catch (e) {
+      setError(String(e));
+      setSessionId(null);
+    } finally {
+      setConnecting(false);
+    }
+  }, [site, loadDir]);
+
+  useEffect(() => {
+    if (!sshReady || sessionId || connecting) return;
+    void connect();
+  }, [sshReady, sessionId, connecting, connect]);
+
+  useEffect(() => {
+    if (!sshReady && sessionId) {
+      void disconnect();
+      setEntries([]);
       setError("");
-      try {
-        const res = await api<{ session_id: string; home: string }>(
-          `/api/sftp/${encodeURIComponent(site)}/session`,
-          {
-            method: "POST",
-            body: JSON.stringify({ password: pw }),
-          },
-        );
-        setSessionId(res.session_id);
-        setShowPasswordForm(false);
-        await loadDir(res.session_id, res.home || "/");
-      } catch (e) {
-        setError(String(e));
-        setShowPasswordForm(true);
-      } finally {
-        setConnecting(false);
-      }
-    },
-    [site, loadDir],
-  );
+    }
+  }, [sshReady, sessionId, disconnect]);
 
   const refresh = () => {
     if (sessionId) void loadDir(sessionId, cwd);
@@ -352,48 +357,39 @@ export function SshFileTransferPanel({ site, variant = "sidebar" }: Props) {
     [entries],
   );
 
-  if (showPasswordForm && !sessionId) {
+  if (!sessionId) {
     return (
       <div
-        className={`flex min-h-0 flex-1 flex-col bg-[#f0f0f0] text-[#1a1a1a] ${
-          variant === "sidebar" ? "p-2" : "items-center justify-center p-6"
+        className={`flex min-h-0 flex-1 flex-col bg-[#0a0a0b] text-zinc-300 ${
+          variant === "sidebar" ? "p-3" : "items-center justify-center p-6"
         }`}
       >
-        <p className="mb-2 text-[11px] leading-snug text-[#444]">
-          Explorador SFTP · {site}
+        <p className="text-[11px] font-medium text-zinc-400">SFTP · {site}</p>
+        <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+          {sshReady
+            ? connecting
+              ? "Conectando al mismo SSH de la terminal…"
+              : "Pulsa reintentar si no se abrió solo."
+            : "Escribe la contraseña SSH en la terminal (si la pide). El explorador reutiliza esa sesión."}
         </p>
-        <form
-          className="flex flex-col gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void connect(password);
-          }}
-        >
-          <input
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full border border-[#a0a0a0] bg-white px-2 py-1 text-xs"
-            placeholder="Contraseña SSH"
-          />
-          {error ? <p className="text-[10px] text-red-700">{error}</p> : null}
+        {error ? <p className="mt-2 text-[10px] text-rose-300">{error}</p> : null}
+        {sshReady ? (
           <button
-            type="submit"
+            type="button"
             disabled={connecting}
-            className="border border-[#7a9e3a] bg-[#e8f4d4] px-2 py-1 text-xs font-semibold text-[#2d5016] hover:bg-[#d4eab8] disabled:opacity-50"
+            onClick={() => void connect()}
+            className="mt-3 self-start rounded-md bg-cf-orange/20 px-3 py-1.5 text-xs font-medium text-cf-orange ring-1 ring-cf-orange/40 hover:bg-cf-orange/30 disabled:opacity-50"
           >
-            {connecting ? "Conectando…" : "Conectar"}
+            {connecting ? "Conectando…" : "Reintentar SFTP"}
           </button>
-        </form>
+        ) : null}
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#f0f0f0] text-[#1a1a1a]">
-      {/* Barra de herramientas estilo Moba */}
-      <div className="flex shrink-0 items-center gap-0 border-b border-[#a0a0a0] bg-[#ebebeb] px-0.5 py-0.5">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0a0a0b] text-zinc-200">
+      <div className="flex shrink-0 items-center gap-0 border-b border-zinc-800 bg-zinc-900/90 px-0.5 py-0.5">
         <ToolbarBtn title="Carpeta superior" onClick={goUp} disabled={cwd === "/" || loading}>
           <FolderUp className="h-3.5 w-3.5 text-[#2d6a2d]" strokeWidth={2.2} />
         </ToolbarBtn>
@@ -425,45 +421,43 @@ export function SshFileTransferPanel({ site, variant = "sidebar" }: Props) {
             title="Desconectar SFTP"
             onClick={() => {
               void disconnect();
-              setShowPasswordForm(true);
-              setPassword("");
               setEntries([]);
             }}
-            className="text-[9px] text-[#666] underline hover:text-[#333]"
+            className="text-[9px] text-zinc-500 underline hover:text-zinc-300"
           >
-            Salir
+            Cerrar SFTP
           </button>
         </div>
         <input ref={uploadRef} type="file" multiple className="hidden" onChange={(e) => void uploadFiles(e.target.files)} />
       </div>
 
       {/* Ruta */}
-      <div className="relative shrink-0 border-b border-[#a0a0a0] bg-white">
+      <div className="relative shrink-0 border-b border-zinc-800 bg-black/40">
         <div className="flex items-stretch">
           <input
             type="text"
             value={pathInput}
             onChange={(e) => setPathInput(e.target.value)}
             onKeyDown={onPathKey}
-            className="min-w-0 flex-1 border-0 bg-white px-1.5 py-0.5 font-mono text-[11px] text-[#1a1a1a] outline-none"
+            className="min-w-0 flex-1 border-0 bg-transparent px-1.5 py-0.5 font-mono text-[11px] text-zinc-200 outline-none"
             spellCheck={false}
           />
           <button
             type="button"
             title="Historial de rutas"
             onClick={() => setPathDropOpen((v) => !v)}
-            className="flex w-5 shrink-0 items-center justify-center border-l border-[#c0c0c0] bg-[#f0f0f0] hover:bg-[#e0e0e0]"
+            className="flex w-5 shrink-0 items-center justify-center border-l border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
           >
-            <ChevronDown className="h-3 w-3 text-[#333]" />
+            <ChevronDown className="h-3 w-3 text-zinc-400" />
           </button>
         </div>
         {pathDropOpen && pathHistory.length > 0 ? (
-          <ul className="absolute left-0 right-0 top-full z-20 max-h-40 overflow-auto border border-[#a0a0a0] bg-white shadow-md">
+          <ul className="absolute left-0 right-0 top-full z-20 max-h-40 overflow-auto border border-zinc-700 bg-zinc-900 shadow-lg">
             {pathHistory.map((p) => (
               <li key={p}>
                 <button
                   type="button"
-                  className="block w-full truncate px-2 py-0.5 text-left font-mono text-[11px] hover:bg-[#316ac5] hover:text-white"
+                  className="block w-full truncate px-2 py-0.5 text-left font-mono text-[11px] text-zinc-300 hover:bg-cf-orange/20 hover:text-cf-orange"
                   onClick={() => navigateTo(p)}
                 >
                   {p}
@@ -475,19 +469,18 @@ export function SshFileTransferPanel({ site, variant = "sidebar" }: Props) {
       </div>
 
       {error ? (
-        <p className="shrink-0 bg-[#fde8e8] px-1.5 py-0.5 text-[10px] text-red-800">{error}</p>
+        <p className="shrink-0 bg-rose-950/40 px-1.5 py-0.5 text-[10px] text-rose-200">{error}</p>
       ) : null}
 
-      {/* Lista */}
-      <div className="min-h-0 flex-1 overflow-auto bg-white">
-        <div className="sticky top-0 flex border-b border-[#d0d0d0] bg-[#f5f5f5] text-[11px] font-semibold text-[#333]">
+      <div className="min-h-0 flex-1 overflow-auto bg-[#070809]">
+        <div className="sticky top-0 flex border-b border-zinc-800 bg-zinc-900/80 text-[11px] font-semibold text-zinc-400">
           <span className="flex items-center gap-0.5 px-1.5 py-0.5">
-            <span className="text-[#2563eb]">▲</span> Name
+            <span className="text-cf-orange">▲</span> Name
           </span>
         </div>
         {loading && !entries.length ? (
-          <div className="flex items-center justify-center gap-1 py-6 text-[11px] text-[#666]">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <div className="flex items-center justify-center gap-1 py-6 text-[11px] text-zinc-500">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-cf-orange" />
             Cargando…
           </div>
         ) : (
@@ -497,7 +490,9 @@ export function SshFileTransferPanel({ site, variant = "sidebar" }: Props) {
                 <button
                   type="button"
                   className={`flex w-full items-center gap-1 px-1 py-px text-left ${
-                    selected === "parent" ? "bg-[#316ac5] text-white" : "hover:bg-[#e8f4fc]"
+                    selected === "parent"
+                      ? "bg-cf-orange/25 text-zinc-100"
+                      : "hover:bg-white/[0.04]"
                   }`}
                   onClick={() => setSelected("parent")}
                   onDoubleClick={goUp}
@@ -516,8 +511,8 @@ export function SshFileTransferPanel({ site, variant = "sidebar" }: Props) {
                   <button
                     type="button"
                     className={`flex w-full items-center gap-1 px-1 py-px text-left ${
-                      isSel ? "bg-[#316ac5] text-white" : "hover:bg-[#e8f4fc]"
-                    } ${hidden && !isSel ? "text-[#666]" : ""}`}
+                      isSel ? "bg-cf-orange/25 text-zinc-100" : "hover:bg-white/[0.04]"
+                    } ${hidden && !isSel ? "text-zinc-500" : "text-zinc-200"}`}
                     onClick={() => setSelected(ent)}
                     onDoubleClick={() => {
                       if (ent.is_dir) openEntry(ent);
@@ -537,12 +532,12 @@ export function SshFileTransferPanel({ site, variant = "sidebar" }: Props) {
           </ul>
         )}
         {!loading && cwd === "/" && !entries.length ? (
-          <p className="py-4 text-center text-[11px] text-[#888]">Vacío</p>
+          <p className="py-4 text-center text-[11px] text-zinc-600">Vacío</p>
         ) : null}
       </div>
 
       {busyName ? (
-        <p className="shrink-0 border-t border-[#d0d0d0] bg-[#fafafa] px-1 py-0.5 text-[9px] text-[#666]">
+        <p className="shrink-0 border-t border-zinc-800 bg-zinc-900/50 px-1 py-0.5 text-[9px] text-zinc-500">
           {busyName}…
         </p>
       ) : null}

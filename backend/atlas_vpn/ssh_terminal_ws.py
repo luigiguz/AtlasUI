@@ -19,6 +19,12 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from atlas_vpn.constants import resolve_ssh_username
+from atlas_vpn.ssh_shared import (
+    cache_ssh_password,
+    invalidate_sftp_for_site,
+    register_terminal_ssh,
+    unregister_terminal_ssh,
+)
 from atlas_core.env import atlas_env_flag
 from atlas_core.paths import SCRIPTS_DIR
 from atlas_core.web_tokens import decode_access_token
@@ -100,11 +106,21 @@ class _WsAuthLineReader:
 class _WebSshClient(SSHClient):
     """Contraseña y keyboard-interactive leyendo del WebSocket; muestra prompts en la terminal."""
 
-    def __init__(self, reader: _WsAuthLineReader, websocket: WebSocket, ssh_login: str) -> None:
+    def __init__(
+        self,
+        reader: _WsAuthLineReader,
+        websocket: WebSocket,
+        ssh_login: str,
+        *,
+        site: str,
+        atlas_user: str,
+    ) -> None:
         super().__init__()
         self._reader = reader
         self._ws = websocket
         self._ssh_login = ssh_login
+        self._site = site
+        self._atlas_user = atlas_user
 
     async def _emit_tty(self, text: str) -> None:
         if self._ws.client_state != WebSocketState.CONNECTED:
@@ -128,6 +144,8 @@ class _WebSshClient(SSHClient):
     async def password_auth_requested(self) -> str | None:
         await self._emit_tty(f"\r\n{self._ssh_login}@127.0.0.1's password: ")
         line = await self._reader.readline()
+        if line:
+            cache_ssh_password(self._atlas_user, self._site, line)
         return line if line else None
 
     async def kbdint_challenge_received(
@@ -152,7 +170,10 @@ class _WebSshClient(SSHClient):
                 await self._emit_tty(str(prompt_text))
             else:
                 await self._emit_tty("\r\nPassword: ")
-            out.append(await self._reader.readline())
+            pw = await self._reader.readline()
+            if pw:
+                cache_ssh_password(self._atlas_user, self._site, pw)
+            out.append(pw)
         return out
 
 
@@ -193,7 +214,8 @@ async def run_ssh_terminal_ws(websocket: WebSocket) -> None:
     await websocket.accept()
     token = websocket.query_params.get("token")
     site = (websocket.query_params.get("site") or "").strip()
-    if not _user_from_token(token):
+    user_ctx = _user_from_token(token)
+    if not user_ctx:
         try:
             await websocket.send_text(
                 json.dumps({"type": "error", "message": "No autorizado o sesión caducada."})
@@ -247,6 +269,7 @@ async def run_ssh_terminal_ws(websocket: WebSocket) -> None:
         return
 
     user = resolve_ssh_username(ssh)
+    atlas_username = str(user_ctx.get("username") or "")
     cols, rows = 120, 34
     auth_reader = _WsAuthLineReader(websocket)
 
@@ -269,72 +292,81 @@ async def run_ssh_terminal_ws(websocket: WebSocket) -> None:
             username=user,
             known_hosts=None,
             client_keys=None,
-            client_factory=lambda: _WebSshClient(auth_reader, websocket, user),
+            client_factory=lambda: _WebSshClient(
+                auth_reader, websocket, user, site=site, atlas_user=atlas_username
+            ),
         ) as conn:
-            async with conn.create_process(
-                encoding=None,
-                term_type="xterm-256color",
-                term_size=(cols, rows),
-                stderr=asyncssh.STDOUT,
-            ) as process:
-                pending = auth_reader.take_buffered_bytes()
-                if pending and process.stdin is not None:
-                    process.stdin.write(pending)
-                    await process.stdin.drain()
+            await register_terminal_ssh(
+                atlas_username, site, conn, ssh_user=user, port=port
+            )
+            try:
+                async with conn.create_process(
+                    encoding=None,
+                    term_type="xterm-256color",
+                    term_size=(cols, rows),
+                    stderr=asyncssh.STDOUT,
+                ) as process:
+                    pending = auth_reader.take_buffered_bytes()
+                    if pending and process.stdin is not None:
+                        process.stdin.write(pending)
+                        await process.stdin.drain()
 
-                await websocket.send_text(
-                    json.dumps(
-                        {
-                            "type": "ready",
-                            "site": site,
-                            "user": user,
-                            "port": port,
-                            "command": f"ssh {user}@localhost -p {port}",
-                        }
+                    await websocket.send_text(
+                        json.dumps(
+                            {
+                                "type": "ready",
+                                "site": site,
+                                "user": user,
+                                "port": port,
+                                "command": f"ssh {user}@localhost -p {port}",
+                            }
+                        )
                     )
-                )
 
-                stats_task = asyncio.create_task(_host_stats_pump(conn, websocket, site, user))
-                out_task = asyncio.create_task(_pump_stdout_to_ws(websocket, process))
+                    stats_task = asyncio.create_task(_host_stats_pump(conn, websocket, site, user))
+                    out_task = asyncio.create_task(_pump_stdout_to_ws(websocket, process))
 
-                try:
-                    while websocket.client_state == WebSocketState.CONNECTED:
-                        msg = await websocket.receive()
-                        if msg["type"] == "websocket.disconnect":
-                            break
-                        if msg["type"] != "websocket.receive":
-                            continue
-                        if "bytes" in msg and msg["bytes"]:
-                            b = msg["bytes"]
-                            if process.stdin is not None:
-                                process.stdin.write(b)
-                                await process.stdin.drain()
-                        elif "text" in msg and msg["text"]:
-                            try:
-                                ctrl = json.loads(msg["text"])
-                            except json.JSONDecodeError:
+                    try:
+                        while websocket.client_state == WebSocketState.CONNECTED:
+                            msg = await websocket.receive()
+                            if msg["type"] == "websocket.disconnect":
+                                break
+                            if msg["type"] != "websocket.receive":
                                 continue
-                            if ctrl.get("type") == "resize":
+                            if "bytes" in msg and msg["bytes"]:
+                                b = msg["bytes"]
+                                if process.stdin is not None:
+                                    process.stdin.write(b)
+                                    await process.stdin.drain()
+                            elif "text" in msg and msg["text"]:
                                 try:
-                                    cols = int(ctrl.get("cols") or cols)
-                                    rows = int(ctrl.get("rows") or rows)
-                                except (TypeError, ValueError):
+                                    ctrl = json.loads(msg["text"])
+                                except json.JSONDecodeError:
                                     continue
-                                cols = max(40, min(cols, 500))
-                                rows = max(8, min(rows, 200))
-                                with contextlib.suppress(OSError, asyncssh.Error):
-                                    process.change_terminal_size(cols, rows)
-                except WebSocketDisconnect:
-                    pass
-                finally:
-                    stats_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await stats_task
-                    out_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await out_task
-                    with contextlib.suppress(OSError, ProcessLookupError, asyncssh.Error):
-                        process.terminate()
+                                if ctrl.get("type") == "resize":
+                                    try:
+                                        cols = int(ctrl.get("cols") or cols)
+                                        rows = int(ctrl.get("rows") or rows)
+                                    except (TypeError, ValueError):
+                                        continue
+                                    cols = max(40, min(cols, 500))
+                                    rows = max(8, min(rows, 200))
+                                    with contextlib.suppress(OSError, asyncssh.Error):
+                                        process.change_terminal_size(cols, rows)
+                    except WebSocketDisconnect:
+                        pass
+                    finally:
+                        stats_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await stats_task
+                        out_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await out_task
+                        with contextlib.suppress(OSError, ProcessLookupError, asyncssh.Error):
+                            process.terminate()
+            finally:
+                await invalidate_sftp_for_site(atlas_username, site)
+                await unregister_terminal_ssh(atlas_username, site)
     except (OSError, asyncio.TimeoutError, asyncssh.Error) as e:
         log.warning("ssh ws fallo site=%s port=%s user=%s: %s", site, port, user, e)
         msg = _ssh_connect_error_message(e, user)

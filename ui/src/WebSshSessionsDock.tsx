@@ -304,6 +304,7 @@ function SshSessionPane({
   const [hostStats, setHostStats] = useState<SshHostStatsPayload | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; canCopy: boolean } | null>(null);
   const [sftpOpen, setSftpOpen] = useState(true);
+  const [sshTerminalReady, setSshTerminalReady] = useState(false);
   const [sftpWidth, setSftpWidth] = useState(280);
   const sftpResizeRef = useRef<{ startX: number; startW: number } | null>(null);
   const [sftpResizing, setSftpResizing] = useState(false);
@@ -555,6 +556,7 @@ function SshSessionPane({
           const j = JSON.parse(ev.data) as { type?: string; message?: string; command?: string };
           if (j.type === "ssh_exit") {
             sshEndedRef.current = true;
+            setSshTerminalReady(false);
             setCtxMenu(null);
             try {
               relayBcRef.current?.postMessage({ t: "exit" });
@@ -584,6 +586,7 @@ function SshSessionPane({
           }
           if (j.type === "ready" && j.command) {
             setCmd(j.command);
+            setSshTerminalReady(true);
             try {
               relayBcRef.current?.postMessage({ t: "cmd", command: j.command });
             } catch {
@@ -628,6 +631,7 @@ function SshSessionPane({
       if (!sshEndedRef.current) setBanner("Error de red en el WebSocket.");
     };
     ws.onclose = () => {
+      setSshTerminalReady(false);
       if (sshEndedRef.current) return;
       setBanner((b) => b || "Conexión cerrada.");
     };
@@ -809,7 +813,7 @@ function SshSessionPane({
             title={sftpOpen ? "Ocultar explorador SFTP" : "Mostrar explorador SFTP (estilo MobaXterm)"}
             className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] ring-1 ${
               sftpOpen
-                ? "bg-[#ebebeb] text-[#333] ring-[#a0a0a0]"
+                ? "bg-cf-orange/15 text-cf-orange ring-cf-orange/40"
                 : "text-zinc-400 ring-zinc-700 hover:bg-zinc-800"
             }`}
           >
@@ -834,10 +838,10 @@ function SshSessionPane({
         {!fatal && sftpOpen && !relayPoppedOut ? (
           <>
             <div
-              className="flex min-h-0 shrink-0 flex-col overflow-hidden border-r border-[#606060]"
+              className="flex min-h-0 shrink-0 flex-col overflow-hidden border-r border-zinc-800"
               style={{ width: sftpWidth }}
             >
-              <SshFileTransferPanel site={site} variant="sidebar" />
+              <SshFileTransferPanel site={site} sshReady={sshTerminalReady} variant="sidebar" />
             </div>
             <div
               role="separator"
