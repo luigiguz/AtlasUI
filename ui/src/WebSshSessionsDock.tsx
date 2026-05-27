@@ -20,9 +20,12 @@ import {
   Plus,
   Server,
   Terminal as TerminalIcon,
+  FolderOpen,
   User,
   X,
 } from "lucide-react";
+
+import { SshFileTransferPanel } from "./components/SshFileTransferPanel";
 import {
   useCallback,
   useEffect,
@@ -300,6 +303,10 @@ function SshSessionPane({
   const [banner, setBanner] = useState<string | null>(null);
   const [hostStats, setHostStats] = useState<SshHostStatsPayload | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; canCopy: boolean } | null>(null);
+  const [sftpOpen, setSftpOpen] = useState(true);
+  const [sftpWidth, setSftpWidth] = useState(280);
+  const sftpResizeRef = useRef<{ startX: number; startW: number } | null>(null);
+  const [sftpResizing, setSftpResizing] = useState(false);
   const sshEndedRef = useRef(false);
   const onSshEndRef = useRef(onSshSessionEnd);
   onSshEndRef.current = onSshSessionEnd;
@@ -335,6 +342,28 @@ function SshSessionPane({
   useEffect(() => {
     if (!visible) setCtxMenu(null);
   }, [visible]);
+
+  useEffect(() => {
+    if (!sftpResizing || !sftpResizeRef.current) return;
+    const onMove = (ev: PointerEvent) => {
+      const r = sftpResizeRef.current;
+      if (!r) return;
+      const dx = ev.clientX - r.startX;
+      setSftpWidth(Math.max(200, Math.min(520, r.startW + dx)));
+    };
+    const onUp = () => {
+      sftpResizeRef.current = null;
+      setSftpResizing(false);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [sftpResizing]);
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -772,7 +801,24 @@ function SshSessionPane({
       {banner && !fatal ? (
         <div className="shrink-0 border-b border-zinc-800 px-2 py-1 text-[11px] text-zinc-400">{banner}</div>
       ) : null}
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-1">
+      {!fatal && !relayPoppedOut ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-900/50 px-2 py-1">
+          <button
+            type="button"
+            onClick={() => setSftpOpen((v) => !v)}
+            title={sftpOpen ? "Ocultar explorador SFTP" : "Mostrar explorador SFTP (estilo MobaXterm)"}
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] ring-1 ${
+              sftpOpen
+                ? "bg-[#ebebeb] text-[#333] ring-[#a0a0a0]"
+                : "text-zinc-400 ring-zinc-700 hover:bg-zinc-800"
+            }`}
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            SFTP
+          </button>
+        </div>
+      ) : null}
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {fatal ? (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[#0a0a0b]/95 px-3">
             <p className="max-w-sm text-center text-sm text-rose-100">{fatal}</p>
@@ -785,8 +831,38 @@ function SshSessionPane({
             </button>
           </div>
         ) : null}
-        <div ref={wrapRef} className="min-h-0 flex-1 overflow-hidden" />
-        {!fatal ? <SshHostStatusBar stats={hostStats} siteFallback={site} /> : null}
+        {!fatal && sftpOpen && !relayPoppedOut ? (
+          <>
+            <div
+              className="flex min-h-0 shrink-0 flex-col overflow-hidden border-r border-[#606060]"
+              style={{ width: sftpWidth }}
+            >
+              <SshFileTransferPanel site={site} variant="sidebar" />
+            </div>
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Ancho del explorador SFTP"
+              className={`w-1 shrink-0 cursor-col-resize bg-zinc-800 hover:bg-cf-orange/60 ${
+                sftpResizing ? "bg-cf-orange/80" : ""
+              }`}
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                sftpResizeRef.current = { startX: e.clientX, startW: sftpWidth };
+                setSftpResizing(true);
+              }}
+            />
+          </>
+        ) : null}
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-1">
+          {!fatal ? (
+            <>
+              <div ref={wrapRef} className="min-h-0 flex-1 overflow-hidden" />
+              <SshHostStatusBar stats={hostStats} siteFallback={site} />
+            </>
+          ) : null}
+        </div>
       </div>
       {!fatal && chrome !== "dock" ? (
         <p className="shrink-0 border-t border-zinc-800 px-2 py-1 text-[10px] leading-snug text-zinc-500">
