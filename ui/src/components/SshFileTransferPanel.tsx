@@ -19,7 +19,8 @@ import {
   type ReactElement,
 } from "react";
 
-import { api, apiUrl, bearerHeaders } from "../apiClient";
+import { api, apiUrl, bearerHeaders, getAccessToken } from "../apiClient";
+import { SftpTransferQueue, type TransferJob } from "./SftpTransferQueue";
 
 type SftpEntry = {
   name: string;
@@ -140,12 +141,32 @@ export function SshFileTransferPanel({
   const [loading, setLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState("");
-  const [busyName, setBusyName] = useState<string | null>(null);
+  const [transfers, setTransfers] = useState<TransferJob[]>([]);
   const [selected, setSelected] = useState<SftpEntry | "parent" | null>(null);
   const [pathDropOpen, setPathDropOpen] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
   const connectInFlightRef = useRef(false);
   const sessionIdRef = useRef<string | null>(null);
+  const cancelTransferRef = useRef<Map<string, () => void>>(new Map());
+
+  const transferBusy = transfers.some((t) => t.status === "active" || t.status === "pending");
+
+  const patchTransfer = useCallback((id: string, patch: Partial<TransferJob>) => {
+    setTransfers((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  }, []);
+
+  const dismissTransfer = useCallback((id: string) => {
+    cancelTransferRef.current.delete(id);
+    setTransfers((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const cancelTransfer = useCallback(
+    (id: string) => {
+      cancelTransferRef.current.get(id)?.();
+      patchTransfer(id, { status: "cancelled", progress: 0 });
+    },
+    [patchTransfer],
+  );
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -303,21 +324,57 @@ export function SshFileTransferPanel({
 
   const selectedEntry = selected && selected !== "parent" ? selected : null;
 
-  const downloadFile = async (ent: SftpEntry) => {
+  const downloadFile = async (ent: SftpEntry, index = 1, total = 1) => {
     if (!sessionId || ent.is_dir) return;
-    setBusyName(ent.name);
     setError("");
+    const id = crypto.randomUUID();
+    setTransfers((prev) => [
+      ...prev,
+      {
+        id,
+        direction: "download",
+        name: ent.name,
+        index,
+        total,
+        progress: 0,
+        status: "active",
+      },
+    ]);
+    const ac = new AbortController();
+    cancelTransferRef.current.set(id, () => ac.abort());
     try {
       const q = new URLSearchParams({ path: ent.path });
       const res = await fetch(
         apiUrl(`/api/sftp/session/${encodeURIComponent(sessionId)}/download?${q}`),
-        { headers: bearerHeaders() },
+        { headers: bearerHeaders(), signal: ac.signal },
       );
       if (!res.ok) {
         const t = await res.text();
         throw new Error(t || `HTTP ${res.status}`);
       }
-      const blob = await res.blob();
+      const totalBytes = Number(res.headers.get("content-length")) || 0;
+      const body = res.body;
+      let blob: Blob;
+      if (body && totalBytes > 0) {
+        const reader = body.getReader();
+        const chunks: Uint8Array[] = [];
+        let loaded = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            chunks.push(value);
+            loaded += value.length;
+            patchTransfer(id, {
+              progress: Math.min(99, Math.round((100 * loaded) / totalBytes)),
+            });
+          }
+        }
+        blob = new Blob(chunks);
+      } else {
+        patchTransfer(id, { progress: -1 });
+        blob = await res.blob();
+      }
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -326,10 +383,17 @@ export function SshFileTransferPanel({
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      patchTransfer(id, { status: "done", progress: 100 });
     } catch (e) {
-      setError(String(e));
+      if (ac.signal.aborted) {
+        patchTransfer(id, { status: "cancelled", progress: 0 });
+      } else {
+        const msg = String(e).replace(/^Error:\s*/i, "");
+        patchTransfer(id, { status: "error", progress: 0, error: msg });
+        setError(msg);
+      }
     } finally {
-      setBusyName(null);
+      cancelTransferRef.current.delete(id);
     }
   };
 
@@ -340,25 +404,74 @@ export function SshFileTransferPanel({
   const uploadFiles = async (files: FileList | null) => {
     if (!sessionId || !files?.length) return;
     setError("");
-    for (const file of Array.from(files)) {
-      setBusyName(file.name);
+    const list = Array.from(files);
+    const total = list.length;
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i];
+      const id = crypto.randomUUID();
+      const remotePath =
+        cwd === "/" ? `/${file.name}` : `${cwd.replace(/\/$/, "")}/${file.name}`;
+      const q = new URLSearchParams({ path: remotePath });
+      const url = apiUrl(`/api/sftp/session/${encodeURIComponent(sessionId)}/upload?${q}`);
+
+      setTransfers((prev) => [
+        ...prev,
+        {
+          id,
+          direction: "upload",
+          name: file.name,
+          index: i + 1,
+          total,
+          progress: 0,
+          status: "active",
+        },
+      ]);
+
       try {
-        const remotePath =
-          cwd === "/" ? `/${file.name}` : `${cwd.replace(/\/$/, "")}/${file.name}`;
-        const q = new URLSearchParams({ path: remotePath });
-        const form = new FormData();
-        form.append("file", file);
-        const res = await fetch(
-          apiUrl(`/api/sftp/session/${encodeURIComponent(sessionId)}/upload?${q}`),
-          { method: "POST", headers: bearerHeaders(), body: form },
-        );
-        if (!res.ok) throw new Error(await res.text());
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          cancelTransferRef.current.set(id, () => xhr.abort());
+
+          xhr.upload.onprogress = (ev) => {
+            if (ev.lengthComputable) {
+              patchTransfer(id, {
+                progress: Math.min(99, Math.round((100 * ev.loaded) / ev.total)),
+              });
+            } else {
+              patchTransfer(id, { progress: -1 });
+            }
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              patchTransfer(id, { status: "done", progress: 100 });
+              resolve();
+            } else {
+              reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
+            }
+          };
+          xhr.onerror = () => reject(new Error("Error de red al subir el archivo."));
+          xhr.onabort = () => reject(new DOMException("Aborted", "AbortError"));
+
+          xhr.open("POST", url);
+          const token = getAccessToken();
+          if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+          const form = new FormData();
+          form.append("file", file);
+          xhr.send(form);
+        });
       } catch (e) {
-        setError(String(e));
-        break;
+        if (e instanceof DOMException && e.name === "AbortError") {
+          patchTransfer(id, { status: "cancelled", progress: 0 });
+        } else {
+          const msg = String(e).replace(/^Error:\s*/i, "");
+          patchTransfer(id, { status: "error", progress: 0, error: msg });
+          setError(msg);
+          break;
+        }
+      } finally {
+        cancelTransferRef.current.delete(id);
       }
     }
-    setBusyName(null);
     refresh();
   };
 
@@ -369,7 +482,6 @@ export function SshFileTransferPanel({
     if (!ent) return;
     const label = ent.is_dir ? "carpeta" : "archivo";
     if (!window.confirm(`¿Eliminar ${label} «${ent.name}»?`)) return;
-    setBusyName(ent.name);
     setError("");
     try {
       const q = new URLSearchParams({ path: ent.path });
@@ -379,8 +491,6 @@ export function SshFileTransferPanel({
       refresh();
     } catch (e) {
       setError(String(e));
-    } finally {
-      setBusyName(null);
     }
   };
 
@@ -390,7 +500,6 @@ export function SshFileTransferPanel({
     if (!name?.trim()) return;
     const base = cwd === "/" ? "" : cwd.replace(/\/$/, "");
     const remote = `${base}/${name.trim()}`.replace(/\/+/g, "/") || `/${name.trim()}`;
-    setBusyName(name);
     try {
       const q = new URLSearchParams({ path: remote });
       await api(`/api/sftp/session/${encodeURIComponent(sessionId)}/mkdir?${q}`, {
@@ -399,8 +508,6 @@ export function SshFileTransferPanel({
       refresh();
     } catch (e) {
       setError(String(e));
-    } finally {
-      setBusyName(null);
     }
   };
 
@@ -466,13 +573,17 @@ export function SshFileTransferPanel({
         >
           <ArrowDownToLine className="h-3.5 w-3.5 text-[#2563eb]" strokeWidth={2.2} />
         </ToolbarBtn>
-        <ToolbarBtn title="Subir archivos" onClick={() => uploadRef.current?.click()} disabled={Boolean(busyName)}>
+        <ToolbarBtn
+          title="Subir archivos"
+          onClick={() => uploadRef.current?.click()}
+          disabled={transferBusy}
+        >
           <ArrowUpToLine className="h-3.5 w-3.5 text-[#16a34a]" strokeWidth={2.2} />
         </ToolbarBtn>
         <ToolbarBtn title="Actualizar" onClick={refresh} disabled={loading}>
           <RefreshCw className={`h-3.5 w-3.5 text-[#16a34a] ${loading ? "animate-spin" : ""}`} strokeWidth={2.2} />
         </ToolbarBtn>
-        <ToolbarBtn title="Nueva carpeta" onClick={() => void mkdir()} disabled={Boolean(busyName)}>
+        <ToolbarBtn title="Nueva carpeta" onClick={() => void mkdir()} disabled={transferBusy}>
           <FolderPlus className="h-3.5 w-3.5 text-[#ca8a04]" strokeWidth={2.2} />
         </ToolbarBtn>
         <ToolbarBtn title="Nuevo archivo (subir vacío)" onClick={() => uploadRef.current?.click()} disabled>
@@ -602,11 +713,11 @@ export function SshFileTransferPanel({
         ) : null}
       </div>
 
-      {busyName ? (
-        <p className="shrink-0 border-t border-zinc-800 bg-zinc-900/50 px-1 py-0.5 text-[9px] text-zinc-500">
-          {busyName}…
-        </p>
-      ) : null}
+      <SftpTransferQueue
+        jobs={transfers}
+        onCancel={cancelTransfer}
+        onDismiss={dismissTransfer}
+      />
     </div>
   );
 }
