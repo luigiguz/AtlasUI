@@ -10,11 +10,14 @@ import {
   Trash2,
 } from "lucide-react";
 import {
+  forwardRef,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
+  type DragEvent,
   type KeyboardEvent,
   type ReactElement,
 } from "react";
@@ -44,6 +47,14 @@ type Props = {
   connectWithoutReady?: boolean;
   variant?: "sidebar" | "full";
 };
+
+export type SshFileTransferPanelHandle = {
+  uploadFiles: (files: FileList) => void;
+};
+
+function dragHasFiles(dt: DataTransfer): boolean {
+  return [...dt.items].some((i) => i.kind === "file");
+}
 
 function isHiddenName(name: string): boolean {
   return name.startsWith(".");
@@ -127,12 +138,22 @@ function ToolbarBtn({
   );
 }
 
-export function SshFileTransferPanel({
-  site,
-  sshReady,
-  connectWithoutReady = false,
-  variant = "sidebar",
-}: Props) {
+function SftpDropOverlay({ active, label }: { active: boolean; label: string }): ReactElement | null {
+  if (!active) return null;
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-cf-orange/10 ring-2 ring-inset ring-cf-orange/55 backdrop-blur-[1px]">
+      <p className="rounded-lg border border-cf-orange/40 bg-[#111418]/95 px-3 py-2 text-center text-[11px] font-medium text-cf-orange shadow-lg">
+        {label}
+      </p>
+    </div>
+  );
+}
+
+export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props>(
+  function SshFileTransferPanel(
+    { site, sshReady, connectWithoutReady = false, variant = "sidebar" },
+    ref,
+  ) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [cwd, setCwd] = useState("/");
   const [pathInput, setPathInput] = useState("/");
@@ -148,6 +169,8 @@ export function SshFileTransferPanel({
   const connectInFlightRef = useRef(false);
   const sessionIdRef = useRef<string | null>(null);
   const cancelTransferRef = useRef<Map<string, () => void>>(new Map());
+  const [fileDragOver, setFileDragOver] = useState(false);
+  const fileDragDepthRef = useRef(0);
 
   const transferBusy = transfers.some((t) => t.status === "active" || t.status === "pending");
 
@@ -288,14 +311,6 @@ export function SshFileTransferPanel({
     if (!mayConnect || sessionId) return;
     void connect();
   }, [mayConnect, sessionId, connect]);
-
-  useEffect(() => {
-    if (!mayConnect && sessionId) {
-      void disconnect(sessionId);
-      setEntries([]);
-      setError("");
-    }
-  }, [mayConnect, sessionId, disconnect]);
 
   const refresh = () => {
     if (sessionId) void loadDir(sessionId, cwd);
@@ -475,6 +490,65 @@ export function SshFileTransferPanel({
     refresh();
   };
 
+  const handleIncomingFiles = useCallback(
+    async (files: FileList) => {
+      if (!files.length) return;
+      if (sessionIdRef.current) {
+        await uploadFiles(files);
+        return;
+      }
+      if (!mayConnect) {
+        setError("Espera a que la terminal SSH esté lista (prompt visible).");
+        return;
+      }
+      await connect();
+      if (sessionIdRef.current) await uploadFiles(files);
+    },
+    [uploadFiles, connect, mayConnect],
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      uploadFiles: (files: FileList) => {
+        void handleIncomingFiles(files);
+      },
+    }),
+    [handleIncomingFiles],
+  );
+
+  const onFileDragEnter = (e: DragEvent) => {
+    if (!dragHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    fileDragDepthRef.current += 1;
+    setFileDragOver(true);
+  };
+
+  const onFileDragLeave = (e: DragEvent) => {
+    if (!dragHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+    if (fileDragDepthRef.current === 0) setFileDragOver(false);
+  };
+
+  const onFileDragOver = (e: DragEvent) => {
+    if (!dragHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = sessionIdRef.current || mayConnect ? "copy" : "none";
+  };
+
+  const onFileDrop = (e: DragEvent) => {
+    if (!dragHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    fileDragDepthRef.current = 0;
+    setFileDragOver(false);
+    void handleIncomingFiles(e.dataTransfer.files);
+  };
+
   const deleteSelected = async () => {
     if (!sessionId) return;
     if (selected === "parent") return;
@@ -527,10 +601,22 @@ export function SshFileTransferPanel({
   if (!sessionId) {
     return (
       <div
-        className={`flex min-h-0 flex-1 flex-col bg-[#0a0a0b] text-zinc-300 ${
+        className={`relative flex min-h-0 flex-1 flex-col bg-[#0a0a0b] text-zinc-300 ${
           variant === "sidebar" ? "p-3" : "items-center justify-center p-6"
         }`}
+        onDragEnter={onFileDragEnter}
+        onDragLeave={onFileDragLeave}
+        onDragOver={onFileDragOver}
+        onDrop={onFileDrop}
       >
+        <SftpDropOverlay
+          active={fileDragOver}
+          label={
+            mayConnect
+              ? "Suelta para subir por SFTP"
+              : "Conecta la terminal antes de subir archivos"
+          }
+        />
         <p className="text-[11px] font-medium text-zinc-400">SFTP · {site}</p>
         <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
           {mayConnect
@@ -561,7 +647,14 @@ export function SshFileTransferPanel({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0a0a0b] text-zinc-200">
+    <div
+      className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0a0a0b] text-zinc-200"
+      onDragEnter={onFileDragEnter}
+      onDragLeave={onFileDragLeave}
+      onDragOver={onFileDragOver}
+      onDrop={onFileDrop}
+    >
+      <SftpDropOverlay active={fileDragOver} label="Suelta para subir a esta carpeta" />
       <div className="flex shrink-0 items-center gap-0 border-b border-zinc-800 bg-zinc-900/90 px-0.5 py-0.5">
         <ToolbarBtn title="Carpeta superior" onClick={goUp} disabled={cwd === "/" || loading}>
           <FolderUp className="h-3.5 w-3.5 text-[#2d6a2d]" strokeWidth={2.2} />
@@ -720,4 +813,5 @@ export function SshFileTransferPanel({
       />
     </div>
   );
-}
+  },
+);

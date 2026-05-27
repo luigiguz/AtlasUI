@@ -25,7 +25,10 @@ import {
   X,
 } from "lucide-react";
 
-import { SshFileTransferPanel } from "./components/SshFileTransferPanel";
+import {
+  SshFileTransferPanel,
+  type SshFileTransferPanelHandle,
+} from "./components/SshFileTransferPanel";
 import {
   useCallback,
   useEffect,
@@ -319,6 +322,9 @@ function SshSessionPane({
   }, [cmd]);
   const sftpResizeRef = useRef<{ startX: number; startW: number } | null>(null);
   const [sftpResizing, setSftpResizing] = useState(false);
+  const [paneFileDragOver, setPaneFileDragOver] = useState(false);
+  const paneFileDragDepthRef = useRef(0);
+  const sftpPanelRef = useRef<SshFileTransferPanelHandle | null>(null);
   const sshEndedRef = useRef(false);
   const onSshEndRef = useRef(onSshSessionEnd);
   onSshEndRef.current = onSshSessionEnd;
@@ -800,6 +806,41 @@ function SshSessionPane({
     }
   };
 
+  const paneDragHasFiles = (dt: DataTransfer) => [...dt.items].some((i) => i.kind === "file");
+
+  const onPaneFileDragEnter = (e: React.DragEvent) => {
+    if (!paneDragHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    paneFileDragDepthRef.current += 1;
+    setPaneFileDragOver(true);
+  };
+
+  const onPaneFileDragLeave = (e: React.DragEvent) => {
+    if (!paneDragHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    paneFileDragDepthRef.current = Math.max(0, paneFileDragDepthRef.current - 1);
+    if (paneFileDragDepthRef.current === 0) setPaneFileDragOver(false);
+  };
+
+  const onPaneFileDragOver = (e: React.DragEvent) => {
+    if (!paneDragHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const onPaneFileDrop = (e: React.DragEvent) => {
+    if (!paneDragHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    paneFileDragDepthRef.current = 0;
+    setPaneFileDragOver(false);
+    const files = e.dataTransfer.files;
+    if (files?.length) sftpPanelRef.current?.uploadFiles(files);
+  };
+
   return (
     <div
       className={`flex min-h-0 flex-1 flex-col overflow-hidden ${visible || relayPoppedOut ? "flex" : "hidden"}`}
@@ -872,7 +913,20 @@ function SshSessionPane({
           </button>
         </div>
       ) : null}
-      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+      <div
+        className="relative flex min-h-0 flex-1 overflow-hidden"
+        onDragEnter={onPaneFileDragEnter}
+        onDragLeave={onPaneFileDragLeave}
+        onDragOver={onPaneFileDragOver}
+        onDrop={onPaneFileDrop}
+      >
+        {paneFileDragOver && !fatal ? (
+          <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-cf-orange/10 ring-2 ring-inset ring-cf-orange/50">
+            <p className="rounded-lg border border-cf-orange/40 bg-[#111418]/95 px-4 py-2 text-sm font-medium text-cf-orange shadow-lg">
+              Suelta para subir por SFTP
+            </p>
+          </div>
+        ) : null}
         {fatal ? (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[#0a0a0b]/95 px-3">
             <p className="max-w-sm text-center text-sm text-rose-100">{fatal}</p>
@@ -891,7 +945,12 @@ function SshSessionPane({
               className="flex min-h-0 shrink-0 flex-col overflow-hidden border-r border-zinc-800"
               style={{ width: sftpWidth }}
             >
-              <SshFileTransferPanel site={site} sshReady={sshTerminalReady} variant="sidebar" />
+              <SshFileTransferPanel
+                ref={sftpPanelRef}
+                site={site}
+                sshReady={sshTerminalReady}
+                variant="sidebar"
+              />
             </div>
             <div
               role="separator"
@@ -1000,6 +1059,9 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
   const [sshTerminalReady, setSshTerminalReady] = useState(false);
   const sshTerminalReadyRef = useRef(false);
   const [sftpOpen, setSftpOpen] = useState(true);
+  const [paneFileDragOver, setPaneFileDragOver] = useState(false);
+  const paneFileDragDepthRef = useRef(0);
+  const sftpPanelRef = useRef<SshFileTransferPanelHandle | null>(null);
 
   useEffect(() => {
     sshTerminalReadyRef.current = sshTerminalReady;
@@ -1287,6 +1349,41 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
     window.close();
   };
 
+  const paneDragHasFiles = (dt: DataTransfer) => [...dt.items].some((i) => i.kind === "file");
+
+  const onPaneFileDragEnter = (e: React.DragEvent) => {
+    if (!paneDragHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    paneFileDragDepthRef.current += 1;
+    setPaneFileDragOver(true);
+  };
+
+  const onPaneFileDragLeave = (e: React.DragEvent) => {
+    if (!paneDragHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    paneFileDragDepthRef.current = Math.max(0, paneFileDragDepthRef.current - 1);
+    if (paneFileDragDepthRef.current === 0) setPaneFileDragOver(false);
+  };
+
+  const onPaneFileDragOver = (e: React.DragEvent) => {
+    if (!paneDragHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const onPaneFileDrop = (e: React.DragEvent) => {
+    if (!paneDragHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    paneFileDragDepthRef.current = 0;
+    setPaneFileDragOver(false);
+    const files = e.dataTransfer.files;
+    if (files?.length) sftpPanelRef.current?.uploadFiles(files);
+  };
+
   return (
     <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-[#070708]">
       <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800 px-2 py-1.5">
@@ -1347,7 +1444,20 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
           </button>
         </div>
       ) : null}
-      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+      <div
+        className="relative flex min-h-0 flex-1 overflow-hidden"
+        onDragEnter={onPaneFileDragEnter}
+        onDragLeave={onPaneFileDragLeave}
+        onDragOver={onPaneFileDragOver}
+        onDrop={onPaneFileDrop}
+      >
+        {paneFileDragOver && !fatal ? (
+          <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-cf-orange/10 ring-2 ring-inset ring-cf-orange/50">
+            <p className="rounded-lg border border-cf-orange/40 bg-[#111418]/95 px-4 py-2 text-sm font-medium text-cf-orange shadow-lg">
+              Suelta para subir por SFTP
+            </p>
+          </div>
+        ) : null}
         {fatal ? (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[#0a0a0b]/95 px-3">
             <p className="max-w-sm text-center text-sm text-rose-100">{fatal}</p>
@@ -1365,6 +1475,7 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
             className="flex min-h-0 w-[min(280px,38vw)] shrink-0 flex-col overflow-hidden border-r border-zinc-800"
           >
             <SshFileTransferPanel
+              ref={sftpPanelRef}
               site={site}
               sshReady={sshTerminalReady}
               connectWithoutReady
