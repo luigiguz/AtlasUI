@@ -145,23 +145,36 @@ export function SshFileTransferPanel({
   const [pathDropOpen, setPathDropOpen] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
   const connectInFlightRef = useRef(false);
+  const sessionIdRef = useRef<string | null>(null);
 
-  const disconnect = useCallback(async () => {
-    if (sessionId) {
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  const disconnect = useCallback(async (sid?: string | null) => {
+    const id = sid ?? sessionIdRef.current;
+    if (id) {
       try {
-        await api(`/api/sftp/session/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+        await api(`/api/sftp/session/${encodeURIComponent(id)}`, { method: "DELETE" });
       } catch {
         /* ignore */
       }
     }
-    setSessionId(null);
-  }, [sessionId]);
+    if (!sid || sid === sessionIdRef.current) {
+      sessionIdRef.current = null;
+      setSessionId(null);
+    }
+  }, []);
 
   useEffect(() => {
     return () => {
-      void disconnect();
+      const id = sessionIdRef.current;
+      if (id) {
+        void api(`/api/sftp/session/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+        sessionIdRef.current = null;
+      }
     };
-  }, [disconnect]);
+  }, [site]);
 
   const pushHistory = useCallback((path: string) => {
     setPathHistory((prev) => {
@@ -170,8 +183,19 @@ export function SshFileTransferPanel({
     });
   }, []);
 
+  const applyListing = useCallback(
+    (data: ListResponse) => {
+      setCwd(data.path);
+      setPathInput(data.path);
+      pushHistory(data.path);
+      setEntries(data.entries);
+      setSelected(null);
+    },
+    [pushHistory],
+  );
+
   const loadDir = useCallback(
-    async (sid: string, path: string) => {
+    async (sid: string, path: string, retryOnStale = true) => {
       setLoading(true);
       setError("");
       try {
@@ -179,18 +203,22 @@ export function SshFileTransferPanel({
         const data = await api<ListResponse>(
           `/api/sftp/session/${encodeURIComponent(sid)}/list?${q}`,
         );
-        setCwd(data.path);
-        setPathInput(data.path);
-        pushHistory(data.path);
-        setEntries(data.entries);
-        setSelected(null);
+        applyListing(data);
       } catch (e) {
-        setError(String(e));
+        const msg = String(e);
+        if (retryOnStale && /caducada|inexistente/i.test(msg)) {
+          sessionIdRef.current = null;
+          setSessionId(null);
+          setError("");
+          setLoading(false);
+          return;
+        }
+        setError(msg.replace(/^Error:\s*/i, ""));
       } finally {
         setLoading(false);
       }
     },
-    [pushHistory],
+    [applyListing],
   );
 
   const connect = useCallback(async () => {
@@ -201,18 +229,24 @@ export function SshFileTransferPanel({
     const ctrl = new AbortController();
     const timer = window.setTimeout(() => ctrl.abort(), 45_000);
     try {
-      const res = await api<{ session_id?: string; home?: string }>(
-        `/api/sftp/${encodeURIComponent(site)}/session`,
-        {
-          method: "POST",
-          body: JSON.stringify({ password: "" }),
-          signal: ctrl.signal,
-        },
-      );
+      const res = await api<{
+        session_id?: string;
+        home?: string;
+        listing?: ListResponse;
+      }>(`/api/sftp/${encodeURIComponent(site)}/session`, {
+        method: "POST",
+        body: JSON.stringify({ password: "" }),
+        signal: ctrl.signal,
+      });
       const sid = res.session_id;
       if (!sid) throw new Error("Respuesta SFTP inválida del servidor.");
+      sessionIdRef.current = sid;
       setSessionId(sid);
-      await loadDir(sid, res.home || "/");
+      if (res.listing && Array.isArray(res.listing.entries)) {
+        applyListing(res.listing);
+      } else {
+        await loadDir(sid, res.home || "/", false);
+      }
     } catch (e) {
       const msg =
         e instanceof DOMException && e.name === "AbortError"
@@ -225,7 +259,7 @@ export function SshFileTransferPanel({
       connectInFlightRef.current = false;
       setConnecting(false);
     }
-  }, [site, loadDir]);
+  }, [site, loadDir, applyListing]);
 
   const mayConnect = sshReady || connectWithoutReady;
 
@@ -236,7 +270,7 @@ export function SshFileTransferPanel({
 
   useEffect(() => {
     if (!mayConnect && sessionId) {
-      void disconnect();
+      void disconnect(sessionId);
       setEntries([]);
       setError("");
     }

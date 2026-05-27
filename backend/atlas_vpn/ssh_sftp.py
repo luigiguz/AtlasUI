@@ -152,6 +152,7 @@ async def open_session(
             created_at=now,
             last_used=now,
         )
+    listing = await list_directory(session_id, home)
     return {
         "session_id": session_id,
         "site": site_key,
@@ -159,6 +160,7 @@ async def open_session(
         "port": port,
         "home": home,
         "reused_terminal_ssh": False,
+        "listing": listing,
     }
 
 
