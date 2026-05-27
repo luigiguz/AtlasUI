@@ -701,7 +701,12 @@ function SshSessionPane({
       if (!ws) return;
       const m = ev.data as { t?: string; d?: string; cols?: number; rows?: number } | null;
       if (!m || typeof m !== "object") return;
-      if (m.t === "relay-ready") {
+      if (m.t === "mirror-sync") {
+        try {
+          bc?.postMessage({ t: "relay-ready" });
+        } catch {
+          /* ignore */
+        }
         if (sshTerminalReadyRef.current) {
           try {
             bc?.postMessage({ t: "ssh-ready", ready: true });
@@ -754,6 +759,12 @@ function SshSessionPane({
       bc.addEventListener("message", onBc);
       try {
         bc.postMessage({ t: "relay-ready" });
+        if (sshTerminalReadyRef.current) {
+          bc.postMessage({ t: "ssh-ready", ready: true });
+        }
+        if (cmdRef.current) {
+          bc.postMessage({ t: "cmd", command: cmdRef.current });
+        }
       } catch {
         /* ignore */
       }
@@ -987,10 +998,17 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
   const [hostStats, setHostStats] = useState<SshHostStatsPayload | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; canCopy: boolean } | null>(null);
   const [sshTerminalReady, setSshTerminalReady] = useState(false);
+  const sshTerminalReadyRef = useRef(false);
   const [sftpOpen, setSftpOpen] = useState(true);
 
   useEffect(() => {
+    sshTerminalReadyRef.current = sshTerminalReady;
+  }, [sshTerminalReady]);
+
+  useEffect(() => {
     setBanner("Conectando con el panel principal…");
+    setSshTerminalReady(false);
+    sshTerminalReadyRef.current = false;
   }, [dockSessionId]);
 
   const notifyMirrorBye = useCallback(() => {
@@ -1128,6 +1146,10 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
       if (m.t === "out" && m.buf instanceof ArrayBuffer) {
         term.write(dec.decode(new Uint8Array(m.buf)));
         term.scrollToBottom();
+        if (!sshTerminalReadyRef.current) {
+          sshTerminalReadyRef.current = true;
+          setSshTerminalReady(true);
+        }
         return;
       }
       if (m.t === "host_stats" && m.stats && typeof m.stats === "object") {
@@ -1138,7 +1160,12 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
         return;
       }
       if (m.t === "cmd" && typeof m.command === "string") setCmd(m.command);
-      if (m.t === "ssh-ready") setSshTerminalReady(Boolean(m.ready));
+      if (m.t === "ssh-ready") {
+        const ready = Boolean(m.ready);
+        sshTerminalReadyRef.current = ready;
+        setSshTerminalReady(ready);
+        if (ready) setBanner(null);
+      }
       if (m.t === "auth_hint" && typeof m.message === "string") setBanner(m.message);
       if (m.t === "fatal" && typeof m.message === "string") {
         setFatal(m.message);
@@ -1154,6 +1181,22 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
       }
     };
     bc.addEventListener("message", onBc);
+
+    const requestMirrorSync = () => {
+      try {
+        bc.postMessage({ t: "mirror-sync" });
+      } catch {
+        /* ignore */
+      }
+    };
+    requestMirrorSync();
+    const syncTimer = window.setInterval(() => {
+      if (sshTerminalReadyRef.current) {
+        window.clearInterval(syncTimer);
+        return;
+      }
+      requestMirrorSync();
+    }, 1500);
 
     const onPaste = (e: ClipboardEvent) => {
       e.preventDefault();
@@ -1201,6 +1244,7 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
     });
 
     return () => {
+      window.clearInterval(syncTimer);
       ro.disconnect();
       termEl.removeEventListener("paste", onPaste);
       termEl.removeEventListener("contextmenu", onContextMenu);
@@ -1320,7 +1364,12 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
           <div
             className="flex min-h-0 w-[min(280px,38vw)] shrink-0 flex-col overflow-hidden border-r border-zinc-800"
           >
-            <SshFileTransferPanel site={site} sshReady={sshTerminalReady} variant="sidebar" />
+            <SshFileTransferPanel
+              site={site}
+              sshReady={sshTerminalReady}
+              connectWithoutReady
+              variant="sidebar"
+            />
           </div>
         ) : null}
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-1">

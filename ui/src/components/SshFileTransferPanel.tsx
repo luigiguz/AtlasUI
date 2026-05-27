@@ -37,8 +37,10 @@ type ListResponse = {
 
 type Props = {
   site: string;
-  /** La terminal web ya autenticó SSH (reutiliza la misma sesión). */
+  /** La terminal web ya autenticó SSH (contraseña en caché del servidor). */
   sshReady: boolean;
+  /** Ventana espejo: intentar SFTP aunque falte el aviso ssh-ready (p. ej. popout tardío). */
+  connectWithoutReady?: boolean;
   variant?: "sidebar" | "full";
 };
 
@@ -124,7 +126,12 @@ function ToolbarBtn({
   );
 }
 
-export function SshFileTransferPanel({ site, sshReady, variant = "sidebar" }: Props) {
+export function SshFileTransferPanel({
+  site,
+  sshReady,
+  connectWithoutReady = false,
+  variant = "sidebar",
+}: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [cwd, setCwd] = useState("/");
   const [pathInput, setPathInput] = useState("/");
@@ -189,12 +196,14 @@ export function SshFileTransferPanel({ site, sshReady, variant = "sidebar" }: Pr
     setConnecting(true);
     setError("");
     try {
-      const res = await api<{ session_id: string; home: string }>(
+      const res = await api<{ session_id?: string; home?: string }>(
         `/api/sftp/${encodeURIComponent(site)}/session`,
         { method: "POST", body: JSON.stringify({ password: "" }) },
       );
-      setSessionId(res.session_id);
-      await loadDir(res.session_id, res.home || "/");
+      const sid = res.session_id;
+      if (!sid) throw new Error("Respuesta SFTP inválida del servidor.");
+      setSessionId(sid);
+      await loadDir(sid, res.home || "/");
     } catch (e) {
       setError(String(e));
       setSessionId(null);
@@ -203,18 +212,20 @@ export function SshFileTransferPanel({ site, sshReady, variant = "sidebar" }: Pr
     }
   }, [site, loadDir]);
 
-  useEffect(() => {
-    if (!sshReady || sessionId || connecting) return;
-    void connect();
-  }, [sshReady, sessionId, connecting, connect]);
+  const mayConnect = sshReady || connectWithoutReady;
 
   useEffect(() => {
-    if (!sshReady && sessionId) {
+    if (!mayConnect || sessionId || connecting) return;
+    void connect();
+  }, [mayConnect, sessionId, connecting, connect]);
+
+  useEffect(() => {
+    if (!mayConnect && sessionId) {
       void disconnect();
       setEntries([]);
       setError("");
     }
-  }, [sshReady, sessionId, disconnect]);
+  }, [mayConnect, sessionId, disconnect]);
 
   const refresh = () => {
     if (sessionId) void loadDir(sessionId, cwd);
@@ -366,14 +377,16 @@ export function SshFileTransferPanel({ site, sshReady, variant = "sidebar" }: Pr
       >
         <p className="text-[11px] font-medium text-zinc-400">SFTP · {site}</p>
         <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-          {sshReady
+          {mayConnect
             ? connecting
-              ? "Conectando al mismo SSH de la terminal…"
+              ? "Conectando SFTP al túnel (misma contraseña que la terminal)…"
               : "Pulsa reintentar si no se abrió solo."
-            : "Escribe la contraseña SSH en la terminal (si la pide). El explorador reutiliza esa sesión."}
+            : connectWithoutReady
+              ? "Sincronizando con el panel principal… Si la terminal ya tiene prompt, pulsa Reintentar."
+              : "Escribe la contraseña SSH en la terminal (si la pide). El explorador reutiliza esa sesión."}
         </p>
         {error ? <p className="mt-2 text-[10px] text-rose-300">{error}</p> : null}
-        {sshReady ? (
+        {mayConnect ? (
           <button
             type="button"
             disabled={connecting}
