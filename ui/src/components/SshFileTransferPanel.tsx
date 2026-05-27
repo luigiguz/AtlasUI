@@ -144,6 +144,7 @@ export function SshFileTransferPanel({
   const [selected, setSelected] = useState<SftpEntry | "parent" | null>(null);
   const [pathDropOpen, setPathDropOpen] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
+  const connectInFlightRef = useRef(false);
 
   const disconnect = useCallback(async () => {
     if (sessionId) {
@@ -193,21 +194,35 @@ export function SshFileTransferPanel({
   );
 
   const connect = useCallback(async () => {
+    if (connectInFlightRef.current) return;
+    connectInFlightRef.current = true;
     setConnecting(true);
     setError("");
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), 45_000);
     try {
       const res = await api<{ session_id?: string; home?: string }>(
         `/api/sftp/${encodeURIComponent(site)}/session`,
-        { method: "POST", body: JSON.stringify({ password: "" }) },
+        {
+          method: "POST",
+          body: JSON.stringify({ password: "" }),
+          signal: ctrl.signal,
+        },
       );
       const sid = res.session_id;
       if (!sid) throw new Error("Respuesta SFTP inválida del servidor.");
       setSessionId(sid);
       await loadDir(sid, res.home || "/");
     } catch (e) {
-      setError(String(e));
+      const msg =
+        e instanceof DOMException && e.name === "AbortError"
+          ? "Tiempo de espera al conectar SFTP (45 s). ¿Está desplegada la última versión de atlas-api?"
+          : String(e);
+      setError(msg.replace(/^Error:\s*/i, ""));
       setSessionId(null);
     } finally {
+      window.clearTimeout(timer);
+      connectInFlightRef.current = false;
       setConnecting(false);
     }
   }, [site, loadDir]);
@@ -215,9 +230,9 @@ export function SshFileTransferPanel({
   const mayConnect = sshReady || connectWithoutReady;
 
   useEffect(() => {
-    if (!mayConnect || sessionId || connecting) return;
+    if (!mayConnect || sessionId) return;
     void connect();
-  }, [mayConnect, sessionId, connecting, connect]);
+  }, [mayConnect, sessionId, connect]);
 
   useEffect(() => {
     if (!mayConnect && sessionId) {
@@ -385,7 +400,11 @@ export function SshFileTransferPanel({
               ? "Sincronizando con el panel principal… Si la terminal ya tiene prompt, pulsa Reintentar."
               : "Escribe la contraseña SSH en la terminal (si la pide). El explorador reutiliza esa sesión."}
         </p>
-        {error ? <p className="mt-2 text-[10px] text-rose-300">{error}</p> : null}
+        {error ? (
+          <p className="mt-2 rounded border border-rose-500/40 bg-rose-950/50 px-2 py-1 text-[10px] text-rose-200">
+            {error}
+          </p>
+        ) : null}
         {mayConnect ? (
           <button
             type="button"

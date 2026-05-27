@@ -27,7 +27,8 @@ from atlas_vpn.ssh_shared import (
 )
 from atlas_core.env import atlas_env_flag
 from atlas_core.paths import SCRIPTS_DIR
-from atlas_core.web_tokens import decode_access_token
+from atlas_core.permissions import PERM_VPN_OPERATE, has_any_permission
+from atlas_core.web_tokens import decode_access_token, resolve_user_from_access_token
 
 log = logging.getLogger(__name__)
 
@@ -180,11 +181,18 @@ class _WebSshClient(SSHClient):
 def _user_from_token(token: str | None) -> dict[str, Any] | None:
     if not token or not token.strip():
         return None
+    u = resolve_user_from_access_token(token.strip())
+    if u and u.get("username"):
+        if has_any_permission(u, PERM_VPN_OPERATE):
+            return u
+        role = str(u.get("role") or "")
+        if role in ("admin", "operator"):
+            return u
     payload = decode_access_token(token.strip())
     if not payload:
         return None
     perms = payload.get("permissions")
-    if isinstance(perms, list) and "atlas:vpn:Operate" in perms:
+    if isinstance(perms, list) and PERM_VPN_OPERATE in perms:
         return {
             "username": str(payload.get("sub") or ""),
             "role": str(payload.get("role") or ""),

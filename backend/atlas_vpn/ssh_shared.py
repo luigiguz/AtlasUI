@@ -13,6 +13,7 @@ import asyncssh
 log = logging.getLogger(__name__)
 
 _PASSWORD_TTL_S = 600.0
+_SITE_PW_KEY = "__site__"
 
 
 @dataclass
@@ -37,19 +38,24 @@ def _key(atlas_user: str, site: str) -> tuple[str, str]:
 def cache_ssh_password(atlas_user: str, site: str, password: str) -> None:
     if not password:
         return
-    _passwords[_key(atlas_user, site)] = (password, time.monotonic())
+    sk = site.strip()
+    entry = (password, time.monotonic())
+    _passwords[_key(atlas_user, sk)] = entry
+    _passwords[(_SITE_PW_KEY, sk)] = entry
 
 
 def get_cached_ssh_password(atlas_user: str, site: str) -> str | None:
-    key = _key(atlas_user, site)
-    row = _passwords.get(key)
-    if not row:
-        return None
-    pw, ts = row
-    if time.monotonic() - ts > _PASSWORD_TTL_S:
-        _passwords.pop(key, None)
-        return None
-    return pw
+    sk = site.strip()
+    for key in (_key(atlas_user, sk), (_SITE_PW_KEY, sk)):
+        row = _passwords.get(key)
+        if not row:
+            continue
+        pw, ts = row
+        if time.monotonic() - ts > _PASSWORD_TTL_S:
+            _passwords.pop(key, None)
+            continue
+        return pw
+    return None
 
 
 async def register_terminal_ssh(
