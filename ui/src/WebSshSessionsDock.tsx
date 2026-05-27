@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 
+import { AtlasAlertDialog } from "./components/AtlasAlertDialog";
 import {
   SshFileTransferPanel,
   type SshFileTransferPanelHandle,
@@ -1549,6 +1550,7 @@ export function SshRelayMirrorPane({ site, dockSessionId, onReattachToDock }: Re
 /** Vista mínima para `?sshPopout=1&site=…` (ventana nueva / otro monitor). */
 export function SshWebPopoutApp({ site, dockSessionId }: { site: string; dockSessionId: string | null }): ReactElement {
   const [standaloneSessionId] = useState(() => crypto.randomUUID());
+  const [alertMsg, setAlertMsg] = useState<string | null>(null);
   const handleClose = useCallback(() => {
     window.close();
   }, []);
@@ -1556,7 +1558,7 @@ export function SshWebPopoutApp({ site, dockSessionId }: { site: string; dockSes
   const handleReattachToDock = useCallback(() => {
     const o = window.opener as Window | null;
     if (!o || o.closed) {
-      window.alert(
+      setAlertMsg(
         "No hay ventana principal asociada (p. ej. abriste esta URL en una pestaña suelta). Cierra esta ventana y abre el terminal desde la app con «ventana nueva», o usa el botón cerrar.",
       );
       return;
@@ -1569,7 +1571,7 @@ export function SshWebPopoutApp({ site, dockSessionId }: { site: string; dockSes
       };
       o.postMessage(payload, window.location.origin);
     } catch {
-      window.alert("No se pudo notificar a la ventana principal. Revisa que siga abierta.");
+      setAlertMsg("No se pudo notificar a la ventana principal. Revisa que siga abierta.");
       return;
     }
     try {
@@ -1582,28 +1584,43 @@ export function SshWebPopoutApp({ site, dockSessionId }: { site: string; dockSes
     }, 0);
   }, [site, dockSessionId]);
 
+  const alertDialog = (
+    <AtlasAlertDialog
+      open={alertMsg !== null}
+      title="Ventana principal"
+      message={alertMsg ?? ""}
+      onClose={() => setAlertMsg(null)}
+    />
+  );
+
   if (dockSessionId) {
     return (
-      <SshRelayMirrorPane
-        site={site}
-        dockSessionId={dockSessionId}
-        onReattachToDock={handleReattachToDock}
-      />
+      <>
+        <SshRelayMirrorPane
+          site={site}
+          dockSessionId={dockSessionId}
+          onReattachToDock={handleReattachToDock}
+        />
+        {alertDialog}
+      </>
     );
   }
 
   return (
-    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-[#070708]">
-      <SshSessionPane
-        site={site}
-        sessionId={standaloneSessionId}
-        visible
-        chrome="popout"
-        onClose={handleClose}
-        onSshSessionEnd={handleClose}
-        onReattachToDock={handleReattachToDock}
-      />
-    </div>
+    <>
+      <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-[#070708]">
+        <SshSessionPane
+          site={site}
+          sessionId={standaloneSessionId}
+          visible
+          chrome="popout"
+          onClose={handleClose}
+          onSshSessionEnd={handleClose}
+          onReattachToDock={handleReattachToDock}
+        />
+      </div>
+      {alertDialog}
+    </>
   );
 }
 
@@ -1627,6 +1644,7 @@ export function WebSshSessionsDock({
   );
   const [dockHeightPx, setDockHeightPx] = useState(defaultDockHeight);
   const [isDockResizing, setIsDockResizing] = useState(false);
+  const [popoutAlert, setPopoutAlert] = useState<string | null>(null);
   const dockResizeRef = useRef<{ startY: number; startH: number } | null>(null);
 
   const moveTab = useCallback((fromId: string, toId: string) => {
@@ -1737,7 +1755,7 @@ export function WebSshSessionsDock({
         flushSync(() => {
           setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, poppedOut: false } : s)));
         });
-        window.alert(
+        setPopoutAlert(
           "El navegador bloqueó la ventana emergente. Permite ventanas para este origen e inténtalo de nuevo.",
         );
       }
@@ -2024,6 +2042,13 @@ export function WebSshSessionsDock({
           );
         })}
       </div>
+
+      <AtlasAlertDialog
+        open={popoutAlert !== null}
+        title="Ventana emergente bloqueada"
+        message={popoutAlert ?? ""}
+        onClose={() => setPopoutAlert(null)}
+      />
     </motion.div>
   );
 }

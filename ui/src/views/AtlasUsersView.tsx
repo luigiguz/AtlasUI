@@ -11,6 +11,8 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 
 import type { AtlasRoleRef, AuthUser } from "../atlasAuth";
 import { api } from "../apiClient";
+import { AtlasAlertDialog } from "../components/AtlasAlertDialog";
+import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
 
 type ListedUser = {
   id: number;
@@ -185,6 +187,8 @@ export function AtlasUsersView({ me }: Props) {
   const [rows, setRows] = useState<ListedUser[]>([]);
   const [roleOptions, setRoleOptions] = useState<RoleOption[]>([]);
   const [loadErr, setLoadErr] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<ListedUser | null>(null);
+  const [alertMsg, setAlertMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
 
@@ -330,13 +334,12 @@ export function AtlasUsersView({ me }: Props) {
   };
 
   const doDelete = async (u: ListedUser) => {
-    if (!window.confirm(`¿Eliminar a «${displayName(u)}» (${u.username})?`)) return;
     try {
       await api(`/api/auth/users/${encodeURIComponent(u.username)}`, { method: "DELETE" });
       if (editUser?.username === u.username) setEditUser(null);
       await reload();
     } catch (ex) {
-      window.alert(String(ex));
+      setAlertMsg(String(ex));
     }
   };
 
@@ -451,7 +454,7 @@ export function AtlasUsersView({ me }: Props) {
                           <button
                             type="button"
                             disabled={isSelf}
-                            onClick={() => void doDelete(u)}
+                            onClick={() => setPendingDelete(u)}
                             className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-rose-300 ring-1 ring-rose-500/25 disabled:opacity-40"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -546,6 +549,30 @@ export function AtlasUsersView({ me }: Props) {
           </Modal>
         ) : null}
       </AnimatePresence>
+
+      <AtlasConfirmDialog
+        open={pendingDelete !== null}
+        title="Eliminar usuario"
+        message={
+          pendingDelete
+            ? `¿Eliminar a «${displayName(pendingDelete)}» (${pendingDelete.username})? Esta acción no se puede deshacer.`
+            : ""
+        }
+        confirmLabel="Eliminar"
+        variant="danger"
+        onConfirm={() => {
+          const u = pendingDelete;
+          setPendingDelete(null);
+          if (u) void doDelete(u);
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
+      <AtlasAlertDialog
+        open={alertMsg !== null}
+        title="No se pudo eliminar"
+        message={alertMsg ?? ""}
+        onClose={() => setAlertMsg(null)}
+      />
     </motion.div>
   );
 }

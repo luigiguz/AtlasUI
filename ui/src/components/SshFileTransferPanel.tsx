@@ -23,6 +23,8 @@ import {
 } from "react";
 
 import { api, apiUrl, bearerHeaders, getAccessToken } from "../apiClient";
+import { AtlasConfirmDialog } from "./AtlasConfirmDialog";
+import { AtlasPromptDialog } from "./AtlasPromptDialog";
 import { SftpTransferQueue, type TransferJob } from "./SftpTransferQueue";
 
 type SftpEntry = {
@@ -171,6 +173,8 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
   const cancelTransferRef = useRef<Map<string, () => void>>(new Map());
   const [fileDragOver, setFileDragOver] = useState(false);
   const fileDragDepthRef = useRef(0);
+  const [pendingDelete, setPendingDelete] = useState<SftpEntry | null>(null);
+  const [mkdirOpen, setMkdirOpen] = useState(false);
 
   const transferBusy = transfers.some((t) => t.status === "active" || t.status === "pending");
 
@@ -549,13 +553,8 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
     void handleIncomingFiles(e.dataTransfer.files);
   };
 
-  const deleteSelected = async () => {
+  const performDelete = async (ent: SftpEntry) => {
     if (!sessionId) return;
-    if (selected === "parent") return;
-    const ent = selectedEntry;
-    if (!ent) return;
-    const label = ent.is_dir ? "carpeta" : "archivo";
-    if (!window.confirm(`¿Eliminar ${label} «${ent.name}»?`)) return;
     setError("");
     try {
       const q = new URLSearchParams({ path: ent.path });
@@ -568,10 +567,8 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
     }
   };
 
-  const mkdir = async () => {
+  const performMkdir = async (name: string) => {
     if (!sessionId) return;
-    const name = window.prompt("Nombre de la nueva carpeta:");
-    if (!name?.trim()) return;
     const base = cwd === "/" ? "" : cwd.replace(/\/$/, "");
     const remote = `${base}/${name.trim()}`.replace(/\/+/g, "/") || `/${name.trim()}`;
     try {
@@ -584,6 +581,39 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
       setError(String(e));
     }
   };
+
+  const atlasDialogs = (
+    <>
+      <AtlasConfirmDialog
+        open={pendingDelete !== null}
+        title="Eliminar"
+        message={
+          pendingDelete
+            ? `¿Eliminar ${pendingDelete.is_dir ? "la carpeta" : "el archivo"} «${pendingDelete.name}»?`
+            : ""
+        }
+        confirmLabel="Eliminar"
+        variant="danger"
+        onConfirm={() => {
+          const ent = pendingDelete;
+          setPendingDelete(null);
+          if (ent) void performDelete(ent);
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
+      <AtlasPromptDialog
+        open={mkdirOpen}
+        title="Nueva carpeta"
+        label="Nombre de la carpeta"
+        confirmLabel="Crear"
+        onConfirm={(name) => {
+          setMkdirOpen(false);
+          void performMkdir(name);
+        }}
+        onCancel={() => setMkdirOpen(false)}
+      />
+    </>
+  );
 
   const onPathKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && sessionId) navigateTo(pathInput);
@@ -600,6 +630,7 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
 
   if (!sessionId) {
     return (
+      <>
       <div
         className={`relative flex min-h-0 flex-1 flex-col bg-[#0a0a0b] text-zinc-300 ${
           variant === "sidebar" ? "p-3" : "items-center justify-center p-6"
@@ -643,10 +674,13 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
           </button>
         ) : null}
       </div>
+      {atlasDialogs}
+      </>
     );
   }
 
   return (
+    <>
     <div
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0a0a0b] text-zinc-200"
       onDragEnter={onFileDragEnter}
@@ -676,13 +710,17 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
         <ToolbarBtn title="Actualizar" onClick={refresh} disabled={loading}>
           <RefreshCw className={`h-3.5 w-3.5 text-[#16a34a] ${loading ? "animate-spin" : ""}`} strokeWidth={2.2} />
         </ToolbarBtn>
-        <ToolbarBtn title="Nueva carpeta" onClick={() => void mkdir()} disabled={transferBusy}>
+        <ToolbarBtn title="Nueva carpeta" onClick={() => setMkdirOpen(true)} disabled={transferBusy}>
           <FolderPlus className="h-3.5 w-3.5 text-[#ca8a04]" strokeWidth={2.2} />
         </ToolbarBtn>
         <ToolbarBtn title="Nuevo archivo (subir vacío)" onClick={() => uploadRef.current?.click()} disabled>
           <FilePlus className="h-3.5 w-3.5 text-[#6b7280]" strokeWidth={2.2} />
         </ToolbarBtn>
-        <ToolbarBtn title="Eliminar" onClick={() => void deleteSelected()} disabled={!selectedEntry}>
+        <ToolbarBtn
+          title="Eliminar"
+          onClick={() => selectedEntry && setPendingDelete(selectedEntry)}
+          disabled={!selectedEntry}
+        >
           <Trash2 className="h-3.5 w-3.5 text-[#dc2626]" strokeWidth={2.2} />
         </ToolbarBtn>
         <div className="ml-auto pr-1">
@@ -812,6 +850,8 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
         onDismiss={dismissTransfer}
       />
     </div>
+    {atlasDialogs}
+    </>
   );
   },
 );

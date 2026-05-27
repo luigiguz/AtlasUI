@@ -10,6 +10,8 @@ import {
   type AuthUser,
 } from "../atlasAuth";
 import { api } from "../apiClient";
+import { AtlasAlertDialog } from "../components/AtlasAlertDialog";
+import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
 
 type RoleRow = {
   id: number;
@@ -92,6 +94,8 @@ export function AtlasRolesView({ me }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saveErr, setSaveErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<RoleRow | null>(null);
+  const [alertMsg, setAlertMsg] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     setErr("");
@@ -190,12 +194,11 @@ export function AtlasRolesView({ me }: Props) {
 
   const doDelete = async (r: RoleRow) => {
     if (!canManage || r.is_system) return;
-    if (!window.confirm(`¿Eliminar el rol «${r.name}»?`)) return;
     try {
       await api(`/api/auth/roles/${encodeURIComponent(r.slug)}`, { method: "DELETE" });
       await reload();
     } catch (ex) {
-      window.alert(String(ex));
+      setAlertMsg(String(ex));
     }
   };
 
@@ -339,7 +342,7 @@ export function AtlasRolesView({ me }: Props) {
                         {canManage && !r.is_system ? (
                           <button
                             type="button"
-                            onClick={() => void doDelete(r)}
+                            onClick={() => setPendingDelete(r)}
                             className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-rose-300 ring-1 ring-rose-500/25 hover:bg-rose-500/10"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -441,6 +444,30 @@ export function AtlasRolesView({ me }: Props) {
           </Modal>
         ) : null}
       </AnimatePresence>
+
+      <AtlasConfirmDialog
+        open={pendingDelete !== null}
+        title="Eliminar rol"
+        message={
+          pendingDelete
+            ? `¿Eliminar el rol «${pendingDelete.name}»? Los usuarios que lo tengan asignado perderán ese rol.`
+            : ""
+        }
+        confirmLabel="Eliminar"
+        variant="danger"
+        onConfirm={() => {
+          const r = pendingDelete;
+          setPendingDelete(null);
+          if (r) void doDelete(r);
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
+      <AtlasAlertDialog
+        open={alertMsg !== null}
+        title="No se pudo eliminar"
+        message={alertMsg ?? ""}
+        onClose={() => setAlertMsg(null)}
+      />
     </motion.div>
   );
 }

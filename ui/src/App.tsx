@@ -41,6 +41,7 @@ import {
   type AuthUser,
 } from "./atlasAuth";
 import type { AtlasRouteId } from "./atlasNav";
+import { AtlasConfirmDialog } from "./components/AtlasConfirmDialog";
 import { AuthLoginPanel } from "./components/AuthLoginPanel";
 import { AtlasShell } from "./components/AtlasShell";
 import { PoweredByVerkkutech } from "./components/PoweredByVerkkutech";
@@ -271,6 +272,13 @@ export default function App() {
   const [posliteListPage, setPosliteListPage] = useState(0);
   const [logOpen, setLogOpen] = useState(true);
   const [logs, setLogs] = useState<string[]>([]);
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    variant?: "danger" | "default";
+    onConfirm: () => void;
+  } | null>(null);
   const [sshWebSessions, setSshWebSessions] = useState<SshWebSession[]>([]);
   const [activeSshWebId, setActiveSshWebId] = useState<string | null>(null);
   const [sshPopoutParams] = useState(() =>
@@ -564,13 +572,6 @@ export default function App() {
   };
 
   const deleteCfCredentials = async () => {
-    if (
-      !window.confirm(
-        "¿Eliminar las credenciales Cloudflare guardadas en este equipo (.atlas/settings.json)?"
-      )
-    ) {
-      return;
-    }
     try {
       await api("/api/settings", {
         method: "POST",
@@ -595,13 +596,6 @@ export default function App() {
   };
 
   const newCfConfigurationForm = () => {
-    if (
-      !window.confirm(
-        "¿Vaciar el formulario para una configuración nueva? Los datos en disco no cambian hasta que pulses «Guardar»."
-      )
-    ) {
-      return;
-    }
     setAcc("");
     setTok("");
     setZone("");
@@ -1033,9 +1027,16 @@ export default function App() {
                       type="button"
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
-                      onClick={() => {
-                        if (window.confirm("¿Detener todos los túneles?")) void doStop(null);
-                      }}
+                      onClick={() =>
+                        setPendingConfirm({
+                          title: "Detener todos los túneles",
+                          message:
+                            "Se detendrán todos los túneles SSH activos en este equipo. Las sesiones de terminal web también se cerrarán.",
+                          confirmLabel: "Detener todo",
+                          variant: "danger",
+                          onConfirm: () => void doStop(null),
+                        })
+                      }
                       className="rounded-lg bg-rose-600/90 px-3 py-1.5 text-xs font-semibold text-white"
                     >
                       Detener todo
@@ -1120,7 +1121,16 @@ export default function App() {
                     type="button"
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    onClick={() => void deleteCfCredentials()}
+                    onClick={() =>
+                      setPendingConfirm({
+                        title: "Eliminar credenciales Cloudflare",
+                        message:
+                          "¿Eliminar las credenciales guardadas en este equipo (.atlas/settings.json)?",
+                        confirmLabel: "Eliminar",
+                        variant: "danger",
+                        onConfirm: () => void deleteCfCredentials(),
+                      })
+                    }
                     className="inline-flex items-center gap-2 rounded-xl bg-rose-950/80 px-4 py-2.5 text-sm font-medium text-rose-100 ring-1 ring-rose-500/40"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -1130,7 +1140,15 @@ export default function App() {
                     type="button"
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    onClick={newCfConfigurationForm}
+                    onClick={() =>
+                      setPendingConfirm({
+                        title: "Nueva configuración",
+                        message:
+                          "¿Vaciar el formulario para una configuración nueva? Los datos en disco no cambian hasta que pulses «Guardar».",
+                        confirmLabel: "Vaciar formulario",
+                        onConfirm: newCfConfigurationForm,
+                      })
+                    }
                     className="inline-flex items-center gap-2 rounded-xl bg-zinc-800 px-4 py-2.5 text-sm font-medium text-zinc-200 ring-1 ring-zinc-600"
                   >
                     <PlusCircle className="h-4 w-4" />
@@ -1319,6 +1337,19 @@ export default function App() {
         )}
       </AtlasShell>
 
+      <AtlasConfirmDialog
+        open={pendingConfirm !== null}
+        title={pendingConfirm?.title ?? ""}
+        message={pendingConfirm?.message ?? ""}
+        confirmLabel={pendingConfirm?.confirmLabel}
+        variant={pendingConfirm?.variant ?? "default"}
+        onConfirm={() => {
+          const fn = pendingConfirm?.onConfirm;
+          setPendingConfirm(null);
+          fn?.();
+        }}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   );
 }
