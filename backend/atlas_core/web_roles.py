@@ -153,6 +153,8 @@ def update_role(
         row = session.scalar(select(Role).where(Role.slug == key))
         if not row:
             raise ValueError("Rol no encontrado.")
+        if row.is_system or key in SYSTEM_ROLE_DEFINITIONS:
+            raise ValueError("Los roles de sistema no se pueden editar.")
         if name is not None:
             nm = name.strip()
             if not nm or len(nm) > 64:

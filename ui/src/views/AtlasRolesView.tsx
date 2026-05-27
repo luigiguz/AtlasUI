@@ -125,7 +125,7 @@ export function AtlasRolesView({ me }: Props) {
   };
 
   const openEdit = (r: RoleRow, opts?: { readOnly?: boolean }) => {
-    setEditorReadOnly(Boolean(opts?.readOnly));
+    setEditorReadOnly(Boolean(opts?.readOnly) || r.is_system);
     setEditor(r);
     setSlug(r.slug);
     setName(r.name);
@@ -150,6 +150,10 @@ export function AtlasRolesView({ me }: Props) {
     const perms = [...selected];
     if (!perms.length) {
       setSaveErr("Selecciona al menos un permiso.");
+      return;
+    }
+    if (editor !== "new" && editor.is_system) {
+      setSaveErr("Los roles de sistema no se pueden editar.");
       return;
     }
     setBusy(true);
@@ -239,7 +243,8 @@ export function AtlasRolesView({ me }: Props) {
           <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Administración</p>
           <h2 className="mt-1 text-lg font-semibold text-zinc-100">Roles y permisos</h2>
           <p className="mt-1 max-w-xl text-sm text-zinc-500">
-            Define qué puede hacer cada rol. Los roles de sistema se pueden editar pero no eliminar.
+            Los roles de sistema (Administrador, Operador, Solo lectura) son fijos: solo puedes
+            consultarlos. Los roles que crees con «Nuevo rol» sí se pueden editar y eliminar.
           </p>
         </div>
         {canManage ? (
@@ -303,7 +308,17 @@ export function AtlasRolesView({ me }: Props) {
                     <td className="px-4 py-3 text-xs text-zinc-400">{r.permissions.length} permisos</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1.5">
-                        {canManage ? (
+                        {r.is_system ? (
+                          canView ? (
+                            <button
+                              type="button"
+                              onClick={() => openEdit(r, { readOnly: true })}
+                              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs ring-1 ring-cf-line hover:bg-white/5"
+                            >
+                              Ver
+                            </button>
+                          ) : null
+                        ) : canManage ? (
                           <button
                             type="button"
                             onClick={() => openEdit(r)}
@@ -354,7 +369,12 @@ export function AtlasRolesView({ me }: Props) {
             onClose={() => setEditor(null)}
           >
             <form className="space-y-4" onSubmit={(e) => void submit(e)}>
-              {editorReadOnly || (!canManage && editor !== "new") ? (
+              {editor !== "new" && editor.is_system ? (
+                <p className="rounded-lg border border-cf-line/80 bg-black/30 px-3 py-2 text-xs text-zinc-400">
+                  Rol de sistema: no se puede modificar. Crea un rol nuevo si necesitas permisos
+                  personalizados.
+                </p>
+              ) : editorReadOnly || (!canManage && editor !== "new") ? (
                 <p className="rounded-lg border border-cf-line/80 bg-black/30 px-3 py-2 text-xs text-zinc-400">
                   Solo lectura. Para modificar permisos asigna{" "}
                   <span className="font-mono text-zinc-300">atlas:roles:Manage</span> a tu usuario.
