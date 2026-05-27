@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
 import asyncssh
-from asyncssh.sftp import SFTPClient, SFTPName
+from asyncssh.sftp import FILEXFER_TYPE_DIRECTORY, SFTPClient, SFTPName
 
 from atlas_vpn.ssh_shared import get_cached_ssh_password
 from atlas_vpn.ssh_tunnel import SshTunnelError, resolve_site_ssh
@@ -223,14 +223,20 @@ async def list_directory(session_id: str, path: str) -> dict[str, Any]:
 
 
 def _entry_is_dir(ent: SFTPName) -> bool:
+    """Detecta directorios; attrs.type es FILEXFER (p. ej. 2), no modo POSIX."""
     attrs = ent.attrs
     if not attrs:
-        return False
-    if attrs.type is not None:
-        return stat.S_ISDIR(attrs.type)
-    if attrs.permissions is not None:
-        return stat.S_ISDIR(attrs.permissions)
-    return False
+        return _longname_is_dir(ent)
+    if attrs.type == FILEXFER_TYPE_DIRECTORY:
+        return True
+    if attrs.permissions is not None and stat.S_ISDIR(attrs.permissions):
+        return True
+    return _longname_is_dir(ent)
+
+
+def _longname_is_dir(ent: SFTPName) -> bool:
+    ln = (ent.longname or "").strip()
+    return len(ln) > 0 and ln[0] == "d"
 
 
 async def read_file_chunks(session_id: str, path: str, *, chunk_size: int = 65536) -> AsyncIterator[bytes]:

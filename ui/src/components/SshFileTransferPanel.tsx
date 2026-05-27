@@ -2,7 +2,10 @@ import {
   ArrowDownToLine,
   ArrowUpToLine,
   ChevronDown,
+  File,
   FilePlus,
+  Folder,
+  FolderOpen,
   FolderPlus,
   FolderUp,
   Loader2,
@@ -62,56 +65,31 @@ function isHiddenName(name: string): boolean {
   return name.startsWith(".");
 }
 
-function MobaFolderIcon({ hidden }: { hidden?: boolean }): ReactElement {
-  const fill = hidden ? "#78716c" : "#eab308";
-  const stroke = hidden ? "#57534e" : "#ca8a04";
+function SftpFolderIcon({ hidden, open }: { hidden?: boolean; open?: boolean }): ReactElement {
+  const Icon = open ? FolderOpen : Folder;
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" className="shrink-0" aria-hidden>
-      <path
-        d="M1.5 4.5h4.2l1.3 1.5h7.5v7.5H1.5V4.5z"
-        fill={fill}
-        stroke={stroke}
-        strokeWidth="0.6"
-      />
-      <path d="M1.5 4.5h4.2l1.3 1.5H1.5z" fill={hidden ? "#a68458" : "#ffe566"} />
-    </svg>
+    <Icon
+      className={`h-4 w-4 shrink-0 ${
+        hidden ? "fill-stone-600/70 text-stone-500" : "fill-amber-400/90 text-amber-300"
+      }`}
+      strokeWidth={1.75}
+      aria-hidden
+    />
   );
 }
 
-function MobaFileIcon({ hidden, ext }: { hidden?: boolean; ext?: string }): ReactElement {
-  const body = hidden ? "#52525b" : "#a1a1aa";
-  const fold = hidden ? "#3f3f46" : "#71717a";
-  const accent =
-    ext === "json"
-      ? "#4a90d9"
-      : ext === "txt" || ext === "log"
-        ? "#6b8e6b"
-        : ext === "sh"
-          ? "#8b7355"
-          : "#888";
+function SftpFileIcon({ hidden }: { hidden?: boolean }): ReactElement {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" className="shrink-0" aria-hidden>
-      <path d="M3 1.5h5l2 2v9.5H3V1.5z" fill={body} stroke="#666" strokeWidth="0.4" />
-      <path d="M8 1.5v2.5h2.5L8 1.5z" fill={fold} stroke="#666" strokeWidth="0.3" />
-      {!hidden && ext ? (
-        <rect x="4" y="9" width="7" height="2.5" rx="0.3" fill={accent} opacity="0.85" />
-      ) : null}
-    </svg>
+    <File
+      className={`h-4 w-4 shrink-0 ${hidden ? "text-zinc-600" : "text-sky-400/90"}`}
+      strokeWidth={1.75}
+      aria-hidden
+    />
   );
 }
 
-function MobaParentIcon(): ReactElement {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" className="shrink-0" aria-hidden>
-      <path d="M2 3h5l1.5 1.8H14v8.2H2V3z" fill="#d8d8d8" stroke="#888" strokeWidth="0.5" />
-      <path d="M6 8.5 4 6.5h4L6 8.5z" fill="#4a7fc1" />
-    </svg>
-  );
-}
-
-function fileExt(name: string): string {
-  const i = name.lastIndexOf(".");
-  return i > 0 ? name.slice(i + 1).toLowerCase() : "";
+function SftpParentIcon(): ReactElement {
+  return <FolderUp className="h-4 w-4 shrink-0 text-cf-orange" strokeWidth={1.75} aria-hidden />;
 }
 
 function ToolbarBtn({
@@ -805,34 +783,34 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
                   onClick={() => setSelected("parent")}
                   onDoubleClick={goUp}
                 >
-                  <MobaParentIcon />
-                  <span className="truncate">..</span>
+                  <SftpParentIcon />
+                  <span className="truncate font-medium text-zinc-300">..</span>
                 </button>
               </li>
             ) : null}
             {sortedEntries.map((ent) => {
               const hidden = isHiddenName(ent.name);
-              const ext = fileExt(ent.name);
               const isSel = selectedEntry?.path === ent.path;
+              const isDir = ent.is_dir;
               return (
                 <li key={ent.path}>
                   <button
                     type="button"
-                    className={`flex w-full items-center gap-1 px-1 py-px text-left ${
+                    className={`flex w-full items-center gap-1.5 px-1 py-px text-left ${
                       isSel ? "bg-cf-orange/25 text-zinc-100" : "hover:bg-white/[0.04]"
-                    } ${hidden && !isSel ? "text-zinc-500" : "text-zinc-200"}`}
+                    } ${hidden && !isSel ? "text-zinc-500" : isDir ? "text-amber-100/90" : "text-zinc-200"}`}
                     onClick={() => setSelected(ent)}
                     onDoubleClick={() => {
-                      if (ent.is_dir) openEntry(ent);
+                      if (isDir) openEntry(ent);
                       else void downloadFile(ent);
                     }}
                   >
-                    {ent.is_dir ? (
-                      <MobaFolderIcon hidden={hidden} />
+                    {isDir ? (
+                      <SftpFolderIcon hidden={hidden} open={isSel} />
                     ) : (
-                      <MobaFileIcon hidden={hidden} ext={ext} />
+                      <SftpFileIcon hidden={hidden} />
                     )}
-                    <span className="truncate">{ent.name}</span>
+                    <span className={`truncate ${isDir ? "font-medium" : ""}`}>{ent.name}</span>
                   </button>
                 </li>
               );
