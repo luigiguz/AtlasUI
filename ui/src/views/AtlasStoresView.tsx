@@ -1257,49 +1257,6 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         onCancel={() => setRejectRequestId(null)}
       />
 
-      <AtlasConfirmDialog
-        open={publishConfirmOpen}
-        title={canApprove ? "Publicar cambios" : "Enviar para aprobación"}
-        message={
-          <>
-            {detailHasChanges ? (
-              <p>
-                {canApprove
-                  ? "Revisa el resumen antes de hacer commit y push al repositorio remoto."
-                  : "Revisa el resumen antes de enviar la solicitud. Un administrador deberá aprobarla para publicar en Git."}
-              </p>
-            ) : (
-              <p className="text-amber-200/90">
-                No hay cambios respecto a la versión cargada del servidor. Edita la ficha antes de publicar.
-              </p>
-            )}
-            {detailHasChanges ? (
-              <div className="mt-3">
-                <PublishChangeSummary lines={publishChangeLines} />
-              </div>
-            ) : null}
-            {detailHasChanges ? (
-              <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
-                Cancelar descarta los cambios locales y restaura la configuración cargada del servidor.
-              </p>
-            ) : null}
-          </>
-        }
-        confirmLabel={canApprove ? "Confirmar y publicar" : "Enviar solicitud"}
-        cancelLabel={detailHasChanges ? "Cancelar y descartar" : "Cerrar"}
-        confirmDisabled={!detailHasChanges}
-        busy={saving}
-        onConfirm={() => void executePublishDetail()}
-        onCancel={detailHasChanges ? cancelPublishConfirm : () => setPublishConfirmOpen(false)}
-      />
-
-      <AtlasAlertDialog
-        open={publishResultAlert !== null}
-        title={publishResultAlert?.title ?? ""}
-        message={publishResultAlert?.message ?? ""}
-        onClose={() => setPublishResultAlert(null)}
-      />
-
       {message && !configured ? (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">{message}</div>
       ) : null}
@@ -1692,6 +1649,49 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
           </div>
         </div>
       )}
+
+      <AtlasConfirmDialog
+        open={publishConfirmOpen}
+        title={canApprove ? "Publicar cambios" : "Enviar para aprobación"}
+        message={
+          <>
+            {detailHasChanges ? (
+              <p>
+                {canApprove
+                  ? "Revisa el resumen antes de hacer commit y push al repositorio remoto."
+                  : "Revisa el resumen antes de enviar la solicitud. Un administrador deberá aprobarla para publicar en Git."}
+              </p>
+            ) : (
+              <p className="text-amber-200/90">
+                No hay cambios respecto a la versión cargada del servidor. Edita la ficha antes de publicar.
+              </p>
+            )}
+            {detailHasChanges ? (
+              <div className="mt-3">
+                <PublishChangeSummary lines={publishChangeLines} />
+              </div>
+            ) : null}
+            {detailHasChanges ? (
+              <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
+                Cancelar descarta los cambios locales y restaura la configuración cargada del servidor.
+              </p>
+            ) : null}
+          </>
+        }
+        confirmLabel={canApprove ? "Confirmar y publicar" : "Enviar solicitud"}
+        cancelLabel={detailHasChanges ? "Cancelar y descartar" : "Cerrar"}
+        confirmDisabled={!detailHasChanges}
+        busy={saving}
+        onConfirm={() => void executePublishDetail()}
+        onCancel={detailHasChanges ? cancelPublishConfirm : () => setPublishConfirmOpen(false)}
+      />
+
+      <AtlasAlertDialog
+        open={publishResultAlert !== null}
+        title={publishResultAlert?.title ?? ""}
+        message={publishResultAlert?.message ?? ""}
+        onClose={() => setPublishResultAlert(null)}
+      />
 
       <AnimatePresence>
         {createOpen ? (
