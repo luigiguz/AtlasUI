@@ -323,15 +323,16 @@ def _merge_unique_hostnames(*batches: Iterable[str]) -> list[str]:
     return out
 
 
-def fetch_tunnel_ingress_hostnames(
+def fetch_tunnel_ingress_map(
     account_id: str, api_token: str
-) -> tuple[list[str], str | None]:
+) -> tuple[list[str], dict[str, str], str | None]:
     """
-    Hostnames públicos definidos en la configuración remota de cada túnel cloudflared.
-    Los túneles solo «locales» (config en YAML en el servidor) suelen no tener config en la API.
+    Hostnames públicos en ingress remoto y mapa hostname → nombre del túnel Zero Trust.
+    Los túneles solo «locales» (config YAML) suelen no tener config en la API.
     """
     client = Cloudflare(api_token=api_token)
     hosts: list[str] = []
+    hostname_to_tunnel: dict[str, str] = {}
     try:
         page = client.zero_trust.tunnels.cloudflared.list(
             account_id=account_id, is_deleted=False, per_page=50
@@ -341,6 +342,7 @@ def fetch_tunnel_ingress_hostnames(
                 tid = tunnel.id
                 if not tid:
                     continue
+                tunnel_name = str(getattr(tunnel, "name", None) or "").strip()
                 try:
                     cfg = client.zero_trust.tunnels.cloudflared.configurations.get(
                         tid, account_id=account_id
@@ -360,30 +362,58 @@ def fetch_tunnel_ingress_hostnames(
                     if "." not in hn:
                         continue
                     hosts.append(hn)
+                    if tunnel_name:
+                        hostname_to_tunnel[hn] = tunnel_name
             if not page.has_next_page():
                 break
             page = page.get_next_page()
     except PermissionDeniedError as e:
-        return [], (
+        return [], {}, (
             "Túneles (403): el token no puede listar túneles Cloudflare. "
             "Añade permiso de lectura de túneles (p. ej. Account → Cloudflare Tunnel → Read, "
             "o el permiso equivalente «Zero Trust / Tunnels» en tu plantilla de token). "
             + _api_error_detail(e)
         )
     except AuthenticationError as e:
-        return [], "Túneles: " + _api_error_detail(e)
+        return [], {}, "Túneles: " + _api_error_detail(e)
     except APIStatusError as e:
         if getattr(e, "status_code", None) == 403:
-            return [], (
+            return [], {}, (
                 "Túneles (403): sin permiso. Añade lectura de Cloudflare Tunnel al API Token. "
                 + _api_error_detail(e)
             )
-        return [], "Túneles: " + _api_error_detail(e)
+        return [], {}, "Túneles: " + _api_error_detail(e)
     except APIError as e:
-        return [], "Túneles: " + _api_error_detail(e)
+        return [], {}, "Túneles: " + _api_error_detail(e)
     except Exception as e:
-        return [], f"Túneles: {e}"
-    return sorted(set(hosts)), None
+        return [], {}, f"Túneles: {e}"
+    return sorted(set(hosts)), hostname_to_tunnel, None
+
+
+def fetch_tunnel_ingress_hostnames(
+    account_id: str, api_token: str
+) -> tuple[list[str], str | None]:
+    hosts, _map, err = fetch_tunnel_ingress_map(account_id, api_token)
+    return hosts, err
+
+
+def _tunnel_name_for_entry(
+    entry: dict[str, Any], hostname_to_tunnel: dict[str, str]
+) -> str | None:
+    for role in ("ssh", "db"):
+        block = entry.get(role)
+        if not isinstance(block, dict):
+            continue
+        hn = _host_only(str(block.get("hostname") or ""))
+        if hn and hn in hostname_to_tunnel:
+            return hostname_to_tunnel[hn]
+    return None
+
+
+def _apply_tunnel_name(entry: dict[str, Any], hostname_to_tunnel: dict[str, str]) -> None:
+    tn = _tunnel_name_for_entry(entry, hostname_to_tunnel)
+    if tn:
+        entry["tunnel_name"] = tn
 
 
 def fetch_dns_cname_tunnel_hostnames(
@@ -584,7 +614,7 @@ def sync_to_tunnels_json(
     path = tunnels_path or TUNNELS_JSON
     apps = fetch_access_applications(account_id, api_token, zid if zid else None)
     h_access = hostnames_from_access_apps(apps)
-    h_tunnel, err_tunnel = fetch_tunnel_ingress_hostnames(account_id, api_token)
+    h_tunnel, hostname_to_tunnel, err_tunnel = fetch_tunnel_ingress_map(account_id, api_token)
     h_dns: list[str] = []
     err_dns: str | None = None
     if zid:
@@ -620,11 +650,16 @@ def sync_to_tunnels_json(
                 "hostname": h,
                 "local_port": _port_for_role(site, "db", h, old_sites, ssh_used, db_used),
             }
+        _apply_tunnel_name(entry, hostname_to_tunnel)
         merged[site] = entry
 
     for site, entry in old_sites.items():
         if site not in merged:
             merged[site] = entry
+
+    for entry in merged.values():
+        if isinstance(entry, dict):
+            _apply_tunnel_name(entry, hostname_to_tunnel)
 
     portal_by_site = discover_poslite_suffixes_by_site(merged_hosts, suf_n, merged.keys())
     for site, entry in merged.items():
@@ -639,6 +674,9 @@ def sync_to_tunnels_json(
         "access_apps_seen": len(apps),
         "access_hostnames_seen": len(set(h_access)),
         "tunnel_ingress_hostnames_seen": len(set(h_tunnel)),
+        "tunnel_names_mapped": sum(
+            1 for e in merged.values() if isinstance(e, dict) and e.get("tunnel_name")
+        ),
         "dns_tunnel_cnames_seen": len(set(h_dns)),
         "hostnames_candidates": len(merged_hosts),
         "sites_matched": len(discovered),

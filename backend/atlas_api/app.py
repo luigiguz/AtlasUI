@@ -294,10 +294,14 @@ def _sites_payload(config_path: Path) -> dict[str, Any]:
         pr_ssh = _proc_for_site_label(state, name, "ssh")
         pr_db = _proc_for_site_label(state, name, "db")
         portal_links = poslite_links_for_site(name, domain_suffix, e, root_pd)
+        tunnel_name = str(e.get("tunnel_name") or "").strip()
+        display = tunnel_name or name
         sites_out.append(
             {
                 "id": name,
                 "name": name,
+                "tunnelName": tunnel_name or None,
+                "displayName": display,
                 "ssh": ssh,
                 "db": db,
                 "sshStatus": _state_label(pr_ssh),

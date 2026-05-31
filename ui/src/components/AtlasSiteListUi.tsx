@@ -4,12 +4,21 @@ import type { Dispatch, SetStateAction } from "react";
 export type SiteRow = {
   id: string;
   name: string;
+  /** Nombre del túnel en Cloudflare Zero Trust (sync). */
+  tunnelName?: string | null;
+  /** Nombre visible: tunnelName ?? name */
+  displayName?: string;
   ssh?: { hostname: string; local_port: number } | null;
   db?: { hostname: string; local_port: number } | null;
   sshStatus: string;
   dbStatus: string;
   posliteUrls?: { url: string; suffix?: string | null; port?: number | null }[];
 };
+
+/** Etiqueta visible del sitio (túnel Zero Trust si existe). */
+export function siteDisplayName(site: SiteRow): string {
+  return (site.displayName || site.tunnelName || site.name || site.id).trim();
+}
 
 /** Tarjetas por página en Conexiones y DNS. */
 export const SITES_PAGE_SIZE = 12;
@@ -35,7 +44,15 @@ export const siteRowVariants = {
 export function filterSitesByNameQuery(sites: SiteRow[], query: string): SiteRow[] {
   const t = query.trim().toLowerCase();
   if (!t) return sites;
-  return sites.filter((s) => s.name.toLowerCase().includes(t) || s.id.toLowerCase().includes(t));
+  return sites.filter((s) => {
+    const label = siteDisplayName(s).toLowerCase();
+    return (
+      label.includes(t) ||
+      s.name.toLowerCase().includes(t) ||
+      s.id.toLowerCase().includes(t) ||
+      (s.tunnelName ?? "").toLowerCase().includes(t)
+    );
+  });
 }
 
 export function SitePaginationBar({

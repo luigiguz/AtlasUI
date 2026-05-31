@@ -94,6 +94,7 @@ export type PvcsResponse = {
   ssh: {
     clusterName?: string;
     store: string;
+    tunnelName?: string | null;
     site: string | null;
     available: boolean;
     message: string | null;

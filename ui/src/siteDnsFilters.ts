@@ -5,6 +5,7 @@ import {
   type FilterRule,
 } from "./components/AtlasFieldFilters";
 import type { SiteRow } from "./components/AtlasSiteListUi";
+import { siteDisplayName } from "./components/AtlasSiteListUi";
 
 export type SiteDnsFilterField = "name" | "id" | "url" | "suffix" | "port";
 
@@ -20,7 +21,7 @@ function dnsFieldValue(site: SiteRow, field: SiteDnsFilterField): string {
   const urls = site.posliteUrls ?? [];
   switch (field) {
     case "name":
-      return site.name;
+      return siteDisplayName(site);
     case "id":
       return site.id;
     case "url":
@@ -37,8 +38,10 @@ function dnsFieldValue(site: SiteRow, field: SiteDnsFilterField): string {
 export function matchesSiteDnsSearch(site: SiteRow, query: string): boolean {
   const urls = site.posliteUrls ?? [];
   return matchesQuickSearch(query, [
+    siteDisplayName(site),
     site.name,
     site.id,
+    site.tunnelName,
     ...urls.map((u) => u.url),
     ...urls.map((u) => u.suffix),
     ...urls.map((u) => u.port),

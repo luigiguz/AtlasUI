@@ -103,9 +103,45 @@ def resolve_cluster_vpn_site(
         ssh = entry.get("ssh")
         return isinstance(ssh, dict) and ssh.get("local_port") not in (None, "")
 
+    def _tunnel_label(entry: dict[str, Any]) -> str:
+        return str(entry.get("tunnel_name") or "").strip()
+
+    def _find_site_by_tunnel_name(candidate: str) -> list[str]:
+        lower_c = candidate.lower()
+        norm_c = _normalize_site_slug(candidate)
+        matches: list[str] = []
+        for key, entry in sites.items():
+            if not isinstance(entry, dict):
+                continue
+            tn = _tunnel_label(entry)
+            if not tn:
+                continue
+            if (
+                tn == candidate
+                or tn.lower() == lower_c
+                or _normalize_site_slug(tn) == norm_c
+            ):
+                matches.append(str(key))
+        return matches
+
     site_keys = [str(k) for k in sites.keys()]
 
     for candidate in candidates:
+        tunnel_matches = _find_site_by_tunnel_name(candidate)
+        if len(tunnel_matches) == 1:
+            key = tunnel_matches[0]
+            if _site_has_ssh(key):
+                return key, None
+            entry = sites.get(key) or {}
+            tn = _tunnel_label(entry) if isinstance(entry, dict) else candidate
+            return None, f"El túnel «{tn}» existe pero no tiene SSH activo en Atlas. Actívalo en Conexiones."
+        if len(tunnel_matches) > 1:
+            joined = ", ".join(f"«{k}»" for k in tunnel_matches)
+            return (
+                None,
+                f"Varios sitios comparten el nombre de túnel «{candidate}» ({joined}).",
+            )
+
         if candidate in sites:
             if _site_has_ssh(candidate):
                 return candidate, None
@@ -137,8 +173,8 @@ def resolve_cluster_vpn_site(
 
     return (
         None,
-        f"No hay sitio VPN «{primary}» en tunnels.json. "
-        "El nombre del cluster debe coincidir con el sitio en Conexiones (p. ej. texaco-javito). "
+        f"No hay sitio VPN para el cluster/túnel «{primary}» en tunnels.json. "
+        "El nombre del cluster debe coincidir con el túnel Zero Trust o el sitio en Conexiones. "
         "Activa el túnel SSH de ese sitio.",
     )
 
@@ -191,9 +227,16 @@ def list_cluster_persistent_volume_claims(
         cluster_name,
         store_label=(store_label or "").strip(),
     )
+    tunnel_name: str | None = None
+    if site_key:
+        entry = (tm.load_config_optional(tm.default_config_path()) or {}).get("sites") or {}
+        row = entry.get(site_key) if isinstance(entry, dict) else None
+        if isinstance(row, dict):
+            tunnel_name = str(row.get("tunnel_name") or "").strip() or None
     ssh_info = {
         "clusterName": cluster_name,
         "store": (store_label or "").strip(),
+        "tunnelName": tunnel_name,
         "site": site_key,
         "available": bool(site_key),
         "message": ssh_err,

@@ -343,6 +343,7 @@ export function PvcStoragePanel({ cluster, canEdit }: Props) {
   }, [loadPvcs]);
 
   const vpnClusterName = cluster.name || cluster.displayName || "—";
+  const vpnTunnelLabel = sshInfo?.tunnelName || sshInfo?.site || vpnClusterName;
 
   const openExplorer = useCallback(
     (pvc: RancherPersistentVolumeClaim) => {
@@ -402,12 +403,10 @@ export function PvcStoragePanel({ cluster, canEdit }: Props) {
         <div>
           <p className="text-sm font-medium text-zinc-200">Volúmenes persistentes</p>
           <p className="text-[11px] text-zinc-500">
-            PVC local-path · cluster <span className="text-zinc-300">{vpnClusterName}</span>
-            {sshInfo?.site && sshInfo.site !== vpnClusterName ? (
-              <>
-                {" "}
-                → VPN <span className="text-zinc-300">{sshInfo.site}</span>
-              </>
+            PVC local-path · túnel{" "}
+            <span className="text-zinc-300">{vpnTunnelLabel}</span>
+            {sshInfo?.site && sshInfo.site !== vpnTunnelLabel ? (
+              <span className="font-mono text-[10px] text-zinc-600"> ({sshInfo.site})</span>
             ) : null}
             {sshInfo?.site ? (
               <>

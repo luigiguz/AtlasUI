@@ -12,6 +12,7 @@ import {
 import {
   SITES_PAGE_SIZE,
   SitePaginationBar,
+  siteDisplayName,
   siteListVariants,
   siteRowVariants,
   type SiteRow,
@@ -273,7 +274,7 @@ export function AtlasDnsView({ sites, domainSuffix }: Props) {
                       ? "group flex flex-row overflow-hidden rounded-2xl border border-cf-orange bg-cf-orange/10 shadow-lg shadow-cf-orange/10 ring-1 ring-cf-orange/40"
                       : "group flex flex-row overflow-hidden rounded-2xl border border-cf-line bg-cf-card/90 ring-1 ring-transparent hover:border-zinc-600 hover:bg-cf-card"
                   }
-                  aria-label={`${s.name}: ${dns.hint}`}
+                  aria-label={`${siteDisplayName(s)}: ${dns.hint}`}
                 >
                   <div
                     className={`w-2 shrink-0 self-stretch ${dnsRailClass(dns.tone)}`}
@@ -301,7 +302,12 @@ export function AtlasDnsView({ sites, domainSuffix }: Props) {
                           </span>
                         </div>
                         <div className="min-w-0 flex-1">
-                          <span className="font-semibold tracking-tight">{s.name}</span>
+                          <span className="font-semibold tracking-tight">{siteDisplayName(s)}</span>
+                          {s.tunnelName && s.tunnelName !== s.name ? (
+                            <span className="mt-0.5 block truncate font-mono text-[10px] text-zinc-600">
+                              {s.name}
+                            </span>
+                          ) : null}
                           <p className="mt-1 text-[11px] text-zinc-500">
                             Pulsa para {open ? "ocultar" : "mostrar"} registros DNS
                           </p>
