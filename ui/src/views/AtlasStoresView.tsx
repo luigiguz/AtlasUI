@@ -1,4 +1,4 @@
-﻿import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, ChevronLeft, ChevronRight, GitBranch, Loader2, Plus, RefreshCw, Save, Search, Server, Store, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 
@@ -6,8 +6,8 @@ import { api } from "../apiClient";
 import type { ClustersResponse, RancherCustomCluster } from "../rancherTypes";
 import { AtlasAlertDialog } from "../components/AtlasAlertDialog";
 import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
-import { pulseAtlasNotifications } from "../components/AtlasNotifications";
 import { AtlasLoadingSplash } from "../components/AtlasLoadingSplash";
+import { pulseAtlasNotifications } from "../components/AtlasNotifications";
 import { AtlasModalShell } from "../components/AtlasModalFrame";
 import { PublishChangeSummary, STORE_FLEET_PUBLISH_SUCCESS } from "../storeRequestUi";
 import { STORE_IMAGE_PULL_POLICIES } from "../storeTypes";
@@ -52,7 +52,7 @@ const inputClass =
 function distroLabel(d: string): string {
   if (d === "horustech") return "Horustech";
   if (d === "pam") return "PAM";
-  return d || "â€”";
+  return d || "—";
 }
 
 function workerGroupsFromStation(station: StoreDetail["station"]): StoreWorkerGroup[] {
@@ -110,6 +110,7 @@ const tagInputClass =
 
 const CLUSTERS_CACHE_MS = 60_000;
 
+
 function gitChangeBadgeClass(status: string): string {
   if (status === "unmerged") return "bg-rose-950/60 text-rose-200 ring-rose-500/30";
   if (status === "deleted") return "bg-zinc-800 text-zinc-300 ring-zinc-600/40";
@@ -125,7 +126,7 @@ function cloneStoreDetail(d: StoreDetail): StoreDetail {
 function computeStoreChangeLines(baseline: StoreDetail, current: StoreDetail): string[] {
   const lines: string[] = [];
   if (baseline.id !== current.id) {
-    lines.push(`CÃ³digo tienda: ${baseline.id} â†’ ${current.id}`);
+    lines.push(`Código tienda: ${baseline.id} → ${current.id}`);
   }
   if (Boolean(baseline.db?.pgadminEnabled) !== Boolean(current.db?.pgadminEnabled)) {
     lines.push(`PgAdmin: ${current.db?.pgadminEnabled ? "activado" : "desactivado"}`);
@@ -133,27 +134,27 @@ function computeStoreChangeLines(baseline: StoreDetail, current: StoreDetail): s
   const basePolicy = baseline.station?.pullPolicy ?? "IfNotPresent";
   const curPolicy = current.station?.pullPolicy ?? "IfNotPresent";
   if (basePolicy !== curPolicy) {
-    lines.push(`Pull policy: ${basePolicy} â†’ ${curPolicy}`);
+    lines.push(`Pull policy: ${basePolicy} → ${curPolicy}`);
   }
   const baseConfig = (baseline.station?.config ?? {}) as Record<string, unknown>;
   const curConfig = (current.station?.config ?? {}) as Record<string, unknown>;
   for (const key of new Set([...Object.keys(baseConfig), ...Object.keys(curConfig)])) {
     const b = String(baseConfig[key] ?? "");
     const c = String(curConfig[key] ?? "");
-    if (b !== c) lines.push(`Config ${key}: ${b || "â€”"} â†’ ${c || "â€”"}`);
+    if (b !== c) lines.push(`Config ${key}: ${b || "—"} → ${c || "—"}`);
   }
   const baseSvc = new Map((baseline.station?.services ?? []).map((s) => [s.key, s]));
   for (const svc of current.station?.services ?? []) {
     const prev = baseSvc.get(svc.key);
     if (!prev) {
-      lines.push(`Servicio ${svc.key}: nuevo (${svc.enabled ? "on" : "off"}, tag ${svc.tag || "â€”"})`);
+      lines.push(`Servicio ${svc.key}: nuevo (${svc.enabled ? "on" : "off"}, tag ${svc.tag || "—"})`);
       continue;
     }
     if (prev.enabled !== svc.enabled) {
       lines.push(`Servicio ${svc.key}: ${svc.enabled ? "activado" : "desactivado"}`);
     }
     if (prev.tag !== svc.tag) {
-      lines.push(`Servicio ${svc.key} tag: ${prev.tag || "â€”"} â†’ ${svc.tag || "â€”"}`);
+      lines.push(`Servicio ${svc.key} tag: ${prev.tag || "—"} → ${svc.tag || "—"}`);
     }
   }
   const baseWrk = new Map(
@@ -167,11 +168,12 @@ function computeStoreChangeLines(baseline: StoreDetail, current: StoreDetail): s
       lines.push(`Proceso ${label}: ${wrk.enabled ? "activado" : "desactivado"}`);
     }
     if (prev.tag !== wrk.tag) {
-      lines.push(`Proceso ${label} tag: ${prev.tag || "â€”"} â†’ ${wrk.tag || "â€”"}`);
+      lines.push(`Proceso ${label} tag: ${prev.tag || "—"} → ${wrk.tag || "—"}`);
     }
   }
   return lines;
 }
+
 
 export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const [stores, setStores] = useState<StoreSummary[]>([]);
@@ -226,7 +228,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const [discardConfirm, setDiscardConfirm] = useState<StoreGitDiscardMode | null>(null);
   const [discarding, setDiscarding] = useState(false);
   const [discardMsg, setDiscardMsg] = useState("");
-  const [publishMessage, setPublishMessage] = useState("Atlas: publicar cambios locales del cachÃ©");
+  const [publishMessage, setPublishMessage] = useState("Atlas: publicar cambios locales del caché");
   const [publishing, setPublishing] = useState(false);
 
   const [pendingFolders, setPendingFolders] = useState<string[]>([]);
@@ -245,11 +247,11 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     if (dbTpl?.source === "reference") {
       dbPath = `${dbTpl.templatePath} (referencia; falta ${dbTpl.primaryTemplatePath})`;
     } else if (dbTpl?.source === "builtin" || (dbTpl && !dbTpl.available)) {
-      dbPath = "plantilla mÃ­nima integrada (sin db en el repo)";
+      dbPath = "plantilla mínima integrada (sin db en el repo)";
     } else if (dbTpl?.available) {
       dbPath = dbTpl.templatePath;
     }
-    return `Se copiarÃ¡ ${stationPath} y ${dbPath}, sustituyendo <id-tienda> y <tag-imagen> (${newChannel}).`;
+    return `Se copiará ${stationPath} y ${dbPath}, sustituyendo <id-tienda> y <tag-imagen> (${newChannel}).`;
   }, [newDistro, newChannel, storeTemplates]);
 
   const publishChangeLines = useMemo(() => {
@@ -275,6 +277,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       setGitStatusLoading(false);
     }
   }, []);
+
 
   const loadStores = useCallback(async () => {
     setLoading(true);
@@ -352,6 +355,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     void loadStores();
   }, [loadStores]);
 
+
+
   useEffect(() => {
     if (!canAdmin || !settingsOpen) return;
     void (async () => {
@@ -390,7 +395,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       setSettingsOpen(false);
       await loadStores();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al guardar conexiÃ³n.");
+      setError(err instanceof Error ? err.message : "Error al guardar conexión.");
     } finally {
       setCfgSaving(false);
     }
@@ -417,10 +422,10 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         setCfgToken("");
       }
       const r = await api<{ message: string }>("/api/atlas-stores/settings/test", { method: "POST" });
-      setCfgTestMsg(r.message ?? "ConexiÃ³n correcta.");
+      setCfgTestMsg(r.message ?? "Conexión correcta.");
     } catch (e) {
       setCfgTestMsg("");
-      setError(e instanceof Error ? e.message : "Error al probar la conexiÃ³n Git.");
+      setError(e instanceof Error ? e.message : "Error al probar la conexión Git.");
     } finally {
       setCfgTesting(false);
     }
@@ -467,7 +472,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   }
 
   const gitErrorHint = useMemo(
-    () => Boolean(error && /merge|conflicto|repositorio local|cach[eÃ©] git|needs merge/i.test(error)),
+    () => Boolean(error && /merge|conflicto|repositorio local|cach[eé] git|needs merge/i.test(error)),
     [error]
   );
 
@@ -478,11 +483,11 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const discardConfirmCopy = useMemo(() => {
     if (discardConfirm === "remote") {
       return {
-        title: "Usar versiÃ³n remota",
+        title: "Usar versión remota",
         message: (
           <>
-            Se descartarÃ¡n todos los cambios locales del cachÃ© Git y se restaurarÃ¡ la rama{" "}
-            <strong className="text-zinc-300">{gitStatus?.branch ?? "remota"}</strong> desde el servidor. Esta acciÃ³n
+            Se descartarán todos los cambios locales del caché Git y se restaurará la rama{" "}
+            <strong className="text-zinc-300">{gitStatus?.branch ?? "remota"}</strong> desde el servidor. Esta acción
             no se puede deshacer.
           </>
         ),
@@ -493,13 +498,13 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       return {
         title: "Descartar cambios locales",
         message:
-          "Se eliminarÃ¡n los cambios sin publicar en el cachÃ© Git de Atlas. Los commits ya publicados en el remoto no se tocan.",
+          "Se eliminarán los cambios sin publicar en el caché Git de Atlas. Los commits ya publicados en el remoto no se tocan.",
         confirmLabel: "Descartar",
       };
     }
     return {
-      title: "Abortar operaciÃ³n Git",
-      message: "Se cancelarÃ¡ el merge, rebase o cherry-pick en curso. Puede que sigan quedando archivos modificados.",
+      title: "Abortar operación Git",
+      message: "Se cancelará el merge, rebase o cherry-pick en curso. Puede que sigan quedando archivos modificados.",
       confirmLabel: "Abortar",
     };
   }, [discardConfirm, gitStatus?.branch]);
@@ -526,7 +531,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
             services: detail.station?.services,
             workers: flattenWorkerGroups(workerGroupsFromStation(detail.station)),
           },
-          commit_message: `Atlas: configuraciÃ³n tienda ${detail.id}`,
+          commit_message: `Atlas: configuración tienda ${detail.id}`,
         }),
       });
       setPublishConfirmOpen(false);
@@ -557,7 +562,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       setPublishConfirmOpen(false);
       setPublishResultAlert({
         title: "No se pudo publicar",
-        message: e instanceof Error ? e.message : "Error al guardar la configuraciÃ³n.",
+        message: e instanceof Error ? e.message : "Error al guardar la configuración.",
       });
     } finally {
       setSaving(false);
@@ -598,8 +603,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         setEquipmentCheck(null);
         setCreateError(
           anyStore
-            ? `Hay un equipo para Â«${sid}Â», pero con otra distribuciÃ³n. Ajusta etiquetas en Equipos o cambia la distribuciÃ³n aquÃ­.`
-            : `No hay equipo en Rancher con tienda Â«${sid}Â». CrÃ©alo primero en Equipos con etiqueta store.`
+            ? `Hay un equipo para «${sid}», pero con otra distribución. Ajusta etiquetas en Equipos o cambia la distribución aquí.`
+            : `No hay equipo en Rancher con tienda «${sid}». Créalo primero en Equipos con etiqueta store.`
         );
         return null;
       }
@@ -647,7 +652,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     if (!canEdit) return;
     const sid = resolveNewStoreId();
     if (!sid) {
-      setCreateError("Indica el cÃ³digo de tienda.");
+      setCreateError("Indica el código de tienda.");
       return;
     }
     const eq = equipmentCheck ?? (await checkEquipmentForNewStore());
@@ -697,13 +702,13 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       });
       resetCreateModal();
       if (r.pendingApproval) {
-        setSaveMsg(r.message ?? "Solicitud enviada para aprobaciÃ³n.");
+        setSaveMsg(r.message ?? "Solicitud enviada para aprobación.");
         pulseAtlasNotifications();
         await loadStores();
         return;
       }
       setSaveMsg(
-        "Tienda registrada. Fleet desplegarÃ¡ la configuraciÃ³n en Rancher; espera unos minutos hasta que el equipo sincronice."
+        "Tienda registrada. Fleet desplegará la configuración en Rancher; espera unos minutos hasta que el equipo sincronice."
       );
       await loadStores();
       if (r.store) await loadDetail(r.store.folderName);
@@ -789,10 +794,10 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         <>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-100">GestiÃ³n de Tiendas</h1>
+          <h1 className="text-lg font-semibold text-zinc-100">Gestión de Tiendas</h1>
           <p className="text-xs text-zinc-500">
-            Configura quÃ© software se despliega en cada tienda. Al publicar, se actualiza el repositorio y el
-            despliegue automÃ¡tico lo aplica en el equipo.
+            Configura qué software se despliega en cada tienda. Al publicar, se actualiza el repositorio y el
+            despliegue automático lo aplica en el equipo.
           </p>
           <p className="mt-1 text-[11px] text-zinc-600">
             Haz clic en una tienda para abrir su ficha y gestionar servicios, tags y despliegue.
@@ -806,7 +811,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               onClick={() => setSettingsOpen((v) => !v)}
               className="rounded-lg border border-cf-line bg-cf-panel px-3 py-1.5 text-xs text-zinc-300"
             >
-              {settingsOpen ? "Cerrar conexiÃ³n" : "ConexiÃ³n repositorio"}
+              {settingsOpen ? "Cerrar conexión" : "Conexión repositorio"}
             </button>
           ) : null}
           {canEdit ? (
@@ -861,7 +866,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 value={cfgUsername}
                 onChange={(e) => setCfgUsername(e.target.value)}
                 className={inputClass}
-                placeholder="Azure DevOps: vacÃ­o o cualquier texto"
+                placeholder="Azure DevOps: vacío o cualquier texto"
                 autoComplete="username"
               />
             </label>
@@ -872,7 +877,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 value={cfgToken}
                 onChange={(e) => setCfgToken(e.target.value)}
                 className={inputClass}
-                placeholder={cfgAuthConfigured ? "Dejar vacÃ­o para no cambiar el token guardado" : "Personal Access Token con lectura y escritura en el repo"}
+                placeholder={cfgAuthConfigured ? "Dejar vacío para no cambiar el token guardado" : "Personal Access Token con lectura y escritura en el repo"}
                 autoComplete="new-password"
               />
             </label>
@@ -885,14 +890,14 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   : "bg-amber-950/40 text-amber-100 ring-amber-500/30"
               }`}
             >
-              {cfgAuthConfigured ? "Token configurado" : "Sin token â€” no podrÃ¡s publicar en repos privados"}
+              {cfgAuthConfigured ? "Token configurado" : "Sin token — no podrás publicar en repos privados"}
             </span>
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-            Atlas sincroniza el repositorio automÃ¡ticamente al cargar Tiendas (como Rancher y Cloudflare). Al crear
+            Atlas sincroniza el repositorio automáticamente al cargar Tiendas (como Rancher y Cloudflare). Al crear
             o guardar una tienda se publica en la rama configurada. Necesitas un{" "}
             <strong className="font-medium text-zinc-400">PAT</strong> con permiso de lectura/escritura en el repo.
-            En <strong className="font-medium text-zinc-400">Azure DevOps</strong> crÃ©alo en User settings â†’ Personal
+            En <strong className="font-medium text-zinc-400">Azure DevOps</strong> créalo en User settings → Personal
             access tokens (Code: Read &amp; write). En GitHub usa un fine-grained token con acceso al repo.
           </p>
           {cfgTestMsg ? <p className="mt-2 text-xs text-emerald-300">{cfgTestMsg}</p> : null}
@@ -904,10 +909,10 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-800 px-4 py-2 text-xs font-medium text-zinc-200 ring-1 ring-zinc-600 hover:bg-zinc-700 disabled:opacity-50"
             >
               {cfgTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              Probar conexiÃ³n Git
+              Probar conexión Git
             </button>
             <button type="submit" disabled={cfgSaving} className="rounded-lg bg-cf-orange px-4 py-2 text-xs font-medium text-black disabled:opacity-50">
-              {cfgSaving ? "Guardandoâ€¦" : "Guardar conexiÃ³n"}
+              {cfgSaving ? "Guardando…" : "Guardar conexión"}
             </button>
           </div>
         </form>
@@ -937,8 +942,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               </div>
               <p className="mt-1 text-xs leading-relaxed text-zinc-400">
                 {gitStatus?.blocked || gitErrorHint
-                  ? "El cachÃ© Git de Atlas quedÃ³ con conflictos (p. ej. tras sincronizar). Restaura la versiÃ³n remota para volver a operar con normalidad."
-                  : "Hay cambios locales sin publicar en el cachÃ© Git. Puedes publicarlos al remoto o descartarlos."}
+                  ? "El caché Git de Atlas quedó con conflictos (p. ej. tras sincronizar). Restaura la versión remota para volver a operar con normalidad."
+                  : "Hay cambios locales sin publicar en el caché Git. Puedes publicarlos al remoto o descartarlos."}
               </p>
               {error && (gitStatus?.blocked || gitErrorHint) ? (
                 <p className="mt-1 text-[11px] text-rose-200/80">{error}</p>
@@ -956,7 +961,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     onClick={() => setDiscardConfirm("abort")}
                     className="rounded-lg border border-cf-line bg-cf-panel px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
                   >
-                    Abortar operaciÃ³n
+                    Abortar operación
                   </button>
                 ) : null}
                 {!gitStatus?.blocked && !gitErrorHint && gitStatus?.canPublish ? (
@@ -986,7 +991,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   className="inline-flex items-center gap-1 rounded-lg bg-cf-orange px-3 py-1.5 text-xs font-medium text-black hover:brightness-110 disabled:opacity-50"
                 >
                   {discarding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                  Usar versiÃ³n remota
+                  Usar versión remota
                 </button>
               </div>
             ) : null}
@@ -999,7 +1004,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 value={publishMessage}
                 onChange={(e) => setPublishMessage(e.target.value)}
                 className={inputClass}
-                placeholder="Atlas: publicar cambios locales del cachÃ©"
+                placeholder="Atlas: publicar cambios locales del caché"
               />
             </label>
           ) : null}
@@ -1007,7 +1012,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
           {gitStatusLoading ? (
             <div className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Leyendo estado Gitâ€¦
+              Leyendo estado Git…
             </div>
           ) : gitStatus?.changes?.length ? (
             <ul className="mt-3 max-h-44 space-y-1 overflow-y-auto rounded-lg border border-white/[0.06] bg-black/25 p-2">
@@ -1047,7 +1052,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
 
       <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90">
           {loading ? (
-            <AtlasLoadingSplash message="Cargando tiendasâ€¦" minHeight="min-h-[280px]" />
+            <AtlasLoadingSplash message="Cargando tiendas…" minHeight="min-h-[280px]" />
           ) : sortedStores.length === 0 ? (
             <div className="p-10 text-center text-sm text-zinc-500">
               <Store className="mx-auto mb-2 h-8 w-8 text-zinc-600" />
@@ -1058,8 +1063,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               <thead>
                 <tr className="border-b border-cf-line/50 text-xs uppercase text-zinc-500">
                   <th className="px-4 py-3">Tienda</th>
-                  <th className="px-4 py-3">DistribuciÃ³n</th>
-                  <th className="px-4 py-3">Tag (versiÃ³n)</th>
+                  <th className="px-4 py-3">Distribución</th>
+                  <th className="px-4 py-3">Tag (versión)</th>
                   <th className="hidden px-4 py-3 text-right sm:table-cell" aria-hidden />
                 </tr>
               </thead>
@@ -1083,7 +1088,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     </td>
                     <td className="px-4 py-3 text-zinc-400">{distroLabel(s.distro)}</td>
                     <td className="px-4 py-3 text-zinc-500" title="Resumen; cada servicio puede tener otro tag en la ficha">
-                      {s.imageChannel || "â€”"}
+                      {s.imageChannel || "—"}
                     </td>
                     <td className="hidden px-4 py-3 text-right sm:table-cell">
                       <span className="inline-flex items-center gap-1 rounded-lg border border-transparent px-2 py-1 text-xs text-zinc-500 transition-colors group-hover:border-cf-orange/30 group-hover:bg-cf-orange/10 group-hover:text-cf-orange">
@@ -1114,7 +1119,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 <h1 className="truncate text-lg font-semibold text-zinc-100">{detail?.id ?? selectedFolder}</h1>
                 {detail ? (
                   <p className="truncate text-xs text-zinc-500">
-                    {detail.folderName} Â· {distroLabel(detail.distro)} Â· {detail.stacks.join(", ")}
+                    {detail.folderName} · {distroLabel(detail.distro)} · {detail.stacks.join(", ")}
                   </p>
                 ) : null}
               </div>
@@ -1127,14 +1132,14 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-cf-orange px-3 py-1.5 text-xs font-medium text-black disabled:opacity-50"
               >
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                {canApprove ? "Publicar cambios" : "Enviar para aprobaciÃ³n"}
+                {canApprove ? "Publicar cambios" : "Enviar para aprobación"}
               </button>
             ) : null}
           </div>
 
           <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90">
           {detailLoading || !detail ? (
-            <AtlasLoadingSplash message={`Cargando ficha de ${selectedFolder ?? "tienda"}â€¦`} />
+            <AtlasLoadingSplash message={`Cargando ficha de ${selectedFolder ?? "tienda"}…`} />
           ) : (
             <div className="flex flex-col gap-5 p-4 sm:p-6">
               <section>
@@ -1142,19 +1147,19 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 {equipmentLoading ? (
                   <p className="mt-1 inline-flex items-center gap-2 text-sm text-zinc-500">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                    Buscando equipo en Rancherâ€¦
+                    Buscando equipo en Rancher…
                   </p>
                 ) : equipment ? (
                   <p className="mt-1 text-sm text-zinc-300">
                     <Server className="mr-1 inline h-3.5 w-3.5" />
-                    {equipment.displayName || equipment.name} â€”{" "}
+                    {equipment.displayName || equipment.name} —{" "}
                     <span className={equipment.state?.toLowerCase().includes("ready") ? "text-emerald-400" : "text-zinc-400"}>
                       {equipment.state}
                     </span>
                   </p>
                 ) : (
                   <p className="mt-1 text-sm text-amber-400/90">
-                    No hay equipo en Rancher con cÃ³digo de tienda Â«{detail.id}Â». Revisa etiquetas en Equipos.
+                    No hay equipo en Rancher con código de tienda «{detail.id}». Revisa etiquetas en Equipos.
                   </p>
                 )}
                 <p className="mt-1 text-[11px] text-zinc-600">
@@ -1167,7 +1172,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 <h3 className="text-xs font-medium uppercase text-zinc-500">General</h3>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <label className="text-xs text-zinc-500">
-                    CÃ³digo de tienda
+                    Código de tienda
                     <input
                       value={detail.id}
                       onChange={(e) => setDetail({ ...detail, id: e.target.value })}
@@ -1180,7 +1185,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     <p className="mt-0.5 text-[11px] text-zinc-600">
                       Cada servicio y proceso tiene su propio tag (p. ej.{" "}
                       <span className="text-zinc-400">stable</span>,{" "}
-                      <span className="text-zinc-400">unstable</span>). EdÃ­talos en las tablas de abajo. La pull
+                      <span className="text-zinc-400">unstable</span>). Edítalos en las tablas de abajo. La pull
                       policy es la clave global{" "}
                       <span className="text-zinc-400">values.pullPolicy</span> del fleet.yaml (junto a{" "}
                       <span className="text-zinc-400">nameOverride</span>).
@@ -1237,7 +1242,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       <div>
                         <h3 className="text-xs font-medium uppercase text-zinc-500">Software desplegado</h3>
                         <p className="mt-0.5 text-[11px] text-zinc-600">
-                          Busca en servicios de estaciÃ³n, iERP y procesos generales.
+                          Busca en servicios de estación, iERP y procesos generales.
                         </p>
                       </div>
                       <label className="relative block w-full sm:max-w-xs">
@@ -1246,14 +1251,14 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                           type="search"
                           value={serviceFilter}
                           onChange={(e) => setServiceFilter(e.target.value)}
-                          placeholder="Buscar servicio o procesoâ€¦"
+                          placeholder="Buscar servicio o proceso…"
                           className="w-full rounded-lg border border-cf-line bg-black/40 py-1.5 pl-8 pr-3 text-xs text-zinc-100 outline-none focus:border-cf-orange/50"
                         />
                       </label>
                     </div>
                     {filterQ && filteredSoftwareCount === 0 ? (
                       <p className="mt-3 rounded-lg border border-cf-line/40 bg-black/20 px-3 py-4 text-center text-xs text-zinc-500">
-                        NingÃºn servicio o proceso coincide con Â«{serviceFilter.trim()}Â».
+                        Ningún servicio o proceso coincide con «{serviceFilter.trim()}».
                       </p>
                     ) : null}
                     {filterQ && filteredSoftwareCount > 0 ? (
@@ -1266,14 +1271,14 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   {detail.station?.services?.length &&
                   (!filterQ || filteredServices.length > 0) ? (
                     <section>
-                      <h3 className="text-xs font-medium uppercase text-zinc-500">Servicios de estaciÃ³n</h3>
+                      <h3 className="text-xs font-medium uppercase text-zinc-500">Servicios de estación</h3>
                       <div className="mt-2 max-h-72 overflow-y-auto rounded border border-cf-line/40">
                         <table className="w-full text-left text-xs">
                           <thead className="sticky top-0 bg-[#111418] text-[10px] uppercase text-zinc-600">
                             <tr>
                               <th className="w-8 px-2 py-1.5" />
                               <th className="px-2 py-1.5">Servicio</th>
-                              <th className="px-2 py-1.5">Tag (versiÃ³n)</th>
+                              <th className="px-2 py-1.5">Tag (versión)</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1318,7 +1323,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                           <h3 className="text-xs font-medium uppercase text-zinc-500">{group.label}</h3>
                           {group.id === "ierp" ? (
                             <p className="mt-0.5 text-[11px] text-zinc-600">
-                              IntegraciÃ³n iERP: cada fila es un proceso de sincronizaciÃ³n.
+                              Integración iERP: cada fila es un proceso de sincronización.
                             </p>
                           ) : null}
                         </div>
@@ -1338,7 +1343,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                             <tr>
                               <th className="w-8 px-2 py-1.5" />
                               <th className="px-2 py-1.5">Proceso</th>
-                              <th className="px-2 py-1.5">Tag (versiÃ³n)</th>
+                              <th className="px-2 py-1.5">Tag (versión)</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1403,7 +1408,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
 
               {detail.station?.config && Object.keys(detail.station.config).length > 0 ? (
                 <section>
-                  <h3 className="text-xs font-medium uppercase text-zinc-500">ConexiÃ³n on-prem</h3>
+                  <h3 className="text-xs font-medium uppercase text-zinc-500">Conexión on-prem</h3>
                   <div className="mt-2 grid gap-2">
                     {Object.entries(detail.station.config as Record<string, unknown>)
                       .filter(([, v]) => typeof v === "string" || typeof v === "number")
@@ -1437,18 +1442,18 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
 
       <AtlasConfirmDialog
         open={publishConfirmOpen}
-        title={canApprove ? "Publicar cambios" : "Enviar para aprobaciÃ³n"}
+        title={canApprove ? "Publicar cambios" : "Enviar para aprobación"}
         message={
           <>
             {detailHasChanges ? (
               <p>
                 {canApprove
-                  ? "Revisa el resumen antes de enviar la configuraciÃ³n a Fleet (Rancher)."
-                  : "Revisa el resumen antes de enviar la solicitud. Un administrador deberÃ¡ aprobarla para que Fleet aplique los cambios."}
+                  ? "Revisa el resumen antes de enviar la configuración a Fleet (Rancher)."
+                  : "Revisa el resumen antes de enviar la solicitud. Un administrador deberá aprobarla para que Fleet aplique los cambios."}
               </p>
             ) : (
               <p className="text-amber-200/90">
-                No hay cambios respecto a la versiÃ³n cargada del servidor. Edita la ficha antes de publicar.
+                No hay cambios respecto a la versión cargada del servidor. Edita la ficha antes de publicar.
               </p>
             )}
             {detailHasChanges ? (
@@ -1458,7 +1463,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
             ) : null}
             {detailHasChanges ? (
               <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
-                Cancelar descarta los cambios locales y restaura la configuraciÃ³n cargada del servidor.
+                Cancelar descarta los cambios locales y restaura la configuración cargada del servidor.
               </p>
             ) : null}
           </>
@@ -1498,7 +1503,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               <form onSubmit={(e) => void onReviewCreate(e)}>
                 <div className="grid gap-3">
                   <label className="text-xs text-zinc-500">
-                    Tienda (cÃ³digo / etiqueta store)
+                    Tienda (código / etiqueta store)
                     <input
                       value={newStoreId}
                       onChange={(e) => setNewStoreId(e.target.value)}
@@ -1513,11 +1518,11 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       value={newFolder}
                       onChange={(e) => setNewFolder(e.target.value)}
                       className={inputClass}
-                      placeholder="Igual que tienda si vacÃ­o"
+                      placeholder="Igual que tienda si vacío"
                     />
                   </label>
                   <label className="text-xs text-zinc-500">
-                    DistribuciÃ³n
+                    Distribución
                     <select
                       value={newDistro}
                       onChange={(e) => setNewDistro(e.target.value as "horustech" | "pam")}
@@ -1528,7 +1533,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     </select>
                   </label>
                   <label className="text-xs text-zinc-500">
-                    Tag (versiÃ³n)
+                    Tag (versión)
                     <select value={newChannel} onChange={(e) => setNewChannel(e.target.value)} className={inputClass}>
                       <option value="stable">stable</option>
                       <option value="unstable">unstable</option>
@@ -1539,7 +1544,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 {equipmentChecking ? (
                   <p className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Comprobando equipo en Rancherâ€¦
+                    Comprobando equipo en Rancher…
                   </p>
                 ) : equipmentCheck ? (
                   <p className="mt-3 text-xs text-emerald-400/90">
@@ -1553,7 +1558,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   disabled={!equipmentCheck || equipmentChecking || createPreviewLoading}
                   className="mt-4 w-full rounded-lg bg-cf-orange py-2 text-xs font-medium text-black disabled:opacity-50"
                 >
-                  {createPreviewLoading ? "Generando resumenâ€¦" : "Ver resumen"}
+                  {createPreviewLoading ? "Generando resumen…" : "Ver resumen"}
                 </button>
               </form>
             ) : createPreview ? (
@@ -1570,11 +1575,11 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       <dd className="text-zinc-200">{createPreview.folderName}</dd>
                     </div>
                     <div>
-                      <dt className="text-zinc-500">DistribuciÃ³n</dt>
+                      <dt className="text-zinc-500">Distribución</dt>
                       <dd className="text-zinc-200">{distroLabel(createPreview.distro)}</dd>
                     </div>
                     <div>
-                      <dt className="text-zinc-500">Tag imÃ¡genes</dt>
+                      <dt className="text-zinc-500">Tag imágenes</dt>
                       <dd className="text-zinc-200">{createPreview.imageChannel}</dd>
                     </div>
                     <div className="sm:col-span-2">
@@ -1602,13 +1607,13 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 </section>
 
                 <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
-                  <p className="font-medium text-zinc-300">Archivos que se subirÃ¡n al repositorio</p>
+                  <p className="font-medium text-zinc-300">Archivos que se subirán al repositorio</p>
                   <ul className="mt-2 space-y-2">
                     {createPreview.files.map((f) => (
                       <li key={f.path} className="rounded border border-cf-line/40 bg-black/20 px-2 py-1.5">
                         <p className="font-mono text-[11px] text-zinc-200">{f.path}</p>
                         <p className="text-zinc-500">
-                          Plantilla: {f.sourceTemplate} Â· chart {f.chart} {f.chartVersion}
+                          Plantilla: {f.sourceTemplate} · chart {f.chart} {f.chartVersion}
                         </p>
                       </li>
                     ))}
@@ -1618,13 +1623,13 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
                   <p className="font-medium text-zinc-300">Base de datos</p>
                   <p className="mt-1 text-zinc-400">
-                    DB {createPreview.db.database || "poslite"} Â·{" "}
+                    DB {createPreview.db.database || "poslite"} ·{" "}
                     {createPreview.db.persistenceEnabled ? "persistencia on" : "sin persistencia"}
                   </p>
                 </section>
 
                 <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
-                  <p className="font-medium text-zinc-300">EstaciÃ³n ({distroLabel(createPreview.distro)})</p>
+                  <p className="font-medium text-zinc-300">Estación ({distroLabel(createPreview.distro)})</p>
                   <p className="mt-1 text-zinc-400">
                     Servicios activos:{" "}
                     {(createPreview.station.services ?? []).filter((s) => s.enabled).length} /{" "}
@@ -1633,8 +1638,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   <ul className="mt-2 max-h-32 overflow-y-auto space-y-0.5 text-zinc-500">
                     {(createPreview.station.services ?? []).map((s) => (
                       <li key={s.key}>
-                        {s.enabled ? "âœ“" : "â—‹"} {s.key} Â· tag {s.tag}
-                        {s.hostPort != null ? ` Â· puerto ${s.hostPort}` : ""}
+                        {s.enabled ? "✓" : "○"} {s.key} · tag {s.tag}
+                        {s.hostPort != null ? ` · puerto ${s.hostPort}` : ""}
                       </li>
                     ))}
                   </ul>
@@ -1644,7 +1649,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       <ul className="mt-0.5 space-y-0.5 text-zinc-500">
                         {g.workers.map((w) => (
                           <li key={w.key}>
-                            {w.enabled ? "âœ“" : "â—‹"} {workerDisplayName(w.key, g.id)} Â· {w.tag}
+                            {w.enabled ? "✓" : "○"} {workerDisplayName(w.key, g.id)} · {w.tag}
                           </li>
                         ))}
                       </ul>
@@ -1692,10 +1697,10 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     className="flex-1 rounded-lg bg-cf-orange py-2 text-xs font-medium text-black disabled:opacity-50"
                   >
                     {createPublishing
-                      ? "Enviandoâ€¦"
+                      ? "Enviando…"
                       : canApprove
                         ? "Confirmar y publicar en Git"
-                        : "Enviar solicitud de creaciÃ³n"}
+                        : "Enviar solicitud de creación"}
                   </button>
                 </div>
               </div>

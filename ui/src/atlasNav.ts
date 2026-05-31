@@ -109,7 +109,7 @@ export function buildAtlasNav(user: AuthUser): AtlasNavEntry[] {
       label: "Tiendas",
       icon: Store,
       route: "rancher-stores",
-      defaultOpen: true,
+      defaultOpen: false,
       children: tiendasChildren,
     });
   }

@@ -6,17 +6,28 @@ import {
   History,
   Loader2,
   RefreshCw,
-  Search,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../apiClient";
 import { AtlasAlertDialog } from "../components/AtlasAlertDialog";
 import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
+import {
+  AtlasFieldFiltersPanel,
+  AtlasFilterSearchInput,
+  AtlasFiltersToolbarButton,
+  newFilterRule,
+  type FilterRule,
+} from "../components/AtlasFieldFilters";
 import { AtlasModalShell } from "../components/AtlasModalFrame";
 import { AtlasPromptDialog } from "../components/AtlasPromptDialog";
 import { pulseAtlasNotifications } from "../components/AtlasNotifications";
+import {
+  filterStoreRequests,
+  STORE_REQUEST_FILTER_FIELDS,
+  type StoreRequestFilterField,
+} from "../storeRequestFilters";
 import {
   formatRequestWhen,
   PublishChangeSummary,
@@ -37,6 +48,96 @@ type Props = {
   canApprove: boolean;
 };
 
+function StoreRequestFiltersBar({
+  searchQuery,
+  onSearchChange,
+  appliedRules,
+  draftRules,
+  onDraftChange,
+  filtersOpen,
+  onFiltersOpenChange,
+  onApply,
+  onClear,
+}: {
+  searchQuery: string;
+  onSearchChange: (v: string) => void;
+  appliedRules: FilterRule<StoreRequestFilterField>[];
+  draftRules: FilterRule<StoreRequestFilterField>[];
+  onDraftChange: (rules: FilterRule<StoreRequestFilterField>[]) => void;
+  filtersOpen: boolean;
+  onFiltersOpenChange: (open: boolean) => void;
+  onApply: () => void;
+  onClear: () => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const activeRuleCount = appliedRules.filter((r) => r.value.trim()).length;
+  const hasActiveFilters = searchQuery.trim() !== "" || activeRuleCount > 0;
+
+  function openFiltersPanel() {
+    onDraftChange(
+      activeRuleCount > 0
+        ? appliedRules.map((r) => ({ ...r, id: crypto.randomUUID() }))
+        : [newFilterRule<StoreRequestFilterField>("store")]
+    );
+    onFiltersOpenChange(true);
+  }
+
+  useEffect(() => {
+    if (!filtersOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        onFiltersOpenChange(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onFiltersOpenChange(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [filtersOpen, onFiltersOpenChange]);
+
+  return (
+    <div className="mt-3 flex flex-col gap-2">
+      <div ref={panelRef} className="relative flex flex-wrap items-center gap-2">
+        <AtlasFilterSearchInput
+          value={searchQuery}
+          onChange={onSearchChange}
+          placeholder="Buscar por tienda, solicitante, resumen…"
+          ariaLabel="Buscar solicitudes"
+        />
+        <AtlasFiltersToolbarButton
+          open={filtersOpen}
+          activeRuleCount={activeRuleCount}
+          onClick={() => (filtersOpen ? onFiltersOpenChange(false) : openFiltersPanel())}
+        />
+        {filtersOpen ? (
+          <AtlasFieldFiltersPanel
+            fields={STORE_REQUEST_FILTER_FIELDS}
+            rules={draftRules}
+            onChange={onDraftChange}
+            onApply={onApply}
+            onClose={() => onFiltersOpenChange(false)}
+            dialogLabel="Filtros de solicitudes"
+          />
+        ) : null}
+      </div>
+      {hasActiveFilters ? (
+        <button
+          type="button"
+          onClick={onClear}
+          className="self-start rounded-lg border border-cf-line bg-cf-panel px-2.5 py-1 text-[11px] text-zinc-400 hover:border-zinc-500"
+        >
+          Limpiar filtros
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
   const [requestsPanelTab, setRequestsPanelTab] = useState<StoreRequestsPanelTab>("queue");
   const [changeRequests, setChangeRequests] = useState<StoreChangeRequest[]>([]);
@@ -44,8 +145,18 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
   const [historyRequests, setHistoryRequests] = useState<StoreChangeRequest[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyStatusFilter, setHistoryStatusFilter] = useState<HistoryStatusFilter>("all");
-  const [historySearch, setHistorySearch] = useState("");
-  const [historySearchDebounced, setHistorySearchDebounced] = useState("");
+  const [historySearchQuery, setHistorySearchQuery] = useState("");
+  const [historyAppliedRules, setHistoryAppliedRules] = useState<FilterRule<StoreRequestFilterField>[]>([]);
+  const [historyDraftRules, setHistoryDraftRules] = useState<FilterRule<StoreRequestFilterField>[]>(() => [
+    newFilterRule<StoreRequestFilterField>("store"),
+  ]);
+  const [historyFiltersOpen, setHistoryFiltersOpen] = useState(false);
+  const [queueSearchQuery, setQueueSearchQuery] = useState("");
+  const [queueAppliedRules, setQueueAppliedRules] = useState<FilterRule<StoreRequestFilterField>[]>([]);
+  const [queueDraftRules, setQueueDraftRules] = useState<FilterRule<StoreRequestFilterField>[]>(() => [
+    newFilterRule<StoreRequestFilterField>("store"),
+  ]);
+  const [queueFiltersOpen, setQueueFiltersOpen] = useState(false);
   const [approveConfirmId, setApproveConfirmId] = useState<number | null>(null);
   const [approveDetailLines, setApproveDetailLines] = useState<string[]>([]);
   const [approveDetailLoading, setApproveDetailLoading] = useState(false);
@@ -80,9 +191,6 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
     try {
       const statusParam = historyStatusFilter === "all" ? "history" : historyStatusFilter;
       const params = new URLSearchParams({ status: statusParam, limit: "100" });
-      if (historySearchDebounced.trim()) {
-        params.set("folder", historySearchDebounced.trim());
-      }
       const data = await api<StoreChangeRequestsResponse>(
         `/api/atlas-stores/change-requests?${params.toString()}`
       );
@@ -92,7 +200,17 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
     } finally {
       setHistoryLoading(false);
     }
-  }, [canEdit, canApprove, historyStatusFilter, historySearchDebounced]);
+  }, [canEdit, canApprove, historyStatusFilter]);
+
+  const displayedQueueRequests = useMemo(
+    () => filterStoreRequests(changeRequests, queueSearchQuery, queueAppliedRules),
+    [changeRequests, queueSearchQuery, queueAppliedRules]
+  );
+
+  const displayedHistoryRequests = useMemo(
+    () => filterStoreRequests(historyRequests, historySearchQuery, historyAppliedRules),
+    [historyRequests, historySearchQuery, historyAppliedRules]
+  );
 
   const refreshAll = useCallback(async () => {
     await Promise.all([loadChangeRequests(), loadHistoryRequests()]);
@@ -109,10 +227,17 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
     }
   }, [requestsPanelTab, loadHistoryRequests]);
 
-  useEffect(() => {
-    const t = window.setTimeout(() => setHistorySearchDebounced(historySearch), 300);
-    return () => window.clearTimeout(t);
-  }, [historySearch]);
+  function clearQueueFilters() {
+    setQueueSearchQuery("");
+    setQueueAppliedRules([]);
+    setQueueDraftRules([newFilterRule<StoreRequestFilterField>("store")]);
+  }
+
+  function clearHistoryFilters() {
+    setHistorySearchQuery("");
+    setHistoryAppliedRules([]);
+    setHistoryDraftRules([newFilterRule<StoreRequestFilterField>("store")]);
+  }
 
   useEffect(() => {
     if (approveConfirmId === null) {
@@ -290,22 +415,24 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
               Historial
             </button>
           </div>
-          {requestsPanelTab === "history" ? (
-            <div className="relative min-w-[10rem] flex-1 sm:max-w-xs">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
-              <input
-                type="search"
-                value={historySearch}
-                onChange={(e) => setHistorySearch(e.target.value)}
-                placeholder="Buscar carpeta tienda…"
-                className="w-full rounded-lg border border-cf-line bg-black/40 py-1.5 pl-8 pr-2 text-xs text-zinc-100 outline-none focus:border-cf-orange/50"
-              />
-            </div>
-          ) : null}
         </div>
 
         {requestsPanelTab === "queue" ? (
           <>
+            <StoreRequestFiltersBar
+              searchQuery={queueSearchQuery}
+              onSearchChange={setQueueSearchQuery}
+              appliedRules={queueAppliedRules}
+              draftRules={queueDraftRules}
+              onDraftChange={setQueueDraftRules}
+              filtersOpen={queueFiltersOpen}
+              onFiltersOpenChange={setQueueFiltersOpen}
+              onApply={() => {
+                setQueueAppliedRules(queueDraftRules.filter((r) => r.value.trim()));
+                setQueueFiltersOpen(false);
+              }}
+              onClear={clearQueueFilters}
+            />
             <p className="mt-3 text-xs text-zinc-500">
               {canApprove
                 ? "Los operadores proponen cambios aquí. Aprueba para aplicar la configuración en Fleet (Rancher)."
@@ -318,9 +445,13 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
               </div>
             ) : changeRequests.length === 0 ? (
               <p className="mt-4 text-xs text-zinc-500">No hay solicitudes pendientes.</p>
+            ) : displayedQueueRequests.length === 0 ? (
+              <p className="mt-4 text-xs text-zinc-500">
+                Ninguna solicitud coincide con la búsqueda o los filtros seleccionados.
+              </p>
             ) : (
               <ul className="mt-4 space-y-2">
-                {changeRequests.map((req) => (
+                {displayedQueueRequests.map((req) => (
                   <li
                     key={req.id}
                     className="flex flex-col gap-2 rounded-lg border border-white/[0.06] bg-black/25 p-3 sm:flex-row sm:items-center sm:justify-between"
@@ -410,6 +541,20 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
                 </button>
               ))}
             </div>
+            <StoreRequestFiltersBar
+              searchQuery={historySearchQuery}
+              onSearchChange={setHistorySearchQuery}
+              appliedRules={historyAppliedRules}
+              draftRules={historyDraftRules}
+              onDraftChange={setHistoryDraftRules}
+              filtersOpen={historyFiltersOpen}
+              onFiltersOpenChange={setHistoryFiltersOpen}
+              onApply={() => {
+                setHistoryAppliedRules(historyDraftRules.filter((r) => r.value.trim()));
+                setHistoryFiltersOpen(false);
+              }}
+              onClear={clearHistoryFilters}
+            />
             {historyLoading ? (
               <div className="mt-4 flex items-center gap-2 text-xs text-zinc-500">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -417,7 +562,18 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
               </div>
             ) : historyRequests.length === 0 ? (
               <p className="mt-4 text-xs text-zinc-500">No hay solicitudes en este filtro.</p>
+            ) : displayedHistoryRequests.length === 0 ? (
+              <p className="mt-4 text-xs text-zinc-500">
+                Ninguna solicitud coincide con la búsqueda o los filtros seleccionados.
+              </p>
             ) : (
+              <>
+                {displayedHistoryRequests.length !== historyRequests.length ? (
+                  <p className="mt-3 text-xs text-zinc-500">
+                    <span className="font-medium text-zinc-300">{displayedHistoryRequests.length}</span> de{" "}
+                    {historyRequests.length} solicitud{historyRequests.length !== 1 ? "es" : ""}
+                  </p>
+                ) : null}
               <div className="mt-4 overflow-x-auto rounded-lg border border-white/[0.06]">
                 <table className="w-full min-w-[640px] text-left text-xs">
                   <thead>
@@ -434,7 +590,7 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/[0.04]">
-                    {historyRequests.map((req) => (
+                    {displayedHistoryRequests.map((req) => (
                       <tr key={req.id} className="bg-black/20 hover:bg-black/30">
                         <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">{req.id}</td>
                         <td className="whitespace-nowrap px-3 py-2.5 font-medium text-zinc-200">{req.storeId}</td>
@@ -475,6 +631,7 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </>
         )}

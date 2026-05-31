@@ -102,7 +102,7 @@ function NavEntryBlock({
   setGroupOpen,
   collapsed,
   onExpandSidebar,
-  nested,
+  subMenu,
 }: {
   entry: AtlasNavEntry;
   route: AtlasRouteId;
@@ -111,13 +111,14 @@ function NavEntryBlock({
   setGroupOpen: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   collapsed: boolean;
   onExpandSidebar: () => void;
-  nested?: boolean;
+  /** Indentación extra para sub-ítems (p. ej. Solicitudes bajo Tiendas). */
+  subMenu?: boolean;
 }) {
   if (entry.kind === "leaf") {
     return (
       <NavLeafButton
         item={entry}
-        indent={nested}
+        subMenu={subMenu}
         collapsed={collapsed}
         active={isNavLeafActive(entry, route)}
         onPick={() => pickNavLeaf(entry, onNavigate)}
@@ -135,7 +136,7 @@ function NavEntryBlock({
       setGroupOpen={setGroupOpen}
       open={groupOpen[entry.id] ?? entry.defaultOpen ?? false}
       onToggle={() => setGroupOpen((o) => ({ ...o, [entry.id]: !(o[entry.id] ?? entry.defaultOpen) }))}
-      nested={nested}
+      subMenu={subMenu}
     />
   );
 }
@@ -144,13 +145,13 @@ function NavLeafButton({
   item,
   active,
   onPick,
-  indent,
+  subMenu,
   collapsed,
 }: {
   item: AtlasNavLeaf;
   active: boolean;
   onPick: () => void;
-  indent?: boolean;
+  subMenu?: boolean;
   collapsed: boolean;
 }) {
   const Icon = item.icon;
@@ -170,11 +171,13 @@ function NavLeafButton({
           : active
             ? collapsed
               ? "flex w-full items-center justify-center rounded-lg bg-white/[0.08] p-2 text-zinc-100 ring-1 ring-white/10"
-              : "flex w-full items-center gap-2 rounded-lg bg-white/[0.08] px-2.5 py-2 text-left text-sm font-medium text-zinc-100 ring-1 ring-white/10"
+              : `flex w-full items-center gap-2 rounded-lg bg-white/[0.08] py-2 text-left text-sm font-medium text-zinc-100 ring-1 ring-white/10 ${
+                  subMenu ? "pl-8 pr-2.5" : "px-2.5"
+                }`
             : collapsed
               ? "flex w-full items-center justify-center rounded-lg p-2 text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
-              : `flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200 ${
-                  indent ? "pl-8" : ""
+              : `flex w-full items-center gap-2 rounded-lg py-2 text-left text-sm text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200 ${
+                  subMenu ? "pl-8 pr-2.5" : "px-2.5"
                 }`
       }
     >
@@ -210,7 +213,7 @@ function NavGroupBlock({
   onExpandSidebar,
   groupOpen,
   setGroupOpen,
-  nested,
+  subMenu,
 }: {
   group: AtlasNavGroup;
   route: AtlasRouteId;
@@ -221,22 +224,20 @@ function NavGroupBlock({
   onExpandSidebar: () => void;
   groupOpen: Record<string, boolean>;
   setGroupOpen: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
-  nested?: boolean;
+  subMenu?: boolean;
 }) {
   const Icon = group.icon;
   const groupActive = isNavEntryActive(group, route);
   const hasChildren = group.children.length > 0;
 
-  const handleGroupClick = () => {
+  const handleLabelClick = () => {
     if (collapsed) {
       onExpandSidebar();
-      if (!open && hasChildren) onToggle();
       if (group.route) onNavigate(group.route);
       return;
     }
     if (group.route) {
       onNavigate(group.route);
-      if (!open && hasChildren) onToggle();
       return;
     }
     onToggle();
@@ -252,7 +253,7 @@ function NavGroupBlock({
       <button
         type="button"
         title={group.label}
-        onClick={handleGroupClick}
+        onClick={handleLabelClick}
         className={
           groupActive
             ? "flex w-full items-center justify-center rounded-lg bg-white/[0.08] p-2 text-zinc-100 ring-1 ring-white/10"
@@ -265,15 +266,15 @@ function NavGroupBlock({
   }
 
   return (
-    <div className={`space-y-0.5 ${nested ? "pl-1" : ""}`}>
+    <div className="space-y-0.5">
       <div
         className={
           groupActive
-            ? "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm font-medium text-zinc-100"
-            : "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-zinc-300 hover:bg-white/[0.04]"
+            ? `flex w-full items-center gap-2 rounded-lg py-2 text-left text-sm font-medium text-zinc-100 ${subMenu ? "pl-8 pr-2.5" : "px-2.5"}`
+            : `flex w-full items-center gap-2 rounded-lg py-2 text-left text-sm text-zinc-300 hover:bg-white/[0.04] ${subMenu ? "pl-8 pr-2.5" : "px-2.5"}`
         }
       >
-        <button type="button" onClick={handleGroupClick} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+        <button type="button" onClick={handleLabelClick} className="flex min-w-0 flex-1 items-center gap-2 text-left">
           <Icon className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
           <span className="min-w-0 flex-1 truncate">{group.label}</span>
         </button>
@@ -312,7 +313,7 @@ function NavGroupBlock({
                   setGroupOpen={setGroupOpen}
                   collapsed={false}
                   onExpandSidebar={onExpandSidebar}
-                  nested
+                  subMenu
                 />
               ))}
             </motion.div>
@@ -436,6 +437,7 @@ export function AtlasShell({ route, onNavigate, user, onLogout, children }: Prop
   const navEntries = useMemo(() => buildAtlasNav(user), [user]);
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(() => ({
     "atlas-vpn": true,
+    "atlas-rancher": true,
     "atlas-admin": true,
     "coming-soon": false,
   }));
@@ -479,7 +481,10 @@ export function AtlasShell({ route, onNavigate, user, onLogout, children }: Prop
 
   useEffect(() => {
     if (route === "rancher-stores" || route === "rancher-store-requests") {
-      setGroupOpen((o) => ({ ...o, "atlas-rancher": true, "rancher-tiendas": true }));
+      setGroupOpen((o) => ({ ...o, "atlas-rancher": true }));
+    }
+    if (route === "rancher-store-requests") {
+      setGroupOpen((o) => ({ ...o, "rancher-tiendas": true }));
     }
   }, [route]);
 
