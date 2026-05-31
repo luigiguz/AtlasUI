@@ -100,6 +100,7 @@ async def open_session(
     *,
     password: str | None,
     atlas_user: str,
+    start_path: str | None = None,
 ) -> dict[str, Any]:
     """SFTP en conexión SSH propia (el shell de la terminal usa otra conexión paralela)."""
     await _purge_expired()
@@ -152,13 +153,20 @@ async def open_session(
             created_at=now,
             last_used=now,
         )
-    listing = await list_directory(session_id, home)
+    initial = home
+    if start_path:
+        try:
+            initial = _normalize_remote_path(start_path)
+        except SshTunnelError:
+            initial = home
+    listing = await list_directory(session_id, initial)
     return {
         "session_id": session_id,
         "site": site_key,
         "user": ssh_user,
         "port": port,
         "home": home,
+        "start_path": initial if initial != home else None,
         "reused_terminal_ssh": False,
         "listing": listing,
     }
@@ -282,9 +290,84 @@ async def remove_path(session_id: str, path: str) -> None:
     remote = _normalize_remote_path(path)
     try:
         st = await row.sftp.stat(remote)
-        if stat.S_ISDIR(st.type):
+        if stat.S_ISDIR(st.permissions or 0):
             await row.sftp.rmdir(remote)
         else:
             await row.sftp.remove(remote)
     except (OSError, asyncssh.SFTPError) as e:
         raise SshTunnelError(f"No se pudo eliminar «{remote}»: {e}") from e
+
+
+async def stat_path(session_id: str, path: str) -> dict[str, Any]:
+    row = await _get_session(session_id)
+    remote = _normalize_remote_path(path)
+    try:
+        st = await row.sftp.stat(remote)
+    except (OSError, asyncssh.SFTPError) as e:
+        raise SshTunnelError(f"No se pudo leer metadatos de «{remote}»: {e}") from e
+    mode = int(st.permissions or 0)
+    is_dir = stat.S_ISDIR(mode)
+    return {
+        "path": remote,
+        "is_dir": is_dir,
+        "size": int(st.size or 0) if not is_dir else None,
+        "mtime": float(st.mtime) if st.mtime else None,
+        "permissions": mode,
+        "mode_octal": format(stat.S_IMODE(mode), "04o"),
+        "uid": st.uid,
+        "gid": st.gid,
+    }
+
+
+async def read_text_file(session_id: str, path: str, *, max_bytes: int = 524_288) -> dict[str, Any]:
+    row = await _get_session(session_id)
+    remote = _normalize_remote_path(path)
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        async with row.sftp.open(remote, "rb") as f:
+            while True:
+                chunk = await f.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise SshTunnelError(
+                        f"Archivo demasiado grande para editar en el navegador (máx. {max_bytes // 1024} KiB)."
+                    )
+                chunks.append(chunk)
+    except SshTunnelError:
+        raise
+    except (OSError, asyncssh.SFTPError) as e:
+        raise SshTunnelError(f"No se pudo leer «{remote}»: {e}") from e
+    data = b"".join(chunks)
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise SshTunnelError("El archivo no es texto UTF-8; descárgalo para editarlo fuera de Atlas.") from e
+    return {"path": remote, "text": text, "size": len(data), "encoding": "utf-8"}
+
+
+async def chmod_path(session_id: str, path: str, mode: int) -> dict[str, Any]:
+    if mode < 0 or mode > 0o7777:
+        raise SshTunnelError("Modo octal inválido.")
+    row = await _get_session(session_id)
+    remote = _normalize_remote_path(path)
+    try:
+        await row.sftp.chmod(remote, mode)
+    except (OSError, asyncssh.SFTPError) as e:
+        raise SshTunnelError(f"No se pudo cambiar permisos de «{remote}»: {e}") from e
+    return await stat_path(session_id, remote)
+
+
+async def chown_path(session_id: str, path: str, uid: int, gid: int) -> dict[str, Any]:
+    if uid < 0 or gid < 0:
+        raise SshTunnelError("UID/GID inválidos.")
+    row = await _get_session(session_id)
+    remote = _normalize_remote_path(path)
+    attrs = asyncssh.SFTPAttrs(uid=uid, gid=gid)
+    try:
+        await row.sftp.setstat(remote, attrs)
+    except (OSError, asyncssh.SFTPError) as e:
+        raise SshTunnelError(f"No se pudo cambiar propietario de «{remote}»: {e}") from e
+    return await stat_path(session_id, remote)

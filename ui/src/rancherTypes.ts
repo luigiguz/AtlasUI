@@ -72,6 +72,57 @@ export type PodsResponse = {
   pods: RancherPod[];
 };
 
+export type RancherPersistentVolumeClaim = {
+  name: string;
+  namespace: string;
+  storageClassName: string;
+  volumeName: string;
+  phase: string;
+  capacity: string;
+  accessModes: string[];
+  hostPath: string | null;
+  createdAt?: string | null;
+};
+
+export type PvcsResponse = {
+  ok: boolean;
+  source: string;
+  managementClusterId: string;
+  podNamespace: string;
+  count: number;
+  pvcs: RancherPersistentVolumeClaim[];
+  ssh: {
+    store: string;
+    site: string | null;
+    available: boolean;
+    message: string | null;
+  };
+};
+
+export type StorageSessionResponse = {
+  ok: boolean;
+  site: string;
+  session_id?: string;
+  home?: string;
+  start_path?: string | null;
+  listing?: {
+    path: string;
+    parent: string | null;
+    entries: { name: string; path: string; is_dir: boolean; size?: number | null; mtime?: number | null }[];
+  };
+};
+
+export type SftpStatResponse = {
+  path: string;
+  is_dir: boolean;
+  size?: number | null;
+  mtime?: number | null;
+  permissions: number;
+  mode_octal: string;
+  uid?: number | null;
+  gid?: number | null;
+};
+
 export type ClustersResponse = {
   ok: boolean;
   configured?: boolean;

@@ -3,6 +3,7 @@ import {
   Box,
   ChevronDown,
   ChevronRight,
+  HardDrive,
   Layers,
   Loader2,
   Network,
@@ -22,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../apiClient";
 import { AtlasLoadingSplash } from "../components/AtlasLoadingSplash";
 import { AtlasModalShell } from "../components/AtlasModalFrame";
+import { PvcStoragePanel } from "../components/PvcStoragePanel";
 import { PodLogsPanel } from "../components/PodLogsPanel";
 import { normalizeApplication, normalizeDistro, normalizeState } from "../rancherLabels";
 import {
@@ -742,6 +744,61 @@ function clusterRancherPaths(cluster: RancherCustomCluster) {
   };
 }
 
+type ClusterDetailTab = "services" | "volumes";
+
+function ClusterDetailTabs({
+  tab,
+  onTabChange,
+}: {
+  tab: ClusterDetailTab;
+  onTabChange: (tab: ClusterDetailTab) => void;
+}) {
+  const tabs: { id: ClusterDetailTab; label: string; icon: LucideIcon }[] = [
+    { id: "services", label: "Servicios", icon: Box },
+    { id: "volumes", label: "Volúmenes", icon: HardDrive },
+  ];
+  return (
+    <div className="flex shrink-0 gap-1 border-b border-cf-line/50 px-3 pt-2">
+      {tabs.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => onTabChange(id)}
+          className={`inline-flex items-center gap-1.5 rounded-t-lg px-3 py-2 text-xs font-medium transition-colors ${
+            tab === id
+              ? "bg-[#151a21] text-cf-orange ring-1 ring-cf-line/60 ring-b-transparent"
+              : "text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-300"
+          }`}
+        >
+          <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ClusterDetailPanel({
+  cluster,
+  canEdit,
+}: {
+  cluster: RancherCustomCluster;
+  canEdit: boolean;
+}) {
+  const [tab, setTab] = useState<ClusterDetailTab>("services");
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <ClusterDetailTabs tab={tab} onTabChange={setTab} />
+      {tab === "services" ? (
+        <ClusterContainersPanel cluster={cluster} canEdit={canEdit} />
+      ) : (
+        <PvcStoragePanel cluster={cluster} canEdit={canEdit} />
+      )}
+    </div>
+  );
+}
+
 function ClusterContainersPanel({
   cluster,
   canEdit,
@@ -1307,7 +1364,7 @@ export function AtlasRancherPodsView({
                   pueden listar contenedores.
                 </p>
               ) : (
-                <ClusterContainersPanel key={selectedCluster.id} cluster={selectedCluster} canEdit={canEdit} />
+                <ClusterDetailPanel key={selectedCluster.id} cluster={selectedCluster} canEdit={canEdit} />
               )
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center text-zinc-500">

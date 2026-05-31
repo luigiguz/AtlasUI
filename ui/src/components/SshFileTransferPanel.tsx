@@ -9,7 +9,9 @@ import {
   FolderPlus,
   FolderUp,
   Loader2,
+  Pencil,
   RefreshCw,
+  Shield,
   Trash2,
 } from "lucide-react";
 import {
@@ -30,7 +32,7 @@ import { AtlasConfirmDialog } from "./AtlasConfirmDialog";
 import { AtlasPromptDialog } from "./AtlasPromptDialog";
 import { SftpTransferQueue, type TransferJob } from "./SftpTransferQueue";
 
-type SftpEntry = {
+export type SftpEntry = {
   name: string;
   path: string;
   is_dir: boolean;
@@ -51,6 +53,15 @@ type Props = {
   /** Ventana espejo: intentar SFTP aunque falte el aviso ssh-ready (p. ej. popout tardío). */
   connectWithoutReady?: boolean;
   variant?: "sidebar" | "full";
+  /** Ruta inicial en el nodo (p. ej. directorio del PVC local-path). */
+  startPath?: string | null;
+  /** Contraseña SSH explícita (explorador de volúmenes sin terminal previa). */
+  sessionPassword?: string;
+  /** Botones de edición de texto y permisos (Contenedores → Volúmenes). */
+  storageTools?: boolean;
+  onEditFile?: (entry: SftpEntry) => void;
+  onPermissions?: (entry: SftpEntry) => void;
+  onSessionReady?: (sessionId: string) => void;
 };
 
 export type SshFileTransferPanelHandle = {
@@ -131,7 +142,18 @@ function SftpDropOverlay({ active, label }: { active: boolean; label: string }):
 
 export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props>(
   function SshFileTransferPanel(
-    { site, sshReady, connectWithoutReady = false, variant = "sidebar" },
+    {
+      site,
+      sshReady,
+      connectWithoutReady = false,
+      variant = "sidebar",
+      startPath = null,
+      sessionPassword = "",
+      storageTools = false,
+      onEditFile,
+      onPermissions,
+      onSessionReady,
+    },
     ref,
   ) {
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -261,13 +283,17 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
         listing?: ListResponse;
       }>(`/api/sftp/${encodeURIComponent(site)}/session`, {
         method: "POST",
-        body: JSON.stringify({ password: "" }),
+        body: JSON.stringify({
+          password: sessionPassword || "",
+          start_path: startPath || "",
+        }),
         signal: ctrl.signal,
       });
       const sid = res.session_id;
       if (!sid) throw new Error("Respuesta SFTP inválida del servidor.");
       sessionIdRef.current = sid;
       setSessionId(sid);
+      onSessionReady?.(sid);
       if (res.listing && Array.isArray(res.listing.entries)) {
         applyListing(res.listing);
       } else {
@@ -285,7 +311,7 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
       connectInFlightRef.current = false;
       setConnecting(false);
     }
-  }, [site, loadDir, applyListing]);
+  }, [site, loadDir, applyListing, sessionPassword, startPath, onSessionReady]);
 
   const mayConnect = sshReady || connectWithoutReady;
 
@@ -701,6 +727,24 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
         >
           <Trash2 className="h-3.5 w-3.5 text-[#dc2626]" strokeWidth={2.2} />
         </ToolbarBtn>
+        {storageTools && onEditFile ? (
+          <ToolbarBtn
+            title="Editar texto"
+            onClick={() => selectedEntry && onEditFile(selectedEntry)}
+            disabled={!selectedEntry || selectedEntry.is_dir}
+          >
+            <Pencil className="h-3.5 w-3.5 text-[#8b5cf6]" strokeWidth={2.2} />
+          </ToolbarBtn>
+        ) : null}
+        {storageTools && onPermissions ? (
+          <ToolbarBtn
+            title="Permisos (chmod/chown)"
+            onClick={() => selectedEntry && onPermissions(selectedEntry)}
+            disabled={!selectedEntry}
+          >
+            <Shield className="h-3.5 w-3.5 text-[#0891b2]" strokeWidth={2.2} />
+          </ToolbarBtn>
+        ) : null}
         <div className="ml-auto pr-1">
           <button
             type="button"

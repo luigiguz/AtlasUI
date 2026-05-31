@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from atlas_core.notifications import notify_user
 from atlas_core.permissions import PERM_RANCHER_CONFIGURE, PERM_RANCHER_READ, PERM_RANCHER_WRITE
@@ -25,6 +25,7 @@ from atlas_rancher.client import (
     rollout_deployment_image_pull,
     update_custom_cluster_labels,
 )
+from atlas_rancher.pvc_storage import list_cluster_persistent_volume_claims, resolve_store_vpn_site
 from atlas_rancher.settings_store import load_rancher_settings, save_rancher_settings
 
 router = APIRouter(prefix="/api/atlas-rancher", tags=["atlas-rancher"])
@@ -50,6 +51,11 @@ class ClusterLabelsBody(BaseModel):
 
 class DeploymentRolloutBody(BaseModel):
     steve_collection: str = "provisioning.cattle.io.customclusters"
+
+
+class StorageSessionBody(BaseModel):
+    password: str = Field(default="", max_length=512)
+    start_path: str = Field(default="", max_length=4096)
 
 
 @router.get("/health")
@@ -397,6 +403,122 @@ def get_custom_cluster_pods(
         "count": len(pods),
         "pods": pods,
     }
+
+
+@router.get("/custom-clusters/{namespace}/{name}/pvcs")
+def get_custom_cluster_pvcs(
+    namespace: str,
+    name: str,
+    steve_collection: str = Query(default="provisioning.cattle.io.customclusters"),
+    store: str = Query(default=""),
+    _user: dict[str, Any] = Depends(require_permission(PERM_RANCHER_READ)),
+) -> dict[str, Any]:
+    settings = load_rancher_settings()
+    if not settings["url"] or not settings["token"]:
+        raise HTTPException(
+            400,
+            "Configura la conexión a Rancher antes de consultar volúmenes.",
+        )
+    try:
+        source, mgmt_id, k8s_ns, pvcs, ssh_info = list_cluster_persistent_volume_claims(
+            settings,
+            namespace=namespace,
+            name=name,
+            steve_collection=steve_collection.strip(),
+            store_id=store.strip(),
+        )
+    except RancherConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RancherApiError as e:
+        status = 503 if e.status is None or e.status >= 500 else 502
+        if e.status == 404:
+            status = 404
+        elif e.status == 403:
+            status = 403
+        raise HTTPException(status_code=status, detail=str(e)) from e
+    except Exception as e:
+        log.exception("custom-cluster pvcs failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al consultar volúmenes persistentes.",
+        ) from e
+    return {
+        "ok": True,
+        "source": source,
+        "managementClusterId": mgmt_id,
+        "podNamespace": k8s_ns,
+        "count": len(pvcs),
+        "pvcs": pvcs,
+        "ssh": ssh_info,
+    }
+
+
+@router.get("/custom-clusters/{namespace}/{name}/storage/ssh-status")
+def get_cluster_storage_ssh_status(
+    namespace: str,
+    name: str,
+    store: str = Query(default=""),
+    _user: dict[str, Any] = Depends(require_permission(PERM_RANCHER_READ)),
+) -> dict[str, Any]:
+    store_id = store.strip()
+    site_key, message = resolve_store_vpn_site(store_id)
+    return {
+        "ok": True,
+        "store": store_id,
+        "site": site_key,
+        "available": bool(site_key),
+        "message": message,
+    }
+
+
+@router.post("/custom-clusters/{namespace}/{name}/storage/session")
+async def post_cluster_storage_session(
+    namespace: str,
+    name: str,
+    body: StorageSessionBody,
+    steve_collection: str = Query(default="provisioning.cattle.io.customclusters"),
+    store: str = Query(default=""),
+    user: dict[str, Any] = Depends(require_permission(PERM_RANCHER_WRITE, PERM_VPN_OPERATE)),
+) -> dict[str, Any]:
+    """Abre SFTP al nodo vía túnel VPN del sitio (label store)."""
+    from atlas_vpn.ssh_sftp import open_session as sftp_open_session
+    from atlas_vpn.ssh_tunnel import SshTunnelError
+
+    settings = load_rancher_settings()
+    if not settings["url"] or not settings["token"]:
+        raise HTTPException(400, "Configura la conexión a Rancher antes de explorar almacenamiento.")
+    try:
+        _, _, application, _, ssh_info = list_cluster_persistent_volume_claims(
+            settings,
+            namespace=namespace,
+            name=name,
+            steve_collection=steve_collection.strip(),
+            store_id=store.strip(),
+        )
+    except RancherConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RancherApiError as e:
+        status = 503 if e.status is None or e.status >= 500 else 502
+        raise HTTPException(status_code=status, detail=str(e)) from e
+
+    site = ssh_info.get("site")
+    if not site:
+        raise HTTPException(
+            status_code=400,
+            detail=ssh_info.get("message")
+            or f"No hay túnel SSH para la tienda «{store or application}». Actívalo en Conexiones.",
+        )
+    start = (body.start_path or "").strip() or None
+    try:
+        row = await sftp_open_session(
+            str(site),
+            password=body.password or None,
+            atlas_user=str(user.get("username") or ""),
+            start_path=start,
+        )
+    except SshTunnelError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "site": site, **row}
 
 
 @router.get("/custom-clusters/{namespace}/{name}/pods/{pod_name}/logs")

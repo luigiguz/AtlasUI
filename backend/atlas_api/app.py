@@ -43,6 +43,7 @@ from atlas_core.permissions import (
     PERM_USERS_UPDATE,
     PERM_VPN_INIT,
     PERM_VPN_OPERATE,
+    PERM_RANCHER_WRITE,
     has_permission,
 )
 from atlas_core.web_auth import (
@@ -68,12 +69,16 @@ from atlas_core.notifications import record_cf_sync_result
 from atlas_rancher.router import router as atlas_rancher_router
 from atlas_stores.router import router as atlas_stores_router
 from atlas_vpn.ssh_sftp import (
+    chmod_path as sftp_chmod_path,
+    chown_path as sftp_chown_path,
     close_session as sftp_close_session,
     list_directory as sftp_list_directory,
     open_session as sftp_open_session,
     read_file_chunks as sftp_read_file_chunks,
+    read_text_file as sftp_read_text_file,
     mkdir as sftp_mkdir,
     remove_path as sftp_remove_path,
+    stat_path as sftp_stat_path,
     write_file as sftp_write_file,
 )
 from atlas_vpn.ssh_tunnel import SshTunnelError
@@ -164,6 +169,16 @@ class OpenSshBody(BaseModel):
 
 class SftpOpenBody(BaseModel):
     password: str = Field(default="", max_length=512)
+    start_path: str = Field(default="", max_length=4096)
+
+
+class SftpChmodBody(BaseModel):
+    mode_octal: str = Field(..., min_length=3, max_length=4)
+
+
+class SftpChownBody(BaseModel):
+    uid: int = Field(..., ge=0)
+    gid: int = Field(..., ge=0)
 
 
 class OpenPgAdminBody(BaseModel):
@@ -740,13 +755,15 @@ def create_app() -> FastAPI:
     async def post_sftp_session(
         site: str,
         body: SftpOpenBody,
-        op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE)),
+        op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE, PERM_RANCHER_WRITE)),
     ) -> dict[str, Any]:
         try:
+            start = (body.start_path or "").strip() or None
             row = await sftp_open_session(
                 site,
                 password=body.password or None,
                 atlas_user=str(op.get("username") or ""),
+                start_path=start,
             )
         except SshTunnelError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -755,7 +772,7 @@ def create_app() -> FastAPI:
     @app.delete("/api/sftp/session/{session_id}")
     async def delete_sftp_session(
         session_id: str,
-        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE)),
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE, PERM_RANCHER_WRITE)),
     ) -> dict[str, bool]:
         await sftp_close_session(session_id)
         return {"ok": True}
@@ -764,10 +781,32 @@ def create_app() -> FastAPI:
     async def get_sftp_list(
         session_id: str,
         path: str = Query(default="/"),
-        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE)),
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE, PERM_RANCHER_WRITE)),
     ) -> dict[str, Any]:
         try:
             return await sftp_list_directory(session_id, path)
+        except SshTunnelError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    @app.get("/api/sftp/session/{session_id}/stat")
+    async def get_sftp_stat(
+        session_id: str,
+        path: str = Query(..., min_length=1),
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE, PERM_RANCHER_WRITE)),
+    ) -> dict[str, Any]:
+        try:
+            return await sftp_stat_path(session_id, path)
+        except SshTunnelError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    @app.get("/api/sftp/session/{session_id}/read-text")
+    async def get_sftp_read_text(
+        session_id: str,
+        path: str = Query(..., min_length=1),
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE, PERM_RANCHER_WRITE)),
+    ) -> dict[str, Any]:
+        try:
+            return await sftp_read_text_file(session_id, path)
         except SshTunnelError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -775,7 +814,7 @@ def create_app() -> FastAPI:
     async def get_sftp_download(
         session_id: str,
         path: str = Query(..., min_length=1),
-        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE)),
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE, PERM_RANCHER_WRITE)),
     ) -> StreamingResponse:
         import posixpath as pp
 
@@ -799,7 +838,7 @@ def create_app() -> FastAPI:
         session_id: str,
         path: str = Query(..., min_length=1),
         file: UploadFile = File(...),
-        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE)),
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE, PERM_RANCHER_WRITE)),
     ) -> dict[str, Any]:
         try:
             data = await file.read()
@@ -811,10 +850,41 @@ def create_app() -> FastAPI:
     async def post_sftp_mkdir(
         session_id: str,
         path: str = Query(..., min_length=1),
-        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE)),
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE, PERM_RANCHER_WRITE)),
     ) -> dict[str, Any]:
         try:
             return await sftp_mkdir(session_id, path)
+        except SshTunnelError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    @app.post("/api/sftp/session/{session_id}/chmod")
+    async def post_sftp_chmod(
+        session_id: str,
+        path: str = Query(..., min_length=1),
+        body: SftpChmodBody = ...,
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE, PERM_RANCHER_WRITE)),
+    ) -> dict[str, Any]:
+        raw = body.mode_octal.strip().lower()
+        if raw.startswith("0o"):
+            raw = raw[2:]
+        try:
+            mode = int(raw, 8)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail="Modo octal inválido.") from e
+        try:
+            return await sftp_chmod_path(session_id, path, mode)
+        except SshTunnelError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    @app.post("/api/sftp/session/{session_id}/chown")
+    async def post_sftp_chown(
+        session_id: str,
+        path: str = Query(..., min_length=1),
+        body: SftpChownBody = ...,
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE, PERM_RANCHER_WRITE)),
+    ) -> dict[str, Any]:
+        try:
+            return await sftp_chown_path(session_id, path, body.uid, body.gid)
         except SshTunnelError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -822,7 +892,7 @@ def create_app() -> FastAPI:
     async def delete_sftp_entry(
         session_id: str,
         path: str = Query(..., min_length=1),
-        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE)),
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE, PERM_RANCHER_WRITE)),
     ) -> dict[str, bool]:
         try:
             await sftp_remove_path(session_id, path)
