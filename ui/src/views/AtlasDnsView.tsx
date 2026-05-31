@@ -319,15 +319,7 @@ export function AtlasDnsView({ sites, domainSuffix }: Props) {
                         <span className="text-zinc-500">Registros</span>
                         <span className="font-medium text-zinc-300">{urls.length}</span>
                       </div>
-                      {urls.length > 0 ? (
-                        <p className="mt-2 truncate font-mono text-[11px] text-zinc-500">
-                          {urls
-                            .slice(0, 2)
-                            .map((l) => l.url)
-                            .join(" · ")}
-                          {urls.length > 2 ? ` · +${urls.length - 2}` : ""}
-                        </p>
-                      ) : (
+                      {urls.length > 0 ? null : (
                         <p className="mt-2 text-[11px] text-zinc-600">Sin URLs Poslite configuradas</p>
                       )}
                     </div>

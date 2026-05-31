@@ -753,11 +753,6 @@ export default function App() {
                             <StatusPill kind={s.dbStatus} />
                           </div>
                         </div>
-                        {s.ssh ? (
-                          <p className="mt-2 truncate font-mono text-[11px] text-zinc-500">
-                            {s.ssh.hostname} → :{s.ssh.local_port}
-                          </p>
-                        ) : null}
                       </div>
                       <AnimatePresence initial={false}>
                         {open ? (

@@ -92,6 +92,7 @@ export type PvcsResponse = {
   count: number;
   pvcs: RancherPersistentVolumeClaim[];
   ssh: {
+    clusterName?: string;
     store: string;
     site: string | null;
     available: boolean;

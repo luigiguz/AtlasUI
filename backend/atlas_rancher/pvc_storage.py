@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from typing import Any
 
@@ -66,11 +67,26 @@ def _normalize_pvc(item: dict[str, Any], *, host_path: str | None, pv_name: str 
     }
 
 
-def resolve_store_vpn_site(store_id: str) -> tuple[str | None, str | None]:
-    """Devuelve (site_key, mensaje_error)."""
-    store = (store_id or "").strip()
-    if not store:
-        return None, "La tienda no tiene label store."
+def _normalize_site_slug(value: str) -> str:
+    """Clave comparable: minúsculas sin guiones, espacios ni puntos (texaco-javito ≈ texacojavito)."""
+    return re.sub(r"[-_\s.]+", "", (value or "").strip().lower())
+
+
+def resolve_cluster_vpn_site(
+    cluster_name: str,
+    *,
+    store_label: str = "",
+) -> tuple[str | None, str | None]:
+    """Empareja nombre del cluster Rancher ↔ clave en tunnels.json (p. ej. texaco-javito)."""
+    primary = (cluster_name or "").strip()
+    if not primary:
+        return None, "Falta el nombre del cluster."
+
+    candidates: list[str] = [primary]
+    fallback = (store_label or "").strip()
+    if fallback and _normalize_site_slug(fallback) != _normalize_site_slug(primary):
+        if fallback.lower() != primary.lower():
+            candidates.append(fallback)
 
     cfg = tm.load_config_optional(tm.default_config_path())
     if not cfg:
@@ -87,21 +103,43 @@ def resolve_store_vpn_site(store_id: str) -> tuple[str | None, str | None]:
         ssh = entry.get("ssh")
         return isinstance(ssh, dict) and ssh.get("local_port") not in (None, "")
 
-    if store in sites:
-        if _site_has_ssh(store):
-            return store, None
-        return None, f"El sitio «{store}» existe pero no tiene túnel SSH. Actívalo en Conexiones."
+    site_keys = [str(k) for k in sites.keys()]
 
-    lower = store.lower()
-    for key in sites:
-        if str(key).lower() == lower:
+    for candidate in candidates:
+        if candidate in sites:
+            if _site_has_ssh(candidate):
+                return candidate, None
+            return None, f"El sitio «{candidate}» existe pero no tiene túnel SSH. Actívalo en Conexiones."
+
+        lower = candidate.lower()
+        for key in site_keys:
+            if key.lower() == lower:
+                if _site_has_ssh(key):
+                    return key, None
+                return None, f"El sitio «{key}» existe pero no tiene túnel SSH. Actívalo en Conexiones."
+
+        norm = _normalize_site_slug(candidate)
+        if not norm:
+            continue
+        slug_matches = [key for key in site_keys if _normalize_site_slug(key) == norm]
+        if len(slug_matches) == 1:
+            key = slug_matches[0]
             if _site_has_ssh(key):
-                return str(key), None
+                return key, None
             return None, f"El sitio «{key}» existe pero no tiene túnel SSH. Actívalo en Conexiones."
+        if len(slug_matches) > 1:
+            joined = ", ".join(f"«{k}»" for k in slug_matches)
+            return (
+                None,
+                f"Varios sitios VPN coinciden con «{candidate}» ({joined}). "
+                "Usa un nombre de cluster único o alinea tunnels.json.",
+            )
 
     return (
         None,
-        f"No hay sitio VPN «{store}» en tunnels.json. Abre Conexiones y activa el túnel SSH del equipo.",
+        f"No hay sitio VPN «{primary}» en tunnels.json. "
+        "El nombre del cluster debe coincidir con el sitio en Conexiones (p. ej. texaco-javito). "
+        "Activa el túnel SSH de ese sitio.",
     )
 
 
@@ -111,9 +149,10 @@ def list_cluster_persistent_volume_claims(
     namespace: str,
     name: str,
     steve_collection: str,
-    store_id: str = "",
+    store_label: str = "",
 ) -> tuple[str, str, str, list[dict[str, Any]], dict[str, Any]]:
     """Devuelve (source, mgmt_id, k8s_ns, pvcs, ssh_info)."""
+    cluster_name = name.strip()
     mgmt_id, k8s_ns, application = resolve_custom_cluster_context(
         settings,
         namespace=namespace,
@@ -148,9 +187,13 @@ def list_cluster_persistent_volume_claims(
         out.append(_normalize_pvc(item, host_path=host_path, pv_name=pv_name or None))
 
     out.sort(key=lambda x: x.get("name") or "")
-    site_key, ssh_err = resolve_store_vpn_site(store_id or application)
+    site_key, ssh_err = resolve_cluster_vpn_site(
+        cluster_name,
+        store_label=(store_label or "").strip(),
+    )
     ssh_info = {
-        "store": (store_id or application).strip(),
+        "clusterName": cluster_name,
+        "store": (store_label or "").strip(),
         "site": site_key,
         "available": bool(site_key),
         "message": ssh_err,

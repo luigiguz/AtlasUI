@@ -24,8 +24,8 @@ function clusterPvcsPath(cluster: RancherCustomCluster): string {
   const ns = encodeURIComponent(cluster.namespace);
   const nm = encodeURIComponent(cluster.name);
   const steve = encodeURIComponent(cluster.steveCollection || "provisioning.cattle.io.customclusters");
-  const store = encodeURIComponent(cluster.store || cluster.application || "");
-  return `/api/atlas-rancher/custom-clusters/${ns}/${nm}/pvcs?steve_collection=${steve}&store=${store}`;
+  const storeLabel = cluster.store ? `&store=${encodeURIComponent(cluster.store)}` : "";
+  return `/api/atlas-rancher/custom-clusters/${ns}/${nm}/pvcs?steve_collection=${steve}${storeLabel}`;
 }
 
 function phaseTone(phase: string): string {
@@ -342,7 +342,7 @@ export function PvcStoragePanel({ cluster, canEdit }: Props) {
     void loadPvcs();
   }, [loadPvcs]);
 
-  const storeLabel = cluster.store || cluster.application || "—";
+  const vpnClusterName = cluster.name || cluster.displayName || "—";
 
   const openExplorer = useCallback(
     (pvc: RancherPersistentVolumeClaim) => {
@@ -402,7 +402,13 @@ export function PvcStoragePanel({ cluster, canEdit }: Props) {
         <div>
           <p className="text-sm font-medium text-zinc-200">Volúmenes persistentes</p>
           <p className="text-[11px] text-zinc-500">
-            PVC local-path · sitio VPN <span className="text-zinc-300">{storeLabel}</span>
+            PVC local-path · cluster <span className="text-zinc-300">{vpnClusterName}</span>
+            {sshInfo?.site && sshInfo.site !== vpnClusterName ? (
+              <>
+                {" "}
+                → VPN <span className="text-zinc-300">{sshInfo.site}</span>
+              </>
+            ) : null}
             {sshInfo?.site ? (
               <>
                 {" "}

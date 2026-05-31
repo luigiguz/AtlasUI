@@ -30,7 +30,7 @@ from atlas_rancher.client import (
     rollout_deployment_image_pull,
     update_custom_cluster_labels,
 )
-from atlas_rancher.pvc_storage import list_cluster_persistent_volume_claims, resolve_store_vpn_site
+from atlas_rancher.pvc_storage import list_cluster_persistent_volume_claims, resolve_cluster_vpn_site
 from atlas_rancher.settings_store import load_rancher_settings, save_rancher_settings
 
 router = APIRouter(prefix="/api/atlas-rancher", tags=["atlas-rancher"])
@@ -415,7 +415,7 @@ def get_custom_cluster_pvcs(
     namespace: str,
     name: str,
     steve_collection: str = Query(default="provisioning.cattle.io.customclusters"),
-    store: str = Query(default=""),
+    store: str = Query(default="", description="Opcional: label store (solo respaldo si difiere del nombre del cluster)"),
     _user: dict[str, Any] = Depends(require_permission(PERM_RANCHER_READ)),
 ) -> dict[str, Any]:
     settings = load_rancher_settings()
@@ -430,7 +430,7 @@ def get_custom_cluster_pvcs(
             namespace=namespace,
             name=name,
             steve_collection=steve_collection.strip(),
-            store_id=store.strip(),
+            store_label=store.strip(),
         )
     except RancherConfigError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -462,14 +462,14 @@ def get_custom_cluster_pvcs(
 def get_cluster_storage_ssh_status(
     namespace: str,
     name: str,
-    store: str = Query(default=""),
+    store: str = Query(default="", description="Opcional: label store (solo respaldo)"),
     _user: dict[str, Any] = Depends(require_permission(PERM_RANCHER_READ)),
 ) -> dict[str, Any]:
-    store_id = store.strip()
-    site_key, message = resolve_store_vpn_site(store_id)
+    site_key, message = resolve_cluster_vpn_site(name.strip(), store_label=store.strip())
     return {
         "ok": True,
-        "store": store_id,
+        "clusterName": name.strip(),
+        "store": store.strip(),
         "site": site_key,
         "available": bool(site_key),
         "message": message,
@@ -498,7 +498,7 @@ async def post_cluster_storage_session(
             namespace=namespace,
             name=name,
             steve_collection=steve_collection.strip(),
-            store_id=store.strip(),
+            store_label=store.strip(),
         )
     except RancherConfigError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
