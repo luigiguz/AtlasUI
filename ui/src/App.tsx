@@ -36,6 +36,8 @@ import {
   PERM_ROLES_MANAGE,
   PERM_STORES_READ,
   PERM_STORES_WRITE,
+  PERM_STORES_APPROVE,
+  PERM_STORES_CONFIGURE,
   PERM_USERS_LIST,
   PERM_VPN_OPERATE,
   type AuthUser,
@@ -696,6 +698,8 @@ export default function App() {
   const canRancherWrite = hasPermission(me, PERM_RANCHER_WRITE);
   const canStoresRead = hasPermission(me, PERM_STORES_READ);
   const canStoresWrite = hasPermission(me, PERM_STORES_WRITE);
+  const canStoresApprove = hasPermission(me, PERM_STORES_APPROVE);
+  const canStoresConfigure = hasAnyPermission(me, PERM_STORES_WRITE, PERM_STORES_CONFIGURE);
   const canUsers = hasPermission(me, PERM_USERS_LIST);
   const canRoles = hasAnyPermission(me, PERM_ROLES_LIST, PERM_ROLES_MANAGE);
 
@@ -728,7 +732,11 @@ export default function App() {
         )}
 
         {tab === "rancher-stores" && canStoresRead && (
-          <AtlasStoresView canAdmin={canStoresWrite} canEdit={canStoresWrite} />
+          <AtlasStoresView
+            canAdmin={canStoresConfigure}
+            canEdit={canStoresWrite}
+            canApprove={canStoresApprove}
+          />
         )}
         {tab === "rancher-stores" && !canStoresRead && (
           <div className="mx-auto max-w-lg rounded-xl border border-cf-line/80 bg-cf-panel/80 p-6 text-center text-sm text-zinc-400">

@@ -1,13 +1,19 @@
 import { motion } from "framer-motion";
-import { Loader2, Plus, RefreshCw, Save, Server, Store, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, GitBranch, Loader2, Plus, RefreshCw, Save, Server, Store, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { api } from "../apiClient";
 import type { ClustersResponse, RancherCustomCluster } from "../rancherTypes";
+import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
+import { AtlasPromptDialog } from "../components/AtlasPromptDialog";
 import type {
+  StoreChangeRequest,
+  StoreChangeRequestsResponse,
   StoreCreatePreview,
   StoreCreatePreviewResponse,
   StoreDetail,
+  StoreGitDiscardMode,
+  StoreGitStatusResponse,
   StoreSummary,
   StoreTemplateInfo,
   StoreTemplatesResponse,
@@ -19,6 +25,7 @@ import type {
 type Props = {
   canAdmin: boolean;
   canEdit: boolean;
+  canApprove: boolean;
 };
 
 type SettingsResponse = {
@@ -98,7 +105,15 @@ function applyTagToAllComponents(detail: StoreDetail, tag: string): StoreDetail 
 const tagInputClass =
   "w-28 min-w-0 rounded border border-cf-line bg-black/50 px-1.5 py-0.5 text-[11px] text-zinc-200 outline-none focus:border-cf-orange/50";
 
-export function AtlasStoresView({ canAdmin, canEdit }: Props) {
+function gitChangeBadgeClass(status: string): string {
+  if (status === "unmerged") return "bg-rose-950/60 text-rose-200 ring-rose-500/30";
+  if (status === "deleted") return "bg-zinc-800 text-zinc-300 ring-zinc-600/40";
+  if (status === "added") return "bg-emerald-950/50 text-emerald-200 ring-emerald-500/30";
+  if (status === "untracked") return "bg-amber-950/40 text-amber-100 ring-amber-500/30";
+  return "bg-sky-950/40 text-sky-200 ring-sky-500/30";
+}
+
+export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const [stores, setStores] = useState<StoreSummary[]>([]);
   const [configured, setConfigured] = useState(false);
   const [message, setMessage] = useState("");
@@ -141,6 +156,21 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
   const [createPreviewLoading, setCreatePreviewLoading] = useState(false);
   const [createPublishing, setCreatePublishing] = useState(false);
 
+  const [gitStatus, setGitStatus] = useState<StoreGitStatusResponse | null>(null);
+  const [gitStatusLoading, setGitStatusLoading] = useState(false);
+  const [discardConfirm, setDiscardConfirm] = useState<StoreGitDiscardMode | null>(null);
+  const [discarding, setDiscarding] = useState(false);
+  const [discardMsg, setDiscardMsg] = useState("");
+  const [publishMessage, setPublishMessage] = useState("Atlas: publicar cambios locales del caché");
+  const [publishing, setPublishing] = useState(false);
+
+  const [changeRequests, setChangeRequests] = useState<StoreChangeRequest[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [pendingFolders, setPendingFolders] = useState<string[]>([]);
+  const [approveConfirmId, setApproveConfirmId] = useState<number | null>(null);
+  const [rejectRequestId, setRejectRequestId] = useState<number | null>(null);
+  const [requestActionBusy, setRequestActionBusy] = useState(false);
+
   const createTemplateHint = useMemo(() => {
     const stack = newDistro === "pam" ? "pam" : "horustech";
     const tpl = storeTemplates.find((t) => t.distro === newDistro);
@@ -160,6 +190,38 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
     return `Se copiará ${stationPath} y ${dbPath}, sustituyendo <id-tienda> y <tag-imagen> (${newChannel}).`;
   }, [newDistro, newChannel, storeTemplates]);
 
+  const loadGitStatus = useCallback(async () => {
+    setGitStatusLoading(true);
+    try {
+      const data = await api<StoreGitStatusResponse>("/api/atlas-stores/git/status");
+      if (data.configured !== false) {
+        setConfigured(true);
+        setGitStatus(data);
+      } else {
+        setGitStatus(null);
+      }
+    } catch {
+      setGitStatus(null);
+    } finally {
+      setGitStatusLoading(false);
+    }
+  }, []);
+
+  const loadChangeRequests = useCallback(async () => {
+    if (!canEdit && !canApprove) return;
+    setRequestsLoading(true);
+    try {
+      const data = await api<StoreChangeRequestsResponse>(
+        "/api/atlas-stores/change-requests?status=pending"
+      );
+      setChangeRequests(data.requests ?? []);
+    } catch {
+      setChangeRequests([]);
+    } finally {
+      setRequestsLoading(false);
+    }
+  }, [canEdit, canApprove]);
+
   const loadStores = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -168,15 +230,23 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
       setStores(data.stores ?? []);
       setConfigured(data.configured !== false);
       setRepoUrl(data.repoUrl ?? "");
-      if (data.configured === false && data.message) setMessage(data.message);
+      setPendingFolders(data.pendingFolders ?? []);
+      if (data.gitWarning) setError(data.gitWarning);
+      else if (data.configured === false && data.message) setMessage(data.message);
       else setMessage("");
+      if (data.configured !== false) {
+        void loadGitStatus();
+        void loadChangeRequests();
+      }
     } catch (e) {
       setStores([]);
       setError(e instanceof Error ? e.message : "No se pudieron cargar las tiendas.");
+      void loadGitStatus();
+      void loadChangeRequests();
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadGitStatus, loadChangeRequests]);
 
   const loadDetail = useCallback(async (folder: string) => {
     setDetailLoading(true);
@@ -290,45 +360,183 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
     try {
       const r = await api<{ message: string }>("/api/atlas-stores/sync", { method: "POST" });
       setSaveMsg(r.message ?? "Repositorio actualizado.");
+      setError("");
       await loadStores();
       if (selectedFolder) await loadDetail(selectedFolder);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al sincronizar.");
+      void loadGitStatus();
     } finally {
       setSyncing(false);
     }
   }
+
+  async function onConfirmDiscard() {
+    if (!discardConfirm) return;
+    setDiscarding(true);
+    setDiscardMsg("");
+    try {
+      const r = await api<StoreGitStatusResponse>("/api/atlas-stores/git/discard", {
+        method: "POST",
+        body: JSON.stringify({ mode: discardConfirm }),
+      });
+      setGitStatus(r);
+      setSaveMsg(r.message ?? "Cambios descartados.");
+      setDiscardConfirm(null);
+      setError("");
+      await loadStores();
+    } catch (e) {
+      setDiscardMsg(e instanceof Error ? e.message : "No se pudieron descartar los cambios.");
+    } finally {
+      setDiscarding(false);
+    }
+  }
+
+  async function onPublishGitChanges() {
+    setPublishing(true);
+    setDiscardMsg("");
+    try {
+      const r = await api<StoreGitStatusResponse>("/api/atlas-stores/git/publish", {
+        method: "POST",
+        body: JSON.stringify({ commit_message: publishMessage.trim() }),
+      });
+      setGitStatus(r);
+      setSaveMsg(r.message ?? "Cambios publicados.");
+      setError("");
+      await loadStores();
+    } catch (e) {
+      setDiscardMsg(e instanceof Error ? e.message : "No se pudieron publicar los cambios.");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  const gitErrorHint = useMemo(
+    () => Boolean(error && /merge|conflicto|repositorio local|cach[eé] git|needs merge/i.test(error)),
+    [error]
+  );
+
+  const showGitPanel = Boolean(
+    configured || gitErrorHint || gitStatus?.blocked || gitStatus?.dirty
+  ) && Boolean(gitStatusLoading || gitStatus?.blocked || gitStatus?.dirty || gitErrorHint);
+
+  const discardConfirmCopy = useMemo(() => {
+    if (discardConfirm === "remote") {
+      return {
+        title: "Usar versión remota",
+        message: (
+          <>
+            Se descartarán todos los cambios locales del caché Git y se restaurará la rama{" "}
+            <strong className="text-zinc-300">{gitStatus?.branch ?? "remota"}</strong> desde el servidor. Esta acción
+            no se puede deshacer.
+          </>
+        ),
+        confirmLabel: "Restaurar remoto",
+      };
+    }
+    if (discardConfirm === "local") {
+      return {
+        title: "Descartar cambios locales",
+        message:
+          "Se eliminarán los cambios sin publicar en el caché Git de Atlas. Los commits ya publicados en el remoto no se tocan.",
+        confirmLabel: "Descartar",
+      };
+    }
+    return {
+      title: "Abortar operación Git",
+      message: "Se cancelará el merge, rebase o cherry-pick en curso. Puede que sigan quedando archivos modificados.",
+      confirmLabel: "Abortar",
+    };
+  }, [discardConfirm, gitStatus?.branch]);
 
   async function onSaveDetail() {
     if (!detail || !selectedFolder || !canEdit) return;
     setSaving(true);
     setSaveMsg("");
     try {
-      const r = await api<{ publishMessage?: string; store: StoreDetail }>(
-        `/api/atlas-stores/stores/${encodeURIComponent(selectedFolder)}`,
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            id: detail.id,
-            distro: detail.distro,
-            db: detail.db,
-            station: {
-              stack: detail.station?.stack,
-              config: detail.station?.config,
-              services: detail.station?.services,
-              workers: flattenWorkerGroups(workerGroupsFromStation(detail.station)),
-            },
-            commit_message: `Atlas: configuración tienda ${detail.id}`,
-          }),
-        }
-      );
-      setDetail(r.store);
-      setSaveMsg(r.publishMessage ?? "Cambios guardados.");
+      const r = await api<{
+        publishMessage?: string;
+        message?: string;
+        pendingApproval?: boolean;
+        store?: StoreDetail;
+      }>(`/api/atlas-stores/stores/${encodeURIComponent(selectedFolder)}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          id: detail.id,
+          distro: detail.distro,
+          db: detail.db,
+          station: {
+            stack: detail.station?.stack,
+            config: detail.station?.config,
+            services: detail.station?.services,
+            workers: flattenWorkerGroups(workerGroupsFromStation(detail.station)),
+          },
+          commit_message: `Atlas: configuración tienda ${detail.id}`,
+        }),
+      });
+      if (r.pendingApproval) {
+        setSaveMsg(r.message ?? "Solicitud enviada para aprobación.");
+        await loadChangeRequests();
+        await loadStores();
+        return;
+      }
+      if (r.store) setDetail(r.store);
+      setSaveMsg(r.publishMessage ?? "Cambios publicados.");
       await loadStores();
     } catch (e) {
       setSaveMsg(e instanceof Error ? e.message : "Error al guardar.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function onApproveRequest(requestId: number) {
+    setRequestActionBusy(true);
+    try {
+      const r = await api<{ publishMessage?: string; message?: string }>(
+        `/api/atlas-stores/change-requests/${requestId}/approve`,
+        { method: "POST", body: JSON.stringify({ review_note: "" }) }
+      );
+      setSaveMsg(r.publishMessage ?? r.message ?? "Solicitud aprobada y publicada.");
+      setApproveConfirmId(null);
+      await loadChangeRequests();
+      await loadStores();
+    } catch (e) {
+      setSaveMsg(e instanceof Error ? e.message : "No se pudo aprobar.");
+    } finally {
+      setRequestActionBusy(false);
+    }
+  }
+
+  async function onRejectRequest(requestId: number, note: string) {
+    setRequestActionBusy(true);
+    try {
+      await api(`/api/atlas-stores/change-requests/${requestId}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ review_note: note }),
+      });
+      setSaveMsg("Solicitud rechazada.");
+      setRejectRequestId(null);
+      await loadChangeRequests();
+      await loadStores();
+    } catch (e) {
+      setSaveMsg(e instanceof Error ? e.message : "No se pudo rechazar.");
+    } finally {
+      setRequestActionBusy(false);
+    }
+  }
+
+  async function onCancelRequest(requestId: number) {
+    setRequestActionBusy(true);
+    try {
+      await api(`/api/atlas-stores/change-requests/${requestId}`, { method: "DELETE" });
+      setSaveMsg("Solicitud cancelada.");
+      await loadChangeRequests();
+      await loadStores();
+    } catch (e) {
+      setSaveMsg(e instanceof Error ? e.message : "No se pudo cancelar.");
+    } finally {
+      setRequestActionBusy(false);
     }
   }
 
@@ -444,7 +652,12 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
     setCreatePublishing(true);
     setCreateError("");
     try {
-      const r = await api<{ publishMessage?: string; store: StoreDetail }>("/api/atlas-stores/stores", {
+      const r = await api<{
+        publishMessage?: string;
+        message?: string;
+        pendingApproval?: boolean;
+        store?: StoreDetail;
+      }>("/api/atlas-stores/stores", {
         method: "POST",
         body: JSON.stringify({
           folder_name: createPreview.folderName,
@@ -454,9 +667,15 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
         }),
       });
       resetCreateModal();
+      if (r.pendingApproval) {
+        setSaveMsg(r.message ?? "Solicitud enviada para aprobación.");
+        await loadChangeRequests();
+        await loadStores();
+        return;
+      }
       setSaveMsg(r.publishMessage ?? "Tienda creada.");
       await loadStores();
-      await loadDetail(r.store.folderName);
+      if (r.store) await loadDetail(r.store.folderName);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "No se pudo publicar la tienda.");
     } finally {
@@ -612,9 +831,233 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
         </form>
       ) : null}
 
-      {error ? (
+      {error && !showGitPanel ? (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div>
       ) : null}
+
+      {showGitPanel ? (
+        <div
+          className={`rounded-xl border px-4 py-3 ${
+            gitStatus?.blocked || gitErrorHint
+              ? "border-rose-500/35 bg-rose-500/10"
+              : "border-amber-500/30 bg-amber-500/10"
+          }`}
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-sm font-medium text-zinc-100">
+                {gitStatus?.blocked || gitErrorHint ? (
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-rose-300" aria-hidden />
+                ) : (
+                  <GitBranch className="h-4 w-4 shrink-0 text-amber-200" aria-hidden />
+                )}
+                Cambios pendientes en el repositorio
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-400">
+                {gitStatus?.blocked || gitErrorHint
+                  ? "El caché Git de Atlas quedó con conflictos (p. ej. tras sincronizar). Restaura la versión remota para volver a operar con normalidad."
+                  : "Hay cambios locales sin publicar en el caché Git. Puedes publicarlos al remoto o descartarlos."}
+              </p>
+              {error && (gitStatus?.blocked || gitErrorHint) ? (
+                <p className="mt-1 text-[11px] text-rose-200/80">{error}</p>
+              ) : null}
+              {gitStatus?.summary ? (
+                <p className="mt-1 text-[11px] text-zinc-500">{gitStatus.summary}</p>
+              ) : null}
+            </div>
+            {canApprove ? (
+              <div className="flex shrink-0 flex-wrap gap-2">
+                {gitStatus?.mergeInProgress || gitStatus?.rebaseInProgress || gitStatus?.cherryPickInProgress ? (
+                  <button
+                    type="button"
+                    disabled={discarding || publishing}
+                    onClick={() => setDiscardConfirm("abort")}
+                    className="rounded-lg border border-cf-line bg-cf-panel px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                  >
+                    Abortar operación
+                  </button>
+                ) : null}
+                {!gitStatus?.blocked && !gitErrorHint && gitStatus?.canPublish ? (
+                  <button
+                    type="button"
+                    disabled={discarding || publishing || !publishMessage.trim()}
+                    onClick={() => void onPublishGitChanges()}
+                    className="inline-flex items-center gap-1 rounded-lg bg-emerald-600/90 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                  >
+                    {publishing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                    Publicar cambios
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={discarding || publishing}
+                  onClick={() => setDiscardConfirm("local")}
+                  className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Descartar
+                </button>
+                <button
+                  type="button"
+                  disabled={discarding || publishing}
+                  onClick={() => setDiscardConfirm("remote")}
+                  className="inline-flex items-center gap-1 rounded-lg bg-cf-orange px-3 py-1.5 text-xs font-medium text-black hover:brightness-110 disabled:opacity-50"
+                >
+                  {discarding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  Usar versión remota
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          {!gitStatus?.blocked && !gitErrorHint && gitStatus?.canPublish && canApprove ? (
+            <label className="mt-3 block text-xs text-zinc-400">
+              Mensaje de commit
+              <input
+                value={publishMessage}
+                onChange={(e) => setPublishMessage(e.target.value)}
+                className={inputClass}
+                placeholder="Atlas: publicar cambios locales del caché"
+              />
+            </label>
+          ) : null}
+
+          {gitStatusLoading ? (
+            <div className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Leyendo estado Git…
+            </div>
+          ) : gitStatus?.changes?.length ? (
+            <ul className="mt-3 max-h-44 space-y-1 overflow-y-auto rounded-lg border border-white/[0.06] bg-black/25 p-2">
+              {gitStatus.changes.map((c) => (
+                <li key={`${c.status}:${c.path}`} className="flex items-center gap-2 text-[11px]">
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 ring-1 ${gitChangeBadgeClass(c.status)}`}
+                  >
+                    {c.label}
+                  </span>
+                  <code className="truncate font-mono text-zinc-300">{c.path}</code>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {discardMsg ? <p className="mt-2 text-xs text-emerald-300">{discardMsg}</p> : null}
+        </div>
+      ) : null}
+
+      <AtlasConfirmDialog
+        open={discardConfirm !== null}
+        title={discardConfirmCopy.title}
+        message={discardConfirmCopy.message}
+        confirmLabel={discardConfirmCopy.confirmLabel}
+        cancelLabel="Cancelar"
+        variant="danger"
+        busy={discarding}
+        onConfirm={() => void onConfirmDiscard()}
+        onCancel={() => setDiscardConfirm(null)}
+      />
+
+      {(canApprove || canEdit) && (requestsLoading || changeRequests.length > 0) ? (
+        <div className="rounded-xl border border-sky-500/25 bg-sky-500/5 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-zinc-100">
+            <Clock className="h-4 w-4 text-sky-300" aria-hidden />
+            {canApprove ? "Cola de aprobación" : "Mis solicitudes pendientes"}
+            {changeRequests.length > 0 ? (
+              <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-[10px] font-semibold text-sky-200">
+                {changeRequests.length}
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            {canApprove
+              ? "Los operadores proponen cambios aquí. Aprueba para publicar en Git (basta un administrador)."
+              : "Tus cambios quedan en espera hasta que un administrador los apruebe."}
+          </p>
+          {requestsLoading ? (
+            <div className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Cargando solicitudes…
+            </div>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {changeRequests.map((req) => (
+                <li
+                  key={req.id}
+                  className="flex flex-col gap-2 rounded-lg border border-white/[0.06] bg-black/25 p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-zinc-200">
+                      #{req.id} · {req.kind === "create" ? "Nueva tienda" : "Actualización"} · {req.storeId}
+                    </p>
+                    <p className="mt-0.5 text-xs text-zinc-400">{req.summary}</p>
+                    <p className="mt-1 text-[11px] text-zinc-600">
+                      {req.createdByUsername}
+                      {req.createdAt ? ` · ${new Date(req.createdAt).toLocaleString("es-PA")}` : ""}
+                    </p>
+                    <p className="mt-0.5 truncate text-[11px] text-zinc-600">{req.commitMessage}</p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    {canApprove ? (
+                      <>
+                        <button
+                          type="button"
+                          disabled={requestActionBusy}
+                          onClick={() => setApproveConfirmId(req.id)}
+                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-600/90 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          Aprobar
+                        </button>
+                        <button
+                          type="button"
+                          disabled={requestActionBusy}
+                          onClick={() => setRejectRequestId(req.id)}
+                          className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
+                        >
+                          Rechazar
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={requestActionBusy}
+                        onClick={() => void onCancelRequest(req.id)}
+                        className="rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
+      <AtlasConfirmDialog
+        open={approveConfirmId !== null}
+        title="Aprobar y publicar"
+        message="Se aplicará el cambio en el repositorio Git y se hará commit/push. Esta acción publica la configuración en el remoto."
+        confirmLabel="Aprobar y publicar"
+        cancelLabel="Cancelar"
+        busy={requestActionBusy}
+        onConfirm={() => approveConfirmId !== null && void onApproveRequest(approveConfirmId)}
+        onCancel={() => setApproveConfirmId(null)}
+      />
+
+      <AtlasPromptDialog
+        open={rejectRequestId !== null}
+        title="Rechazar solicitud"
+        message="Indica el motivo para el operador."
+        label="Motivo"
+        confirmLabel="Rechazar"
+        cancelLabel="Cancelar"
+        onConfirm={(note) => rejectRequestId !== null && void onRejectRequest(rejectRequestId, note)}
+        onCancel={() => setRejectRequestId(null)}
+      />
+
       {message && !configured ? (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">{message}</div>
       ) : null}
@@ -652,7 +1095,14 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
                         : "cursor-pointer border-b border-cf-line/30 hover:bg-white/[0.02]"
                     }
                   >
-                    <td className="px-4 py-3 font-medium text-zinc-200">{s.id}</td>
+                    <td className="px-4 py-3 font-medium text-zinc-200">
+                      {s.id}
+                      {pendingFolders.includes(s.folderName) ? (
+                        <span className="ml-2 rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-normal text-sky-300 ring-1 ring-sky-500/25">
+                          pendiente
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3 text-zinc-400">{distroLabel(s.distro)}</td>
                     <td className="px-4 py-3 text-zinc-500" title="Resumen; cada servicio puede tener otro tag en la ficha">
                       {s.imageChannel || "—"}
@@ -689,7 +1139,7 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
                     className="inline-flex items-center gap-1 rounded-lg bg-cf-orange px-3 py-1.5 text-xs font-medium text-black disabled:opacity-50"
                   >
                     {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                    Publicar cambios
+                    {canApprove ? "Publicar cambios" : "Enviar para aprobación"}
                   </button>
                 ) : null}
               </div>
@@ -1170,7 +1620,11 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
                     onClick={() => void onConfirmCreate()}
                     className="flex-1 rounded-lg bg-cf-orange py-2 text-xs font-medium text-black disabled:opacity-50"
                   >
-                    {createPublishing ? "Publicando…" : "Confirmar y publicar en Git"}
+                    {createPublishing
+                      ? "Enviando…"
+                      : canApprove
+                        ? "Confirmar y publicar en Git"
+                        : "Enviar solicitud de creación"}
                   </button>
                 </div>
               </div>

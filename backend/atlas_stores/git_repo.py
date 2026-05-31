@@ -112,9 +112,157 @@ def _working_tree_dirty(root: Path) -> bool:
     return bool(_run_git(["status", "--porcelain"], cwd=root).strip())
 
 
+def _git_dir(root: Path) -> Path:
+    return root / ".git"
+
+
+def _git_op_in_progress(root: Path) -> dict[str, bool]:
+    gd = _git_dir(root)
+    return {
+        "merge": (gd / "MERGE_HEAD").is_file(),
+        "rebase": (gd / "rebase-merge").is_dir() or (gd / "rebase-apply").is_dir(),
+        "cherry_pick": (gd / "CHERRY_PICK_HEAD").is_file(),
+    }
+
+
+def _parse_porcelain_line(line: str) -> dict[str, str] | None:
+    if not line.strip():
+        return None
+    xy = line[:2]
+    rest = line[3:].strip() if len(line) > 3 else ""
+    if " -> " in rest:
+        rest = rest.split(" -> ", 1)[1].strip()
+    x, y = xy[0], xy[1]
+    if x == "?" and y == "?":
+        return {"path": rest, "status": "untracked", "label": "Sin seguimiento"}
+    if "U" in xy or xy in ("AA", "DD", "AU", "UA", "DU", "UD"):
+        return {"path": rest, "status": "unmerged", "label": "Conflicto sin resolver"}
+    if x == "D" or y == "D":
+        return {"path": rest, "status": "deleted", "label": "Eliminado"}
+    if x == "A" or y == "A":
+        return {"path": rest, "status": "added", "label": "Nuevo"}
+    if x == "M" or y == "M":
+        return {"path": rest, "status": "modified", "label": "Modificado"}
+    return {"path": rest, "status": "changed", "label": "Cambiado"}
+
+
+def _has_unmerged_paths(root: Path) -> bool:
+    status = _run_git(["status", "--porcelain"], cwd=root)
+    for line in status.splitlines():
+        parsed = _parse_porcelain_line(line)
+        if parsed and parsed["status"] == "unmerged":
+            return True
+    return False
+
+
+def _stash_count(root: Path) -> int:
+    out = _run_git(["stash", "list"], cwd=root).strip()
+    return len(out.splitlines()) if out else 0
+
+
+def _abort_git_operations(root: Path) -> None:
+    ops = _git_op_in_progress(root)
+    if ops["merge"]:
+        _run_git(["merge", "--abort"], cwd=root)
+    if ops["rebase"]:
+        with contextlib.suppress(StoresRepoError):
+            _run_git(["rebase", "--abort"], cwd=root)
+    if ops["cherry_pick"]:
+        with contextlib.suppress(StoresRepoError):
+            _run_git(["cherry-pick", "--abort"], cwd=root)
+
+
+def git_working_status(settings: dict[str, str | bool]) -> dict[str, object]:
+    """Resumen del árbol de trabajo del caché atlas-stores."""
+    root = _ensure_repo_root(settings)
+    branch = str(settings.get("branch") or "main").strip() or "main"
+    ops = _git_op_in_progress(root)
+    porcelain = _run_git(["status", "--porcelain"], cwd=root)
+    changes: list[dict[str, str]] = []
+    for line in porcelain.splitlines():
+        parsed = _parse_porcelain_line(line)
+        if parsed:
+            changes.append(parsed)
+
+    unmerged = sum(1 for c in changes if c["status"] == "unmerged")
+    dirty = bool(changes)
+    blocked = unmerged > 0 or any(ops.values())
+
+    parts: list[str] = []
+    if unmerged:
+        parts.append(f"{unmerged} archivo(s) con conflicto")
+    modified = sum(1 for c in changes if c["status"] in ("modified", "added", "deleted", "changed"))
+    if modified:
+        parts.append(f"{modified} cambio(s) sin publicar")
+    untracked = sum(1 for c in changes if c["status"] == "untracked")
+    if untracked:
+        parts.append(f"{untracked} archivo(s) sin seguimiento")
+    if ops["merge"]:
+        parts.append("merge en curso")
+    if ops["rebase"]:
+        parts.append("rebase en curso")
+    if ops["cherry_pick"]:
+        parts.append("cherry-pick en curso")
+
+    stash_n = _stash_count(root)
+    if stash_n:
+        parts.append(f"{stash_n} stash(es) guardado(s)")
+
+    return {
+        "branch": branch,
+        "dirty": dirty,
+        "blocked": blocked,
+        "canPublish": dirty and not blocked,
+        "mergeInProgress": ops["merge"],
+        "rebaseInProgress": ops["rebase"],
+        "cherryPickInProgress": ops["cherry_pick"],
+        "stashCount": stash_n,
+        "changes": changes,
+        "summary": "; ".join(parts) if parts else "Sin cambios locales",
+        "canDiscard": True,
+    }
+
+
+def git_discard_changes(settings: dict[str, str | bool], *, mode: str) -> str:
+    """Descarta cambios locales o restaura la copia remota del caché Git."""
+    root = _ensure_repo_root(settings)
+    if not (root / ".git").is_dir():
+        raise StoresRepoError("No hay repositorio Git en el caché de tiendas.")
+
+    mode = (mode or "local").strip().lower()
+    if mode not in ("abort", "local", "remote"):
+        raise StoresRepoError("Modo de descarte no válido.")
+
+    _sync_remote_auth(root, settings)
+
+    if mode == "abort":
+        _abort_git_operations(root)
+        if _has_unmerged_paths(root):
+            _run_git(["reset", "--merge"], cwd=root)
+        return "Operación Git abortada. Revisa el resumen de cambios antes de sincronizar."
+
+    _abort_git_operations(root)
+
+    if mode == "remote":
+        branch = str(settings.get("branch") or "main").strip() or "main"
+        _run_git(["fetch", "origin"], cwd=root)
+        _run_git(["reset", "--hard", f"origin/{branch}"], cwd=root)
+        _run_git(["clean", "-fd"], cwd=root)
+        return f"Repositorio local restaurado desde origin/{branch}."
+
+    _run_git(["reset", "--hard", "HEAD"], cwd=root)
+    _run_git(["clean", "-fd"], cwd=root)
+    return "Cambios locales descartados (último commit local)."
+
+
 def _pull_ff_only(root: Path, settings: dict[str, str | bool]) -> None:
     """Pull fast-forward; si hay cambios locales sin commit, los aparta con stash."""
     _sync_remote_auth(root, settings)
+    if _has_unmerged_paths(root) or any(_git_op_in_progress(root).values()):
+        raise StoresRepoError(
+            "El repositorio local tiene conflictos o una operación Git a medias. "
+            "Abre el resumen de cambios locales en Gestión de Tiendas para descartarlos o usar la versión remota."
+        )
     stashed = False
     if _working_tree_dirty(root):
         log.info("stores git: cambios locales sin commit; stash antes de pull")
@@ -212,6 +360,11 @@ def git_commit_and_push(
 
 def _humanize_git_error(err: str) -> str:
     low = err.lower()
+    if "needs merge" in low or "unmerged files" in low or "merge conflict" in low:
+        return (
+            "Hay archivos con conflicto sin resolver en el caché Git de tiendas. "
+            "Usa el panel «Cambios locales» para descartarlos o restaurar la versión remota."
+        )
     if any(x in low for x in ("authentication failed", "401", "403", "invalid credentials", "access denied")):
         return (
             "Autenticación Git fallida. Revisa la URL, el usuario (si aplica) y el token/PAT "

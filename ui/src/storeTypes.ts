@@ -60,6 +60,34 @@ export type StoresListResponse = {
   branch?: string;
   count: number;
   stores: StoreSummary[];
+  gitWarning?: string;
+  gitBlocked?: boolean;
+  gitSummary?: string;
+  pendingFolders?: string[];
+  pendingApprovalCount?: number;
+};
+
+export type StoreChangeRequest = {
+  id: number;
+  kind: "update" | "create";
+  folderName: string;
+  storeId: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  summary: string;
+  commitMessage: string;
+  createdByUserId: number;
+  createdByUsername: string;
+  createdAt: string | null;
+  reviewedByUsername?: string | null;
+  reviewedAt?: string | null;
+  reviewNote?: string | null;
+  payload?: Record<string, unknown>;
+};
+
+export type StoreChangeRequestsResponse = {
+  ok: boolean;
+  canApprove?: boolean;
+  requests: StoreChangeRequest[];
 };
 
 export type StoreDetailResponse = {
@@ -129,3 +157,28 @@ export type StoreCreatePreviewResponse = {
     state?: string;
   };
 };
+
+export type StoreGitChange = {
+  path: string;
+  status: "unmerged" | "modified" | "added" | "deleted" | "untracked" | "changed";
+  label: string;
+};
+
+export type StoreGitStatusResponse = {
+  ok: boolean;
+  configured?: boolean;
+  branch?: string;
+  dirty?: boolean;
+  blocked?: boolean;
+  canPublish?: boolean;
+  mergeInProgress?: boolean;
+  rebaseInProgress?: boolean;
+  cherryPickInProgress?: boolean;
+  stashCount?: number;
+  changes?: StoreGitChange[];
+  summary?: string;
+  canDiscard?: boolean;
+  message?: string;
+};
+
+export type StoreGitDiscardMode = "abort" | "local" | "remote";

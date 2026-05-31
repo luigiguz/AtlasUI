@@ -128,3 +128,36 @@ class AppSetting(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class StoreChangeRequest(Base):
+    """Propuesta de cambio en tiendas Git — flujo de aprobación nativo Atlas."""
+
+    __tablename__ = "store_change_requests"
+    __table_args__ = (
+        Index("idx_store_change_requests_status", "status"),
+        Index("idx_store_change_requests_folder", "folder_name"),
+        Index("idx_store_change_requests_created_by", "created_by_user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    folder_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    store_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pending")
+    payload: Mapped[dict] = mapped_column(JsonType, nullable=False, default=dict)
+    commit_message: Mapped[str] = mapped_column(String(256), nullable=False, server_default="")
+    summary: Mapped[str] = mapped_column(String(512), nullable=False, server_default="")
+    created_by_user_id: Mapped[int] = mapped_column(
+        PkType, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    created_by_username: Mapped[str] = mapped_column(String(32), nullable=False, server_default="")
+    reviewed_by_user_id: Mapped[int | None] = mapped_column(
+        PkType, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewed_by_username: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -26,6 +26,7 @@ export const PERM_RANCHER_WRITE = "atlas:rancher:Write";
 export const PERM_RANCHER_CONFIGURE = "atlas:rancher:Configure";
 export const PERM_STORES_READ = "atlas:stores:Read";
 export const PERM_STORES_WRITE = "atlas:stores:Write";
+export const PERM_STORES_APPROVE = "atlas:stores:Approve";
 export const PERM_STORES_CONFIGURE = "atlas:stores:Configure";
 
 const LEGACY_ADMIN: string[] = [
@@ -45,6 +46,7 @@ const LEGACY_ADMIN: string[] = [
   PERM_RANCHER_CONFIGURE,
   PERM_STORES_READ,
   PERM_STORES_WRITE,
+  PERM_STORES_APPROVE,
   PERM_STORES_CONFIGURE,
 ];
 

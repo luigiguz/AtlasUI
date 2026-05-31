@@ -27,6 +27,7 @@ PERM_RANCHER_CONFIGURE = "atlas:rancher:Configure"
 
 PERM_STORES_READ = "atlas:stores:Read"
 PERM_STORES_WRITE = "atlas:stores:Write"
+PERM_STORES_APPROVE = "atlas:stores:Approve"
 PERM_STORES_CONFIGURE = "atlas:stores:Configure"
 
 ALL_PERMISSIONS: frozenset[str] = frozenset(
@@ -48,6 +49,7 @@ ALL_PERMISSIONS: frozenset[str] = frozenset(
         PERM_RANCHER_CONFIGURE,
         PERM_STORES_READ,
         PERM_STORES_WRITE,
+        PERM_STORES_APPROVE,
         PERM_STORES_CONFIGURE,
     }
 )
@@ -92,7 +94,8 @@ PERMISSION_GROUPS: list[dict[str, Any]] = [
         "label": "Tiendas (Git)",
         "permissions": [
             {"id": PERM_STORES_READ, "label": "Consultar tiendas"},
-            {"id": PERM_STORES_WRITE, "label": "Editar, sincronizar Git y publicar fleets"},
+            {"id": PERM_STORES_WRITE, "label": "Proponer cambios en tiendas"},
+            {"id": PERM_STORES_APPROVE, "label": "Aprobar y publicar tiendas"},
             {"id": PERM_STORES_CONFIGURE, "label": "Configuración avanzada del módulo tiendas"},
         ],
     },
@@ -111,7 +114,7 @@ SYSTEM_ROLE_DEFINITIONS: dict[str, dict[str, Any]] = {
     },
     SYSTEM_ROLE_OPERATOR: {
         "name": "Operador",
-        "description": "Túneles y operación; sin credenciales Cloudflare ni administración.",
+        "description": "Túneles y operación; propone cambios en tiendas (requieren aprobación).",
         "permissions": sorted(
             {
                 PERM_VPN_READ,
