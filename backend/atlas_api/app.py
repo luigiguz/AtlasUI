@@ -63,6 +63,8 @@ from atlas_core.web_roles import (
     update_role,
 )
 from atlas_core.web_sessions import create_user_session, refresh_access_session
+from atlas_core.notifications_router import router as notifications_router
+from atlas_core.notifications import record_cf_sync_result
 from atlas_rancher.router import router as atlas_rancher_router
 from atlas_stores.router import router as atlas_stores_router
 from atlas_vpn.ssh_sftp import (
@@ -342,6 +344,7 @@ def create_app() -> FastAPI:
     _configure_openapi(app)
     app.include_router(atlas_rancher_router)
     app.include_router(atlas_stores_router)
+    app.include_router(notifications_router)
     # CORS primero en el stack (último add_middleware) para que también cubra errores 4xx/5xx.
     app.add_middleware(
         CORSMiddleware,
@@ -404,6 +407,8 @@ def create_app() -> FastAPI:
             row = verify_login(body.username.strip(), body.password)
             if not row:
                 register_failed_login(request)
+                ip, _ua = _request_client_meta(request)
+                audit("login_failed", body.username.strip(), ip)
                 raise HTTPException(401, "Usuario o contraseña incorrectos.")
             clear_failed_logins(request)
             ip, ua = _request_client_meta(request)
@@ -653,10 +658,13 @@ def create_app() -> FastAPI:
                 tm.default_config_path(),
                 zone_id=body.zone_id.strip(),
             )
+            record_cf_sync_result(ok=True, message=msg)
             return {"ok": True, "sitesCount": n, "message": msg}
         except CfSyncError as e:
+            err = str(e)
+            record_cf_sync_result(ok=False, message=err)
             return JSONResponse(
-                status_code=400, content={"ok": False, "message": str(e)}
+                status_code=400, content={"ok": False, "message": err}
             )
 
     @app.post("/api/init-template")

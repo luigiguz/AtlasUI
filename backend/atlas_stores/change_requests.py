@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from atlas_core.db.models import StoreChangeRequest
 from atlas_core.db.session import session_scope
+from atlas_core.notifications import notify_user
 from atlas_stores.equipment import EquipmentNotFoundError, RancherNotConfiguredError, find_equipment_for_store
 from atlas_stores.git_repo import StoresRepoError, git_commit_and_push, resolve_repo_root
 from atlas_stores.settings_store import load_stores_settings
@@ -288,7 +289,21 @@ def approve_change_request(
         result = _row_dict(row)
         result["store"] = store
         result["publishMessage"] = git_msg
-        return result
+        creator_id = int(row.created_by_user_id)
+        summary = str(row.summary or row.folder_name)
+        folder_name = str(row.folder_name)
+        reviewer_name = _username(reviewer)
+
+    notify_user(
+        user_id=creator_id,
+        kind="store_change_approved",
+        severity="success",
+        title="Solicitud de tienda aprobada",
+        body=f"{summary} — publicada por {reviewer_name}.",
+        route="rancher-stores",
+        payload={"requestId": request_id, "folderName": folder_name},
+    )
+    return result
 
 
 def reject_change_request(
@@ -311,7 +326,21 @@ def reject_change_request(
         row.reviewed_by_user_id = _user_id(reviewer)
         row.reviewed_by_username = _username(reviewer)
         row.review_note = note[:512]
-        return _row_dict(row)
+        result = _row_dict(row)
+        creator_id = int(row.created_by_user_id)
+        summary = str(row.summary or row.folder_name)
+        folder_name = str(row.folder_name)
+
+    notify_user(
+        user_id=creator_id,
+        kind="store_change_rejected",
+        severity="warning",
+        title="Solicitud de tienda rechazada",
+        body=f"{summary}. Motivo: {note}",
+        route="rancher-stores",
+        payload={"requestId": request_id, "folderName": folder_name},
+    )
+    return result
 
 
 def pending_folder_names() -> set[str]:

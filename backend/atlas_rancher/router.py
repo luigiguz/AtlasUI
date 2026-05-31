@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from atlas_core.notifications import notify_user
 from atlas_core.permissions import PERM_RANCHER_CONFIGURE, PERM_RANCHER_READ, PERM_RANCHER_WRITE
 from atlas_core.web_auth import current_user, require_permission
 from atlas_rancher.client import (
@@ -277,6 +278,7 @@ def post_deployment_rollout(
             400,
             "Configura la conexión a Rancher antes de gestionar contenedores.",
         )
+    uid = user.get("id")
     try:
         result = rollout_deployment_image_pull(
             settings,
@@ -286,8 +288,28 @@ def post_deployment_rollout(
             deployment_name=deployment_name,
         )
     except RancherConfigError as e:
+        if uid is not None:
+            notify_user(
+                user_id=int(uid),
+                kind="rancher_rollout_failed",
+                severity="critical",
+                title=f"Rollout fallido: {deployment_name}",
+                body=str(e)[:500],
+                route="rancher-pods",
+                payload={"namespace": namespace, "cluster": name, "deployment": deployment_name},
+            )
         raise HTTPException(status_code=400, detail=str(e)) from e
     except RancherApiError as e:
+        if uid is not None:
+            notify_user(
+                user_id=int(uid),
+                kind="rancher_rollout_failed",
+                severity="critical",
+                title=f"Rollout fallido: {deployment_name}",
+                body=str(e)[:500],
+                route="rancher-pods",
+                payload={"namespace": namespace, "cluster": name, "deployment": deployment_name},
+            )
         status = 503 if e.status is None or e.status >= 500 else 502
         if e.status == 404:
             status = 404
@@ -295,6 +317,16 @@ def post_deployment_rollout(
             status = 403
         raise HTTPException(status_code=status, detail=str(e)) from e
     except Exception as e:
+        if uid is not None:
+            notify_user(
+                user_id=int(uid),
+                kind="rancher_rollout_failed",
+                severity="critical",
+                title=f"Rollout fallido: {deployment_name}",
+                body="Error interno al actualizar el deployment.",
+                route="rancher-pods",
+                payload={"namespace": namespace, "cluster": name, "deployment": deployment_name},
+            )
         log.exception("deployment rollout failed")
         raise HTTPException(
             status_code=500,
@@ -308,6 +340,16 @@ def post_deployment_rollout(
         deployment_name,
         user.get("username"),
     )
+    if uid is not None:
+        notify_user(
+            user_id=int(uid),
+            kind="rancher_rollout_ok",
+            severity="success",
+            title=f"Rollout completado: {deployment_name}",
+            body=f"Cluster {namespace}/{name}",
+            route="rancher-pods",
+            payload={"namespace": namespace, "cluster": name, "deployment": deployment_name},
+        )
     return {"ok": True, **result}
 
 

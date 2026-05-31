@@ -250,10 +250,21 @@ def _summarize_services(values: dict[str, Any]) -> list[dict[str, Any]]:
                 "enabled": bool(val.get("enabled", False)),
                 "tag": str(img.get("tag") or ""),
                 "hostPort": val.get("hostPort"),
+                "pullPolicy": _normalize_pull_policy(img.get("pullPolicy")),
             }
         )
     out.sort(key=lambda x: x["key"])
     return out
+
+
+def _normalize_pull_policy(raw: Any) -> str:
+    s = str(raw or "IfNotPresent").strip()
+    low = s.lower().replace("_", "").replace("-", "")
+    if low == "always":
+        return "Always"
+    if low == "never":
+        return "Never"
+    return "IfNotPresent"
 
 
 def _is_worker_group(node: dict[str, Any]) -> bool:
@@ -397,8 +408,6 @@ def _apply_db_patch(doc: dict[str, Any], db_patch: dict[str, Any], store_id: str
         values["persistence"] = {}
     if "persistenceEnabled" in db_patch:
         values["persistence"]["enabled"] = bool(db_patch["persistenceEnabled"])
-    if db_patch.get("size"):
-        values["persistence"]["size"] = db_patch["size"]
     if "pgadmin" not in values or not isinstance(values["pgadmin"], dict):
         values["pgadmin"] = {}
     if "pgadminEnabled" in db_patch:
@@ -446,6 +455,10 @@ def _apply_station_patch(
             if "image" not in values[key] or not isinstance(values[key]["image"], dict):
                 values[key]["image"] = {}
             values[key]["image"]["tag"] = str(svc.get("tag") or "").strip()
+        if "pullPolicy" in svc:
+            if "image" not in values[key] or not isinstance(values[key]["image"], dict):
+                values[key]["image"] = {}
+            values[key]["image"]["pullPolicy"] = _normalize_pull_policy(svc.get("pullPolicy"))
 
     for wrk in station_patch.get("workers") or []:
         if not isinstance(wrk, dict):

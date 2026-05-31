@@ -161,3 +161,43 @@ class StoreChangeRequest(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class UserNotification(Base):
+    """Notificación in-app persistida (eventos de workflow, rollouts, etc.)."""
+
+    __tablename__ = "user_notifications"
+    __table_args__ = (
+        Index("idx_user_notifications_user_id", "user_id"),
+        Index("idx_user_notifications_read_at", "read_at"),
+        Index("idx_user_notifications_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        PkType, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, server_default="info")
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    body: Mapped[str] = mapped_column(String(1024), nullable=False, server_default="")
+    route: Mapped[str] = mapped_column(String(32), nullable=False, server_default="home")
+    payload: Mapped[dict] = mapped_column(JsonType, nullable=False, default=dict)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class NotificationDismissal(Base):
+    """Alertas en vivo descartadas por el usuario (mientras la condición persista)."""
+
+    __tablename__ = "notification_dismissals"
+
+    user_id: Mapped[int] = mapped_column(
+        PkType, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    dismiss_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    dismissed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

@@ -16,7 +16,11 @@ export type StoreServiceToggle = {
   enabled: boolean;
   tag: string;
   hostPort?: number | null;
+  pullPolicy?: "IfNotPresent" | "Never" | "Always";
 };
+
+export const STORE_IMAGE_PULL_POLICIES = ["IfNotPresent", "Never", "Always"] as const;
+export type StoreImagePullPolicy = (typeof STORE_IMAGE_PULL_POLICIES)[number];
 
 export type StoreWorkerToggle = {
   key: string;

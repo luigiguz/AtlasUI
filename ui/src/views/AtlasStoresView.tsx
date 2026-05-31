@@ -1,15 +1,18 @@
 import { motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, Clock, GitBranch, Loader2, Plus, RefreshCw, Save, Server, Store, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronLeft, Clock, GitBranch, Loader2, Plus, RefreshCw, Save, Search, Server, Store, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { api } from "../apiClient";
 import type { ClustersResponse, RancherCustomCluster } from "../rancherTypes";
 import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
 import { AtlasPromptDialog } from "../components/AtlasPromptDialog";
+import { STORE_IMAGE_PULL_POLICIES } from "../storeTypes";
 import type {
   StoreChangeRequest,
   StoreChangeRequestsResponse,
   StoreCreatePreview,
+  StoreImagePullPolicy,
+  StoreServiceToggle,
   StoreCreatePreviewResponse,
   StoreDetail,
   StoreGitDiscardMode,
@@ -21,6 +24,8 @@ import type {
   StoreWorkerToggle,
   StoresListResponse,
 } from "../storeTypes";
+
+type StoresViewMode = "list" | "detail";
 
 type Props = {
   canAdmin: boolean;
@@ -121,6 +126,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<StoresViewMode>("list");
+  const [serviceFilter, setServiceFilter] = useState("");
   const [detail, setDetail] = useState<StoreDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -258,6 +265,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       setDetail(r.store);
       setBulkTag(r.store.imageChannel && r.store.imageChannel !== "varios" ? r.store.imageChannel : "stable");
       setSelectedFolder(folder);
+      setViewMode("detail");
+      setServiceFilter("");
 
       try {
         const clusters = await api<ClustersResponse>("/api/atlas-rancher/custom-clusters");
@@ -271,6 +280,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     } catch (e) {
       setDetail(null);
       setError(e instanceof Error ? e.message : "No se pudo cargar la tienda.");
+      goBackToList();
     } finally {
       setDetailLoading(false);
     }
@@ -688,12 +698,39 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     [stores]
   );
 
+  const filteredServices = useMemo(() => {
+    const services = detail?.station?.services ?? [];
+    const q = serviceFilter.trim().toLowerCase();
+    if (!q) return services;
+    return services.filter((s) => s.key.toLowerCase().includes(q));
+  }, [detail?.station?.services, serviceFilter]);
+
+  function goBackToList() {
+    setViewMode("list");
+    setSelectedFolder(null);
+    setDetail(null);
+    setServiceFilter("");
+    setEquipment(null);
+  }
+
+  function openStore(folder: string) {
+    void loadDetail(folder);
+  }
+
+  function patchService(key: string, patch: Partial<StoreServiceToggle>) {
+    if (!detail?.station) return;
+    const services = detail.station.services.map((s) => (s.key === key ? { ...s, ...patch } : s));
+    setDetail({ ...detail, station: { ...detail.station, services } });
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       className="flex flex-col gap-4"
     >
+      {viewMode === "list" ? (
+        <>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-lg font-semibold text-zinc-100">Gestión de Tiendas</h1>
@@ -1063,8 +1100,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       ) : null}
       {saveMsg ? <p className="text-xs text-zinc-400">{saveMsg}</p> : null}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-        <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90">
+      <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90">
           {loading ? (
             <div className="flex items-center justify-center gap-2 p-10 text-sm text-zinc-500">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -1088,12 +1124,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 {sortedStores.map((s) => (
                   <tr
                     key={s.folderName}
-                    onClick={() => void loadDetail(s.folderName)}
-                    className={
-                      selectedFolder === s.folderName
-                        ? "cursor-pointer border-b border-cf-line/30 bg-cf-orange/10"
-                        : "cursor-pointer border-b border-cf-line/30 hover:bg-white/[0.02]"
-                    }
+                    onClick={() => openStore(s.folderName)}
+                    className="cursor-pointer border-b border-cf-line/30 hover:bg-white/[0.02]"
                   >
                     <td className="px-4 py-3 font-medium text-zinc-200">
                       {s.id}
@@ -1113,37 +1145,51 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
             </table>
           )}
         </div>
+        </>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <button
+                type="button"
+                onClick={goBackToList}
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.04]"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Tiendas
+              </button>
+              <div className="min-w-0">
+                <h1 className="truncate text-lg font-semibold text-zinc-100">{detail?.id ?? selectedFolder}</h1>
+                {detail ? (
+                  <p className="truncate text-xs text-zinc-500">
+                    {detail.folderName} · {distroLabel(detail.distro)} · {detail.stacks.join(", ")}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={() => void onSaveDetail()}
+                disabled={saving || detailLoading || !detail}
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-cf-orange px-3 py-1.5 text-xs font-medium text-black disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                {canApprove ? "Publicar cambios" : "Enviar para aprobación"}
+              </button>
+            ) : null}
+          </div>
 
-        <div className="min-h-[20rem] rounded-xl border border-cf-line/70 bg-[#111418]/90 p-4">
-          {!selectedFolder ? (
-            <p className="py-12 text-center text-sm text-zinc-500">Selecciona una tienda para ver y editar su configuración.</p>
-          ) : detailLoading || !detail ? (
-            <div className="flex items-center justify-center gap-2 py-12 text-sm text-zinc-500">
+          {saveMsg ? <p className="text-xs text-zinc-400">{saveMsg}</p> : null}
+
+          <div className="rounded-xl border border-cf-line/70 bg-[#111418]/90 p-4 sm:p-6">
+          {detailLoading || !detail ? (
+            <div className="flex items-center justify-center gap-2 py-16 text-sm text-zinc-500">
               <Loader2 className="h-4 w-4 animate-spin" />
               Cargando ficha…
             </div>
           ) : (
-            <div className="flex flex-col gap-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h2 className="text-base font-semibold text-zinc-100">{detail.id}</h2>
-                  <p className="text-xs text-zinc-500">
-                    Carpeta: {detail.folderName} · Stacks: {detail.stacks.join(", ")}
-                  </p>
-                </div>
-                {canEdit ? (
-                  <button
-                    type="button"
-                    onClick={() => void onSaveDetail()}
-                    disabled={saving}
-                    className="inline-flex items-center gap-1 rounded-lg bg-cf-orange px-3 py-1.5 text-xs font-medium text-black disabled:opacity-50"
-                  >
-                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                    {canApprove ? "Publicar cambios" : "Enviar para aprobación"}
-                  </button>
-                ) : null}
-              </div>
-
+            <div className="flex flex-col gap-5">
               <section>
                 <h3 className="text-xs font-medium uppercase text-zinc-500">Equipo vinculado</h3>
                 {equipment ? (
@@ -1228,72 +1274,97 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     />
                     PgAdmin activo
                   </label>
-                  <label className="mt-2 block text-xs text-zinc-500">
-                    Tamaño disco
-                    <input
-                      value={detail.db.size ?? ""}
-                      onChange={(e) => setDetail({ ...detail, db: { ...detail.db, size: e.target.value } })}
-                      className={inputClass}
-                      disabled={!canEdit}
-                    />
-                  </label>
                 </section>
               ) : null}
 
               {detail.station?.services?.length ? (
                 <section>
-                  <h3 className="text-xs font-medium uppercase text-zinc-500">Servicios de estación</h3>
-                  <div className="mt-2 max-h-56 overflow-y-auto rounded border border-cf-line/40">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                    <h3 className="text-xs font-medium uppercase text-zinc-500">Servicios de estación</h3>
+                    <label className="relative block w-full sm:max-w-xs">
+                      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+                      <input
+                        type="search"
+                        value={serviceFilter}
+                        onChange={(e) => setServiceFilter(e.target.value)}
+                        placeholder="Buscar servicio…"
+                        className="w-full rounded-lg border border-cf-line bg-black/40 py-1.5 pl-8 pr-3 text-xs text-zinc-100 outline-none focus:border-cf-orange/50"
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-2 max-h-72 overflow-y-auto rounded border border-cf-line/40">
                     <table className="w-full text-left text-xs">
                       <thead className="sticky top-0 bg-[#111418] text-[10px] uppercase text-zinc-600">
                         <tr>
-                          <th className="px-2 py-1.5 w-8" />
+                          <th className="w-8 px-2 py-1.5" />
                           <th className="px-2 py-1.5">Servicio</th>
                           <th className="px-2 py-1.5">Tag (versión)</th>
+                          <th className="px-2 py-1.5">Pull policy</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {detail.station.services.map((svc) => (
-                          <tr key={svc.key} className="border-t border-cf-line/30">
-                            <td className="px-2 py-1.5">
-                              <input
-                                type="checkbox"
-                                checked={svc.enabled}
-                                onChange={(e) => {
-                                  const services = detail.station.services.map((s) =>
-                                    s.key === svc.key ? { ...s, enabled: e.target.checked } : s
-                                  );
-                                  setDetail({ ...detail, station: { ...detail.station, services } });
-                                }}
-                                disabled={!canEdit}
-                                aria-label={`Activar ${svc.key}`}
-                              />
-                            </td>
-                            <td className="px-2 py-1.5 text-zinc-300">
-                              {svc.key}
-                              {svc.hostPort != null ? (
-                                <span className="text-zinc-600">:{svc.hostPort}</span>
-                              ) : null}
-                            </td>
-                            <td className="px-2 py-1.5">
-                              <input
-                                value={svc.tag}
-                                onChange={(e) => {
-                                  const services = detail.station.services.map((s) =>
-                                    s.key === svc.key ? { ...s, tag: e.target.value } : s
-                                  );
-                                  setDetail({ ...detail, station: { ...detail.station, services } });
-                                }}
-                                className={tagInputClass}
-                                disabled={!canEdit}
-                                placeholder="tag"
-                              />
+                        {filteredServices.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="px-2 py-4 text-center text-zinc-500">
+                              Ningún servicio coincide con la búsqueda.
                             </td>
                           </tr>
-                        ))}
+                        ) : (
+                          filteredServices.map((svc) => (
+                            <tr key={svc.key} className="border-t border-cf-line/30">
+                              <td className="px-2 py-1.5">
+                                <input
+                                  type="checkbox"
+                                  checked={svc.enabled}
+                                  onChange={(e) => patchService(svc.key, { enabled: e.target.checked })}
+                                  disabled={!canEdit}
+                                  aria-label={`Activar ${svc.key}`}
+                                />
+                              </td>
+                              <td className="px-2 py-1.5 text-zinc-300">
+                                {svc.key}
+                                {svc.hostPort != null ? (
+                                  <span className="text-zinc-600">:{svc.hostPort}</span>
+                                ) : null}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <input
+                                  value={svc.tag}
+                                  onChange={(e) => patchService(svc.key, { tag: e.target.value })}
+                                  className={tagInputClass}
+                                  disabled={!canEdit}
+                                  placeholder="tag"
+                                />
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <select
+                                  value={svc.pullPolicy ?? "IfNotPresent"}
+                                  onChange={(e) =>
+                                    patchService(svc.key, {
+                                      pullPolicy: e.target.value as StoreImagePullPolicy,
+                                    })
+                                  }
+                                  disabled={!canEdit}
+                                  className="w-full min-w-[7.5rem] rounded border border-cf-line bg-black/50 px-1.5 py-0.5 text-[11px] text-zinc-200 outline-none focus:border-cf-orange/50"
+                                >
+                                  {STORE_IMAGE_PULL_POLICIES.map((p) => (
+                                    <option key={p} value={p}>
+                                      {p}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
+                  {serviceFilter.trim() ? (
+                    <p className="mt-1 text-[11px] text-zinc-600">
+                      {filteredServices.length} de {detail.station.services.length} servicios
+                    </p>
+                  ) : null}
                 </section>
               ) : null}
 
@@ -1402,8 +1473,9 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               ) : null}
             </div>
           )}
+          </div>
         </div>
-      </div>
+      )}
 
       {createOpen ? (
         <div
@@ -1547,7 +1619,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
                   <p className="font-medium text-zinc-300">Base de datos</p>
                   <p className="mt-1 text-zinc-400">
-                    DB {createPreview.db.database || "poslite"} · {createPreview.db.size || "—"} ·{" "}
+                    DB {createPreview.db.database || "poslite"} ·{" "}
                     {createPreview.db.persistenceEnabled ? "persistencia on" : "sin persistencia"}
                   </p>
                 </section>

@@ -22,6 +22,7 @@ import {
 } from "../atlasNav";
 import type { AuthUser } from "../atlasAuth";
 import { apiUrl } from "../apiClient";
+import { AtlasNotifications } from "./AtlasNotifications";
 
 const SIDEBAR_COLLAPSED_KEY = "atlas.sidebarCollapsed";
 const SIDEBAR_WIDTH_EXPANDED = 248;
@@ -558,6 +559,7 @@ export function AtlasShell({ route, onNavigate, user, onLogout, children }: Prop
             <h1 className="truncate text-lg font-semibold tracking-tight text-zinc-50 sm:text-xl">{meta.title}</h1>
           </div>
           <div className="flex items-center gap-2">
+            <AtlasNotifications onNavigate={onNavigate} />
             <div className="hidden text-right text-xs sm:block">
               <p className="font-medium text-zinc-200">{user.username}</p>
               <p className="font-mono text-[10px] uppercase text-zinc-500">{user.role}</p>
