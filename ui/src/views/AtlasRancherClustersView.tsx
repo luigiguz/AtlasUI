@@ -1,4 +1,4 @@
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowDown,
   ArrowUp,
@@ -26,6 +26,7 @@ import {
 } from "react";
 
 import { api } from "../apiClient";
+import { AtlasModalShell } from "../components/AtlasModalFrame";
 import {
   isPosliteApplication,
   isValidPosliteDistro,
@@ -495,17 +496,16 @@ function ClusterLabelsModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      role="presentation"
-      onClick={onClose}
+    <AtlasModalShell
+      onBackdropClick={onClose}
+      zIndexClass="z-50"
+      panelClassName="w-full max-w-md rounded-xl border border-cf-line bg-[#111418] p-5 shadow-2xl ring-1 ring-white/10"
     >
       <form
         role="dialog"
         aria-labelledby="edit-labels-title"
-        onClick={(e) => e.stopPropagation()}
+        aria-modal="true"
         onSubmit={(e) => void onSubmit(e)}
-        className="w-full max-w-md rounded-xl border border-cf-line bg-[#111418] p-5 shadow-2xl ring-1 ring-white/10"
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
@@ -569,7 +569,7 @@ function ClusterLabelsModal({
           </button>
         </div>
       </form>
-    </div>
+    </AtlasModalShell>
   );
 }
 
@@ -1157,13 +1157,16 @@ export function AtlasRancherClustersView({
           ) : null}
         </motion.div>
       </div>
-      {editingCluster ? (
-        <ClusterLabelsModal
-          cluster={editingCluster}
-          onClose={() => setEditingCluster(null)}
-          onSaved={mergeClusterUpdate}
-        />
-      ) : null}
+      <AnimatePresence>
+        {editingCluster ? (
+          <ClusterLabelsModal
+            key={`${editingCluster.namespace}/${editingCluster.name}`}
+            cluster={editingCluster}
+            onClose={() => setEditingCluster(null)}
+            onSaved={mergeClusterUpdate}
+          />
+        ) : null}
+      </AnimatePresence>
     </motion.div>
   );
 }

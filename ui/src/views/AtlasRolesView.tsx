@@ -12,6 +12,7 @@ import {
 import { api } from "../apiClient";
 import { AtlasAlertDialog } from "../components/AtlasAlertDialog";
 import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
+import { AtlasModalShell } from "../components/AtlasModalFrame";
 
 type RoleRow = {
   id: number;
@@ -41,36 +42,26 @@ function Modal({
   children: ReactNode;
 }) {
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-      onClick={onClose}
-      role="presentation"
+    <AtlasModalShell
+      onBackdropClick={onClose}
+      zIndexClass="z-50"
+      panelClassName="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.06]"
     >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.97, y: 8 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.06]"
-      >
-        <div className="sticky top-0 flex items-center justify-between border-b border-cf-line/80 bg-[#111418] px-5 py-4">
-          <h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
-            aria-label="Cerrar"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="px-5 py-4">{children}</div>
-      </motion.div>
-    </motion.div>
+      <div className="sticky top-0 flex items-center justify-between border-b border-cf-line/80 bg-[#111418] px-5 py-4">
+        <h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
+          aria-label="Cerrar"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="px-5 py-4" role="dialog" aria-modal="true">
+        {children}
+      </div>
+    </AtlasModalShell>
   );
 }
 

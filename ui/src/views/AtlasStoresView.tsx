@@ -1,10 +1,11 @@
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, CheckCircle2, ChevronLeft, Clock, GitBranch, Loader2, Plus, RefreshCw, Save, Search, Server, Store, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { api } from "../apiClient";
 import type { ClustersResponse, RancherCustomCluster } from "../rancherTypes";
 import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
+import { AtlasModalShell } from "../components/AtlasModalFrame";
 import { AtlasPromptDialog } from "../components/AtlasPromptDialog";
 import { STORE_IMAGE_PULL_POLICIES } from "../storeTypes";
 import type {
@@ -1508,14 +1509,12 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         </div>
       )}
 
-      {createOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          onClick={() => resetCreateModal()}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className={`w-full rounded-xl border border-cf-line bg-[#111418] p-5 ${createStep === "review" ? "max-w-2xl max-h-[90vh] overflow-y-auto" : "max-w-md"}`}
+      <AnimatePresence>
+        {createOpen ? (
+          <AtlasModalShell
+            onBackdropClick={() => resetCreateModal()}
+            zIndexClass="z-50"
+            panelClassName={`w-full rounded-xl border border-cf-line bg-[#111418] p-5 shadow-2xl ring-1 ring-white/[0.06] ${createStep === "review" ? "max-w-2xl max-h-[90vh] overflow-y-auto" : "max-w-md"}`}
           >
             <div className="mb-4 flex justify-between">
               <h2 className="text-sm font-semibold text-zinc-100">
@@ -1732,9 +1731,9 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 </div>
               </div>
             ) : null}
-          </div>
-        </div>
-      ) : null}
+          </AtlasModalShell>
+        ) : null}
+      </AnimatePresence>
     </motion.div>
   );
 }

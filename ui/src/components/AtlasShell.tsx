@@ -22,6 +22,7 @@ import {
 } from "../atlasNav";
 import type { AuthUser } from "../atlasAuth";
 import { apiUrl } from "../apiClient";
+import { AtlasConfirmDialog } from "./AtlasConfirmDialog";
 import { AtlasNotifications } from "./AtlasNotifications";
 
 const SIDEBAR_COLLAPSED_KEY = "atlas.sidebarCollapsed";
@@ -372,6 +373,7 @@ export function AtlasShell({ route, onNavigate, user, onLogout, children }: Prop
     "atlas-admin": true,
     "coming-soon": false,
   }));
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
   const expandSidebar = useCallback(() => {
     setSidebarCollapsed(false);
@@ -581,16 +583,28 @@ export function AtlasShell({ route, onNavigate, user, onLogout, children }: Prop
             <span className="my-2 w-px shrink-0 bg-white/[0.08]" aria-hidden />
             <button
               type="button"
-              onClick={onLogout}
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-200 sm:w-auto sm:gap-1.5 sm:px-2.5"
-              title="Cerrar sesión"
-              aria-label="Cerrar sesión"
+              onClick={() => setLogoutConfirmOpen(true)}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-200"
+              title="Salir"
+              aria-label="Salir"
             >
               <LogOut className="h-4 w-4 shrink-0" aria-hidden />
-              <span className="hidden text-xs text-zinc-400 sm:inline">Salir</span>
             </button>
           </div>
         </header>
+
+        <AtlasConfirmDialog
+          open={logoutConfirmOpen}
+          title="¿Cerrar sesión?"
+          message="Se cerrará tu sesión en Atlas. Tendrás que volver a iniciar sesión para continuar."
+          confirmLabel="Salir"
+          cancelLabel="Cancelar"
+          onConfirm={() => {
+            setLogoutConfirmOpen(false);
+            onLogout();
+          }}
+          onCancel={() => setLogoutConfirmOpen(false)}
+        />
 
         <main className="relative min-h-0 flex-1 overflow-hidden">
           <div className="h-full overflow-y-auto overflow-x-hidden p-4 sm:p-6">{children}</div>

@@ -13,6 +13,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiUrl, bearerHeaders } from "../apiClient";
+import { AtlasModalShell } from "./AtlasModalFrame";
 import type { RancherCustomCluster, RancherPod } from "../rancherTypes";
 
 type PodLogsResponse = {
@@ -355,17 +356,17 @@ export function PodLogsPanel({ cluster, serviceName, pods, onClose }: Props) {
   }, []);
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-4"
-      role="presentation"
-      onClick={onClose}
+    <AtlasModalShell
+      onBackdropClick={onClose}
+      zIndexClass="z-[60]"
+      layout="sheet"
+      panelClassName="flex h-[min(88vh,44rem)] w-full max-w-5xl flex-col overflow-hidden rounded-t-2xl border border-cf-line bg-[#0d1014] shadow-2xl ring-1 ring-white/[0.06] sm:rounded-2xl"
     >
       <div
-        className="flex h-[min(88vh,44rem)] w-full max-w-5xl flex-col overflow-hidden rounded-t-2xl border border-cf-line bg-[#0d1014] shadow-2xl ring-1 ring-white/[0.06] sm:rounded-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="pod-logs-title"
-        onClick={(e) => e.stopPropagation()}
+        className="flex min-h-0 flex-1 flex-col"
       >
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-cf-line/80 px-4 py-3">
           <ScrollText className="h-4 w-4 shrink-0 text-cf-orange" aria-hidden />
@@ -575,7 +576,7 @@ export function PodLogsPanel({ cluster, serviceName, pods, onClose }: Props) {
           )}
         </div>
       </div>
-    </div>
+    </AtlasModalShell>
   );
 }
 

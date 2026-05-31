@@ -20,6 +20,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../apiClient";
+import { AtlasModalShell } from "../components/AtlasModalFrame";
 import { PodLogsPanel } from "../components/PodLogsPanel";
 import { normalizeApplication, normalizeDistro, normalizeState } from "../rancherLabels";
 import {
@@ -164,28 +165,14 @@ function RolloutConfirmModal({
   }, [busy, onCancel]);
 
   return (
-    <motion.div
-      role="presentation"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.18 }}
-      onClick={() => {
+    <AtlasModalShell
+      onBackdropClick={() => {
         if (!busy) onCancel();
       }}
+      zIndexClass="z-[60]"
+      panelClassName="w-full max-w-md overflow-hidden rounded-xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.08]"
     >
-      <motion.div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="rollout-confirm-title"
-        initial={{ opacity: 0, scale: 0.94, y: 16 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: 10 }}
-        transition={{ type: "spring", damping: 28, stiffness: 360 }}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md overflow-hidden rounded-xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.08]"
-      >
+      <div role="dialog" aria-modal="true" aria-labelledby="rollout-confirm-title">
         <div className="border-b border-cf-line/60 bg-gradient-to-r from-cf-orange/10 via-transparent to-transparent px-5 py-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex gap-3">
@@ -262,8 +249,8 @@ function RolloutConfirmModal({
             )}
           </button>
         </div>
-      </motion.div>
-    </motion.div>
+      </div>
+    </AtlasModalShell>
   );
 }
 
