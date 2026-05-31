@@ -10,7 +10,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from atlas_core.notifications import notify_user
-from atlas_core.permissions import PERM_RANCHER_CONFIGURE, PERM_RANCHER_READ, PERM_RANCHER_WRITE
+from atlas_core.permissions import (
+    PERM_RANCHER_CONFIGURE,
+    PERM_RANCHER_READ,
+    PERM_RANCHER_WRITE,
+    PERM_VPN_OPERATE,
+)
 from atlas_core.web_auth import current_user, require_permission
 from atlas_rancher.client import (
     RancherApiError,
