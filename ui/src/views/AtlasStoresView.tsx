@@ -1081,21 +1081,6 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               Nueva tienda
             </button>
           ) : null}
-          {canApprove || canEdit ? (
-            <button
-              type="button"
-              onClick={() => setRequestsModalOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-cf-line bg-cf-panel px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800/80"
-            >
-              <Clock className="h-3.5 w-3.5" aria-hidden />
-              Solicitudes
-              {changeRequests.length > 0 ? (
-                <span className="rounded-full bg-sky-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-sky-100">
-                  {changeRequests.length}
-                </span>
-              ) : null}
-            </button>
-          ) : null}
           <button
             type="button"
             onClick={() => void loadStores()}

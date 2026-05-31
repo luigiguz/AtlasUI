@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Box,
   Cloud,
+  Clock,
   Globe,
   Home,
   Info,
@@ -19,7 +20,9 @@ import {
   hasPermission,
   PERM_CF_READ,
   PERM_ROLES_LIST,
+  PERM_STORES_APPROVE,
   PERM_STORES_READ,
+  PERM_STORES_WRITE,
   PERM_USERS_LIST,
   type AuthUser,
 } from "./atlasAuth";
@@ -44,6 +47,8 @@ export function isAtlasVpnRoute(route: AtlasRouteId): boolean {
   return (ATLAS_VPN_ROUTE_IDS as readonly AtlasRouteId[]).includes(route);
 }
 
+export type AtlasNavAction = "open-store-requests";
+
 export type AtlasNavLeaf = {
   kind: "leaf";
   id: string;
@@ -54,6 +59,8 @@ export type AtlasNavLeaf = {
   adminOnly?: boolean;
   /** Visible pero deshabilitado (próximamente) */
   comingSoon?: boolean;
+  /** Abre un modal u otra UI en lugar de marcar la ruta como activa */
+  navAction?: AtlasNavAction;
 };
 
 export type AtlasNavGroup = {
@@ -71,6 +78,7 @@ export type AtlasNavEntry = AtlasNavLeaf | AtlasNavGroup;
 export function buildAtlasNav(user: AuthUser): AtlasNavEntry[] {
   const canCf = hasPermission(user, PERM_CF_READ);
   const canStoresRead = hasPermission(user, PERM_STORES_READ);
+  const canStoresRequests = hasAnyPermission(user, PERM_STORES_WRITE, PERM_STORES_APPROVE);
   const vpnChildren: AtlasNavLeaf[] = [
     { kind: "leaf", id: "vpn-conn", route: "conn", label: "Conexiones", icon: Wifi },
     { kind: "leaf", id: "vpn-dns", route: "poslite", label: "DNS", icon: Globe },
@@ -106,6 +114,18 @@ export function buildAtlasNav(user: AuthUser): AtlasNavEntry[] {
                 route: "rancher-stores",
                 label: "Tiendas",
                 icon: Store,
+              },
+            ] satisfies AtlasNavLeaf[])
+          : []),
+        ...(canStoresRequests
+          ? ([
+              {
+                kind: "leaf",
+                id: "rancher-store-requests",
+                route: "rancher-stores",
+                label: "Solicitudes",
+                icon: Clock,
+                navAction: "open-store-requests",
               },
             ] satisfies AtlasNavLeaf[])
           : []),
@@ -198,4 +218,9 @@ export function flattenNavRoutes(entries: AtlasNavEntry[]): AtlasNavLeaf[] {
     else out.push(...e.children);
   }
   return out;
+}
+
+export function isNavLeafActive(leaf: AtlasNavLeaf, route: AtlasRouteId): boolean {
+  if (leaf.comingSoon || leaf.navAction) return false;
+  return leaf.route === route;
 }

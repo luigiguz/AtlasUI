@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   buildAtlasNav,
   flattenNavRoutes,
+  isNavLeafActive,
   routeMeta,
   type AtlasNavEntry,
   type AtlasNavGroup,
@@ -22,6 +23,7 @@ import {
 } from "../atlasNav";
 import type { AuthUser } from "../atlasAuth";
 import { apiUrl } from "../apiClient";
+import { openStoreRequestsModal } from "../storeRequestsNav";
 import { AtlasConfirmDialog } from "./AtlasConfirmDialog";
 import { AtlasNotifications } from "./AtlasNotifications";
 
@@ -85,6 +87,14 @@ function SidebarBrand({ collapsed }: { collapsed: boolean }) {
       className="h-11 w-auto max-w-[11rem] shrink-0 object-contain object-left opacity-95"
     />
   );
+}
+
+function pickNavLeaf(leaf: AtlasNavLeaf, onNavigate: (r: AtlasRouteId) => void) {
+  if (leaf.comingSoon) return;
+  onNavigate(leaf.route);
+  if (leaf.navAction === "open-store-requests") {
+    window.setTimeout(() => openStoreRequestsModal(), 0);
+  }
 }
 
 function NavLeafButton({
@@ -165,7 +175,7 @@ function NavGroupBlock({
   onExpandSidebar: () => void;
 }) {
   const Icon = group.icon;
-  const childActive = group.children.some((c) => !c.comingSoon && c.route === route);
+  const childActive = group.children.some((c) => isNavLeafActive(c, route));
 
   const handleGroupClick = () => {
     if (collapsed) {
@@ -228,10 +238,8 @@ function NavGroupBlock({
                   item={child}
                   indent
                   collapsed={false}
-                  active={!child.comingSoon && child.route === route}
-                  onPick={() => {
-                    if (!child.comingSoon) onNavigate(child.route);
-                  }}
+                  active={isNavLeafActive(child, route)}
+                  onPick={() => pickNavLeaf(child, onNavigate)}
                 />
               ))}
             </motion.div>
@@ -268,10 +276,8 @@ function SidebarNav({
               key={entry.id}
               item={entry}
               collapsed={collapsed}
-              active={!entry.comingSoon && entry.route === route}
-              onPick={() => {
-                if (!entry.comingSoon) onNavigate(entry.route);
-              }}
+              active={isNavLeafActive(entry, route)}
+              onPick={() => pickNavLeaf(entry, onNavigate)}
             />
           );
         }
