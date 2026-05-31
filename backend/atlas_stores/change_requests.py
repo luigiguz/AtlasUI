@@ -344,6 +344,17 @@ def cancel_change_request(request_id: int, user: dict[str, Any]) -> dict[str, An
         return _row_dict(row)
 
 
+def _commit_attribution_suffix(*, author: str, approver: str | None = None) -> str:
+    """Sufijo Git: autor del cambio; si lo publica otro usuario, indica quién aprobó."""
+    author = author.strip()
+    if not author:
+        return ""
+    approver = (approver or "").strip()
+    if approver and approver.lower() != author.lower():
+        return f" [{author}, aprobado por {approver}]"
+    return f" [{author}]"
+
+
 def _apply_and_publish(
     *,
     kind: str,
@@ -381,7 +392,6 @@ def approve_change_request(
     reviewer: dict[str, Any],
     *,
     review_note: str = "",
-    actor_suffix: str = "",
 ) -> dict[str, Any]:
     with session_scope() as session:
         row = session.get(StoreChangeRequest, request_id)
@@ -394,6 +404,12 @@ def approve_change_request(
         store_id = str(row.store_id)
         payload = dict(row.payload) if isinstance(row.payload, dict) else {}
         commit_message = str(row.commit_message or "")
+        created_by_username = str(row.created_by_username or "")
+
+    reviewer_name = _username(reviewer)
+    suffix = _commit_attribution_suffix(author=created_by_username, approver=reviewer_name)
+    folder = folder_name.strip()
+    git_suffix = f"{suffix} ({folder})" if folder else suffix
 
     try:
         store, git_msg = _apply_and_publish(
@@ -402,7 +418,7 @@ def approve_change_request(
             store_id=store_id,
             payload=payload,
             commit_message=commit_message,
-            actor_suffix=actor_suffix,
+            actor_suffix=git_suffix,
         )
     except RancherNotConfiguredError as e:
         raise ChangeRequestError(str(e)) from e

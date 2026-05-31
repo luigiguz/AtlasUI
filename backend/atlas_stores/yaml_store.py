@@ -214,7 +214,6 @@ def load_store(repo_root: Path, folder_name: str) -> dict[str, Any]:
             "services": services_summary,
             "workerGroups": workers_summary,
             "workers": _flatten_worker_groups(workers_summary),
-            "values": station.get("values") if station else {},
         },
         "stacksData": {k: {"chartVersion": v.get("chartVersion"), "bundleVersion": v.get("bundleVersion")} for k, v in stacks_data.items()},
         "_paths": {k: str(folder / k / "fleet.yaml") for k in stacks_data},
@@ -236,40 +235,52 @@ def _summarize_db(values: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Orden canónico en helm values (templates/poslite/*/fleet.yaml — repo atlas-stores).
+_VALUES_ROOT_KEY_ORDER = ("nameOverride", "pullPolicy", "bundleVersion", "config")
+
+
 def _derive_station_pull_policy(values: dict[str, Any]) -> str:
-    """Política global: común a todos los servicios o IfNotPresent si difieren."""
-    skip = {"config", "workers", "nameOverride", "bundleVersion"}
-    policies: set[str] = set()
-    for key, val in values.items():
-        if key in skip or not isinstance(val, dict):
-            continue
-        if "enabled" not in val and "image" not in val and "hostPort" not in val:
-            continue
-        img = val.get("image") if isinstance(val.get("image"), dict) else {}
-        policies.add(_normalize_pull_policy(img.get("pullPolicy")))
-    if not policies:
-        return "IfNotPresent"
-    if len(policies) == 1:
-        return next(iter(policies))
+    """Política global en values.pullPolicy (Helm values raíz)."""
+    if "pullPolicy" in values:
+        return _normalize_pull_policy(values.get("pullPolicy"))
     return "IfNotPresent"
 
 
-def _apply_pull_policy_to_all_services(values: dict[str, Any], policy: str) -> None:
-    """Aplica pullPolicy a todos los servicios de estación en values."""
-    normalized = _normalize_pull_policy(policy)
-    skip = {"config", "workers", "nameOverride", "bundleVersion"}
+def _sanitize_station_values_format(values: dict[str, Any]) -> None:
+    """Formato atlas-stores: pullPolicy solo en raíz de values; servicios solo image.tag."""
+    skip = {"config", "workers", "nameOverride", "bundleVersion", "pullPolicy"}
     for key, val in values.items():
         if key in skip or not isinstance(val, dict):
             continue
         if "enabled" not in val and "image" not in val and "hostPort" not in val:
             continue
-        if "image" not in val or not isinstance(val["image"], dict):
-            val["image"] = {}
-        val["image"]["pullPolicy"] = normalized
+        img = val.get("image")
+        if isinstance(img, dict):
+            img.pop("pullPolicy", None)
+
+
+def _ensure_values_root_key_order(values: dict[str, Any]) -> None:
+    """Mantiene nameOverride → pullPolicy → bundleVersion → config como en plantillas."""
+    if not values:
+        return
+    ordered: dict[str, Any] = {}
+    for key in _VALUES_ROOT_KEY_ORDER:
+        if key in values:
+            ordered[key] = values[key]
+    for key, val in values.items():
+        if key not in ordered:
+            ordered[key] = val
+    values.clear()
+    values.update(ordered)
+
+
+def _apply_station_pull_policy(values: dict[str, Any], policy: str) -> None:
+    """Escribe values.pullPolicy global (plantilla atlas-stores)."""
+    values["pullPolicy"] = _normalize_pull_policy(policy)
 
 
 def _summarize_services(values: dict[str, Any]) -> list[dict[str, Any]]:
-    skip = {"config", "workers", "nameOverride", "bundleVersion"}
+    skip = {"config", "workers", "nameOverride", "bundleVersion", "pullPolicy"}
     out: list[dict[str, Any]] = []
     for key, val in values.items():
         if key in skip or not isinstance(val, dict):
@@ -476,7 +487,7 @@ def _apply_station_patch(
                 values["config"][k] = v
 
     if "pullPolicy" in station_patch:
-        _apply_pull_policy_to_all_services(values, station_patch.get("pullPolicy"))
+        _apply_station_pull_policy(values, station_patch.get("pullPolicy"))
 
     for svc in station_patch.get("services") or []:
         if not isinstance(svc, dict):
@@ -518,6 +529,9 @@ def _apply_station_patch(
     has_components = bool(station_patch.get("services")) or bool(station_patch.get("workers"))
     if image_channel and not has_components:
         _set_all_image_tags(values, image_channel)
+
+    _sanitize_station_values_format(values)
+    _ensure_values_root_key_order(values)
 
     helm = _helm_block(doc)
     helm["values"] = values

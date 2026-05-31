@@ -46,7 +46,7 @@ export type StoreDetail = StoreSummary & {
   station: {
     stack: string;
     config: Record<string, unknown>;
-    /** Política de pull global para todos los servicios de estación */
+    /** Política global values.pullPolicy en fleet.yaml (Helm values raíz) */
     pullPolicy?: StoreImagePullPolicy;
     services: StoreServiceToggle[];
     /** Agrupado: generales + iERP */

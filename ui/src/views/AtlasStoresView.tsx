@@ -1459,7 +1459,9 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       Cada servicio y proceso tiene su propio tag (p. ej.{" "}
                       <span className="text-zinc-400">stable</span>,{" "}
                       <span className="text-zinc-400">unstable</span>). Edítalos en las tablas de abajo. La pull
-                      policy aplica a todos los servicios de estación.
+                      policy es la clave global{" "}
+                      <span className="text-zinc-400">values.pullPolicy</span> del fleet.yaml (junto a{" "}
+                      <span className="text-zinc-400">nameOverride</span>).
                     </p>
                     {canEdit ? (
                       <label className="mt-2 inline-block text-[11px] text-zinc-600">

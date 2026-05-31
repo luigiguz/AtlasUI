@@ -413,7 +413,6 @@ def post_approve_change_request(
             request_id,
             user,
             review_note=body.review_note,
-            actor_suffix=_commit_actor_suffix(user),
         )
     except ChangeRequestError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

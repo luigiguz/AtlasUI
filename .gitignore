@@ -8,3 +8,5 @@ ui/node_modules/
 ui/dist/
 scripts/__pycache__
 .cursor
+# Copia local de referencia para el agente (no es código de AtlasUI; repo Git real vía app)
+atlas-stores/
