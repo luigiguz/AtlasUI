@@ -13,6 +13,12 @@ import { createPortal } from "react-dom";
 import { api } from "../apiClient";
 import type { AtlasRouteId } from "../atlasNav";
 import type { NotificationItem, NotificationsResponse, NotificationSeverity } from "../notificationTypes";
+import {
+  isStoreRequestsNotification,
+  openStoreRequestsModal,
+  requestIdFromNotification,
+  storeRequestsTabFromNotification,
+} from "../storeRequestsNav";
 
 /** Polling con pestaña visible (notificaciones «en vivo» sin WebSocket). */
 const POLL_VISIBLE_MS = 5_000;
@@ -206,7 +212,17 @@ export function AtlasNotifications({ onNavigate, buttonClassName }: Props): Reac
 
   const onPick = (item: NotificationItem) => {
     if (!item.read) void markRead([item.id]);
-    if (isAtlasRoute(item.route)) onNavigate(item.route);
+    if (isAtlasRoute(item.route)) {
+      onNavigate(item.route);
+      if (isStoreRequestsNotification(item)) {
+        window.setTimeout(() => {
+          openStoreRequestsModal({
+            tab: storeRequestsTabFromNotification(item),
+            requestId: requestIdFromNotification(item),
+          });
+        }, 0);
+      }
+    }
     setOpen(false);
   };
 

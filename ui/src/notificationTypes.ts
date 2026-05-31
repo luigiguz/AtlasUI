@@ -12,6 +12,8 @@ export type NotificationItem = {
   createdAt: string;
   read: boolean;
   dismissible: boolean;
+  kind?: string;
+  payload?: Record<string, unknown>;
 };
 
 export type NotificationsResponse = {

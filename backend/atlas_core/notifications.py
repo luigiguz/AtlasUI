@@ -78,8 +78,10 @@ def _item_dict(
     created_at: datetime | None,
     read: bool,
     dismissible: bool,
+    kind: str = "",
+    payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    out: dict[str, Any] = {
         "id": item_id,
         "source": source,
         "severity": severity,
@@ -90,6 +92,11 @@ def _item_dict(
         "read": read,
         "dismissible": dismissible,
     }
+    if kind:
+        out["kind"] = kind
+    if isinstance(payload, dict) and payload:
+        out["payload"] = payload
+    return out
 
 
 def _dismissed_keys(user_id: int) -> set[str]:
@@ -246,6 +253,7 @@ def _live_stores_pending_approval(user: dict[str, Any], dismissed: set[str]) -> 
                 created_at=_utcnow(),
                 read=False,
                 dismissible=True,
+                kind="stores_pending_approval",
             )
         ]
     except Exception as e:
@@ -285,6 +293,7 @@ def _live_my_store_requests(user: dict[str, Any], dismissed: set[str]) -> list[d
                 created_at=_utcnow(),
                 read=False,
                 dismissible=True,
+                kind="stores_my_pending",
             )
         ]
     except Exception as e:
@@ -467,6 +476,8 @@ def _persisted_notifications(user: dict[str, Any], limit: int = 40) -> list[dict
                 created_at=row.created_at,
                 read=row.read_at is not None,
                 dismissible=False,
+                kind=str(row.kind or ""),
+                payload=row.payload if isinstance(row.payload, dict) else {},
             )
             for row in rows
         ]

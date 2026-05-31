@@ -7,7 +7,7 @@ import type { ClustersResponse, RancherCustomCluster } from "../rancherTypes";
 import { AtlasAlertDialog } from "../components/AtlasAlertDialog";
 import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
 import { AtlasLoadingSplash } from "../components/AtlasLoadingSplash";
-import { AtlasModalShell } from "../components/AtlasModalFrame";
+import { AtlasModalFrame, AtlasModalShell } from "../components/AtlasModalFrame";
 import { AtlasPromptDialog } from "../components/AtlasPromptDialog";
 import { STORE_IMAGE_PULL_POLICIES } from "../storeTypes";
 import type {
@@ -27,6 +27,11 @@ import type {
   StoreWorkerToggle,
   StoresListResponse,
 } from "../storeTypes";
+import {
+  STORE_REQUESTS_OPEN_EVENT,
+  type StoreRequestsOpenDetail,
+  type StoreRequestsPanelTab,
+} from "../storeRequestsNav";
 
 type StoresViewMode = "list" | "detail";
 
@@ -129,7 +134,8 @@ function cloneStoreDetail(d: StoreDetail): StoreDetail {
   return JSON.parse(JSON.stringify(d)) as StoreDetail;
 }
 
-type RequestsPanelTab = "queue" | "history";
+type RequestsPanelTab = StoreRequestsPanelTab;
+
 type HistoryStatusFilter = "all" | "approved" | "rejected" | "cancelled";
 
 function requestStatusLabel(status: StoreChangeRequest["status"]): string {
@@ -288,6 +294,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
 
   const [changeRequests, setChangeRequests] = useState<StoreChangeRequest[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestsModalOpen, setRequestsModalOpen] = useState(false);
   const [requestsPanelTab, setRequestsPanelTab] = useState<RequestsPanelTab>("queue");
   const [historyRequests, setHistoryRequests] = useState<StoreChangeRequest[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -472,10 +479,16 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   }, [historySearch]);
 
   useEffect(() => {
-    if (requestsPanelTab === "history" && (canEdit || canApprove)) {
+    if (requestsModalOpen && requestsPanelTab === "history" && (canEdit || canApprove)) {
       void loadHistoryRequests();
     }
-  }, [requestsPanelTab, loadHistoryRequests, canEdit, canApprove]);
+  }, [requestsModalOpen, requestsPanelTab, loadHistoryRequests, canEdit, canApprove]);
+
+  useEffect(() => {
+    if (requestsModalOpen && requestsPanelTab === "queue" && (canEdit || canApprove)) {
+      void loadChangeRequests();
+    }
+  }, [requestsModalOpen, requestsPanelTab, loadChangeRequests, canEdit, canApprove]);
 
   useEffect(() => {
     if (approveConfirmId === null) {
@@ -523,6 +536,20 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     setRequestDetailId(null);
     setRequestDetail(null);
   }
+
+  useEffect(() => {
+    const onOpenRequests = (ev: Event) => {
+      const detail = (ev as CustomEvent<StoreRequestsOpenDetail>).detail ?? {};
+      setViewMode("list");
+      if (detail.tab) setRequestsPanelTab(detail.tab);
+      setRequestsModalOpen(true);
+      if (detail.requestId != null) {
+        window.setTimeout(() => void openRequestDetail(detail.requestId!), 0);
+      }
+    };
+    window.addEventListener(STORE_REQUESTS_OPEN_EVENT, onOpenRequests);
+    return () => window.removeEventListener(STORE_REQUESTS_OPEN_EVENT, onOpenRequests);
+  }, []);
 
   useEffect(() => {
     if (!canAdmin || !settingsOpen) return;
@@ -1054,6 +1081,21 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               Nueva tienda
             </button>
           ) : null}
+          {canApprove || canEdit ? (
+            <button
+              type="button"
+              onClick={() => setRequestsModalOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-cf-line bg-cf-panel px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800/80"
+            >
+              <Clock className="h-3.5 w-3.5" aria-hidden />
+              Solicitudes
+              {changeRequests.length > 0 ? (
+                <span className="rounded-full bg-sky-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-sky-100">
+                  {changeRequests.length}
+                </span>
+              ) : null}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => void loadStores()}
@@ -1267,278 +1309,6 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         busy={discarding}
         onConfirm={() => void onConfirmDiscard()}
         onCancel={() => setDiscardConfirm(null)}
-      />
-
-      {canApprove || canEdit ? (
-        <div className="rounded-xl border border-cf-line/70 bg-[#111418]/90 px-4 py-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="inline-flex rounded-lg bg-black/40 p-1 ring-1 ring-white/[0.06]">
-              <button
-                type="button"
-                onClick={() => setRequestsPanelTab("queue")}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                  requestsPanelTab === "queue"
-                    ? "bg-sky-500/20 text-sky-100 ring-1 ring-sky-500/30"
-                    : "text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                <Clock className="h-3.5 w-3.5" aria-hidden />
-                {canApprove ? "Cola pendiente" : "Mis pendientes"}
-                {changeRequests.length > 0 ? (
-                  <span className="rounded-full bg-sky-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-sky-100">
-                    {changeRequests.length}
-                  </span>
-                ) : null}
-              </button>
-              <button
-                type="button"
-                onClick={() => setRequestsPanelTab("history")}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                  requestsPanelTab === "history"
-                    ? "bg-cf-orange/15 text-cf-orange ring-1 ring-cf-orange/30"
-                    : "text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                <History className="h-3.5 w-3.5" aria-hidden />
-                Historial
-              </button>
-            </div>
-            {requestsPanelTab === "history" ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="relative min-w-[10rem] flex-1 sm:max-w-xs">
-                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
-                  <input
-                    type="search"
-                    value={historySearch}
-                    onChange={(e) => setHistorySearch(e.target.value)}
-                    placeholder="Buscar carpeta tienda…"
-                    className="w-full rounded-lg border border-cf-line bg-black/40 py-1.5 pl-8 pr-2 text-xs text-zinc-100 outline-none focus:border-cf-orange/50"
-                  />
-                </div>
-                <button
-                  type="button"
-                  disabled={historyLoading}
-                  onClick={() => void loadHistoryRequests()}
-                  className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${historyLoading ? "animate-spin" : ""}`} />
-                  Actualizar
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          {requestsPanelTab === "queue" ? (
-            <>
-              <p className="mt-3 text-xs text-zinc-500">
-                {canApprove
-                  ? "Los operadores proponen cambios aquí. Aprueba para aplicar la configuración en Fleet (Rancher)."
-                  : "Tus cambios quedan en espera hasta que un administrador los apruebe."}
-              </p>
-              {requestsLoading ? (
-                <div className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Cargando solicitudes…
-                </div>
-              ) : changeRequests.length === 0 ? (
-                <p className="mt-3 text-xs text-zinc-500">No hay solicitudes pendientes.</p>
-              ) : (
-                <ul className="mt-3 space-y-2">
-                  {changeRequests.map((req) => (
-                    <li
-                      key={req.id}
-                      className="flex flex-col gap-2 rounded-lg border border-white/[0.06] bg-black/25 p-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-zinc-200">
-                          #{req.id} · {req.kind === "create" ? "Nueva tienda" : "Actualización"} · {req.storeId}
-                        </p>
-                        <p className="mt-0.5 text-xs text-zinc-400">{req.summary}</p>
-                        <p className="mt-1 text-[11px] text-zinc-600">
-                          {req.createdByUsername} · {formatRequestWhen(req.createdAt)}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-wrap gap-2">
-                        <button
-                          type="button"
-                          disabled={requestActionBusy}
-                          onClick={() => void openRequestDetail(req.id)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          Ver detalle
-                        </button>
-                        {canApprove ? (
-                          <>
-                            <button
-                              type="button"
-                              disabled={requestActionBusy}
-                              onClick={() => setApproveConfirmId(req.id)}
-                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-600/90 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-                            >
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              Aprobar
-                            </button>
-                            <button
-                              type="button"
-                              disabled={requestActionBusy}
-                              onClick={() => setRejectRequestId(req.id)}
-                              className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
-                            >
-                              Rechazar
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={requestActionBusy}
-                            onClick={() => void onCancelRequest(req.id)}
-                            className="rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
-                          >
-                            Cancelar
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          ) : (
-            <>
-              <p className="mt-3 text-xs text-zinc-500">
-                {canApprove
-                  ? "Historial de solicitudes de todas las tiendas. Solo lectura."
-                  : "Historial de tus solicitudes enviadas."}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {(
-                  [
-                    ["all", "Todas"],
-                    ["approved", "Aprobadas"],
-                    ["rejected", "Rechazadas"],
-                    ["cancelled", "Canceladas"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setHistoryStatusFilter(key)}
-                    className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
-                      historyStatusFilter === key
-                        ? "bg-zinc-700 text-zinc-100"
-                        : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {historyLoading ? (
-                <div className="mt-4 flex items-center gap-2 text-xs text-zinc-500">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Cargando historial…
-                </div>
-              ) : historyRequests.length === 0 ? (
-                <p className="mt-4 text-xs text-zinc-500">No hay solicitudes en este filtro.</p>
-              ) : (
-                <div className="mt-3 overflow-x-auto rounded-lg border border-white/[0.06]">
-                  <table className="w-full min-w-[640px] text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-white/[0.06] text-[10px] uppercase tracking-wide text-zinc-500">
-                        <th className="px-3 py-2 font-medium">#</th>
-                        <th className="px-3 py-2 font-medium">Tienda</th>
-                        <th className="px-3 py-2 font-medium">Resumen</th>
-                        <th className="px-3 py-2 font-medium">Estado</th>
-                        {canApprove ? <th className="px-3 py-2 font-medium">Solicitante</th> : null}
-                        <th className="px-3 py-2 font-medium">Enviada</th>
-                        <th className="px-3 py-2 font-medium">Revisada por</th>
-                        <th className="px-3 py-2 font-medium">Fecha revisión</th>
-                        <th className="px-3 py-2 font-medium text-right">Detalle</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/[0.04]">
-                      {historyRequests.map((req) => (
-                        <tr key={req.id} className="bg-black/20 hover:bg-black/30">
-                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">{req.id}</td>
-                          <td className="whitespace-nowrap px-3 py-2.5 font-medium text-zinc-200">{req.storeId}</td>
-                          <td className="max-w-[14rem] truncate px-3 py-2.5 text-zinc-400" title={req.summary}>
-                            {req.summary}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2.5">
-                            <span
-                              className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1 ${requestStatusBadgeClass(req.status)}`}
-                            >
-                              {requestStatusLabel(req.status)}
-                            </span>
-                          </td>
-                          {canApprove ? (
-                            <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">{req.createdByUsername}</td>
-                          ) : null}
-                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">{formatRequestWhen(req.createdAt)}</td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">
-                            {req.reviewedByUsername ?? "—"}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">
-                            {formatRequestWhen(req.reviewedAt)}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-right">
-                            <button
-                              type="button"
-                              onClick={() => void openRequestDetail(req.id)}
-                              className="inline-flex items-center gap-1 rounded-md border border-cf-line px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800"
-                            >
-                              <Eye className="h-3 w-3" />
-                              Ver
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      ) : null}
-
-      <AtlasConfirmDialog
-        open={approveConfirmId !== null}
-        title="Aprobar y publicar"
-        message={
-          <>
-            <p>Se aplicará la configuración en el equipo vía Fleet (Rancher). La sincronización puede tardar unos minutos.</p>
-            {approveDetailLoading ? (
-              <p className="mt-3 inline-flex items-center gap-2 text-xs text-zinc-500">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Cargando detalle del cambio…
-              </p>
-            ) : approveDetailLines.length > 0 ? (
-              <div className="mt-3">
-                <PublishChangeSummary lines={approveDetailLines} />
-              </div>
-            ) : (
-              <p className="mt-3 text-xs text-zinc-500">No hay líneas de detalle disponibles para esta solicitud.</p>
-            )}
-          </>
-        }
-        confirmLabel="Aprobar y publicar"
-        cancelLabel="Cancelar"
-        busy={requestActionBusy}
-        onConfirm={() => approveConfirmId !== null && void onApproveRequest(approveConfirmId)}
-        onCancel={() => setApproveConfirmId(null)}
-      />
-
-      <AtlasPromptDialog
-        open={rejectRequestId !== null}
-        title="Rechazar solicitud"
-        message="Indica el motivo para el operador."
-        label="Motivo"
-        confirmLabel="Rechazar"
-        cancelLabel="Cancelar"
-        onConfirm={(note) => rejectRequestId !== null && void onRejectRequest(rejectRequestId, note)}
-        onCancel={() => setRejectRequestId(null)}
       />
 
       {message && !configured ? (
@@ -1979,9 +1749,307 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         onClose={() => setPublishResultAlert(null)}
       />
 
+      <AtlasModalFrame
+        open={requestsModalOpen && (canApprove || canEdit)}
+        zIndexClass="z-[140]"
+        onBackdropClick={requestActionBusy ? undefined : () => setRequestsModalOpen(false)}
+        panelClassName="flex max-h-[min(90vh,880px)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.06]"
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-cf-line/50 px-5 py-4">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-100">Solicitudes de cambio</h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {canApprove
+                ? "Aprueba o rechaza cambios propuestos por operadores."
+                : "Consulta el estado de tus solicitudes enviadas."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setRequestsModalOpen(false)}
+            disabled={requestActionBusy}
+            aria-label="Cerrar"
+            className="rounded-lg p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-50"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="inline-flex rounded-lg bg-black/40 p-1 ring-1 ring-white/[0.06]">
+              <button
+                type="button"
+                onClick={() => setRequestsPanelTab("queue")}
+                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                  requestsPanelTab === "queue"
+                    ? "bg-sky-500/20 text-sky-100 ring-1 ring-sky-500/30"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                <Clock className="h-3.5 w-3.5" aria-hidden />
+                {canApprove ? "Cola pendiente" : "Mis pendientes"}
+                {changeRequests.length > 0 ? (
+                  <span className="rounded-full bg-sky-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-sky-100">
+                    {changeRequests.length}
+                  </span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                onClick={() => setRequestsPanelTab("history")}
+                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                  requestsPanelTab === "history"
+                    ? "bg-cf-orange/15 text-cf-orange ring-1 ring-cf-orange/30"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                <History className="h-3.5 w-3.5" aria-hidden />
+                Historial
+              </button>
+            </div>
+            {requestsPanelTab === "history" ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative min-w-[10rem] flex-1 sm:max-w-xs">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+                  <input
+                    type="search"
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    placeholder="Buscar carpeta tienda…"
+                    className="w-full rounded-lg border border-cf-line bg-black/40 py-1.5 pl-8 pr-2 text-xs text-zinc-100 outline-none focus:border-cf-orange/50"
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={historyLoading}
+                  onClick={() => void loadHistoryRequests()}
+                  className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${historyLoading ? "animate-spin" : ""}`} />
+                  Actualizar
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          {requestsPanelTab === "queue" ? (
+            <>
+              <p className="mt-3 text-xs text-zinc-500">
+                {canApprove
+                  ? "Los operadores proponen cambios aquí. Aprueba para aplicar la configuración en Fleet (Rancher)."
+                  : "Tus cambios quedan en espera hasta que un administrador los apruebe."}
+              </p>
+              {requestsLoading ? (
+                <div className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Cargando solicitudes…
+                </div>
+              ) : changeRequests.length === 0 ? (
+                <p className="mt-3 text-xs text-zinc-500">No hay solicitudes pendientes.</p>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {changeRequests.map((req) => (
+                    <li
+                      key={req.id}
+                      className="flex flex-col gap-2 rounded-lg border border-white/[0.06] bg-black/25 p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-zinc-200">
+                          #{req.id} · {req.kind === "create" ? "Nueva tienda" : "Actualización"} · {req.storeId}
+                        </p>
+                        <p className="mt-0.5 text-xs text-zinc-400">{req.summary}</p>
+                        <p className="mt-1 text-[11px] text-zinc-600">
+                          {req.createdByUsername} · {formatRequestWhen(req.createdAt)}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={requestActionBusy}
+                          onClick={() => void openRequestDetail(req.id)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          Ver detalle
+                        </button>
+                        {canApprove ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={requestActionBusy}
+                              onClick={() => setApproveConfirmId(req.id)}
+                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-600/90 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                            >
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Aprobar
+                            </button>
+                            <button
+                              type="button"
+                              disabled={requestActionBusy}
+                              onClick={() => setRejectRequestId(req.id)}
+                              className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
+                            >
+                              Rechazar
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={requestActionBusy}
+                            onClick={() => void onCancelRequest(req.id)}
+                            className="rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
+                          >
+                            Cancelar
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="mt-3 text-xs text-zinc-500">
+                {canApprove
+                  ? "Historial de solicitudes de todas las tiendas. Solo lectura."
+                  : "Historial de tus solicitudes enviadas."}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {(
+                  [
+                    ["all", "Todas"],
+                    ["approved", "Aprobadas"],
+                    ["rejected", "Rechazadas"],
+                    ["cancelled", "Canceladas"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setHistoryStatusFilter(key)}
+                    className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
+                      historyStatusFilter === key
+                        ? "bg-zinc-700 text-zinc-100"
+                        : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {historyLoading ? (
+                <div className="mt-4 flex items-center gap-2 text-xs text-zinc-500">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Cargando historial…
+                </div>
+              ) : historyRequests.length === 0 ? (
+                <p className="mt-4 text-xs text-zinc-500">No hay solicitudes en este filtro.</p>
+              ) : (
+                <div className="mt-3 overflow-x-auto rounded-lg border border-white/[0.06]">
+                  <table className="w-full min-w-[640px] text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-white/[0.06] text-[10px] uppercase tracking-wide text-zinc-500">
+                        <th className="px-3 py-2 font-medium">#</th>
+                        <th className="px-3 py-2 font-medium">Tienda</th>
+                        <th className="px-3 py-2 font-medium">Resumen</th>
+                        <th className="px-3 py-2 font-medium">Estado</th>
+                        {canApprove ? <th className="px-3 py-2 font-medium">Solicitante</th> : null}
+                        <th className="px-3 py-2 font-medium">Enviada</th>
+                        <th className="px-3 py-2 font-medium">Revisada por</th>
+                        <th className="px-3 py-2 font-medium">Fecha revisión</th>
+                        <th className="px-3 py-2 font-medium text-right">Detalle</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/[0.04]">
+                      {historyRequests.map((req) => (
+                        <tr key={req.id} className="bg-black/20 hover:bg-black/30">
+                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">{req.id}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 font-medium text-zinc-200">{req.storeId}</td>
+                          <td className="max-w-[14rem] truncate px-3 py-2.5 text-zinc-400" title={req.summary}>
+                            {req.summary}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2.5">
+                            <span
+                              className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1 ${requestStatusBadgeClass(req.status)}`}
+                            >
+                              {requestStatusLabel(req.status)}
+                            </span>
+                          </td>
+                          {canApprove ? (
+                            <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">{req.createdByUsername}</td>
+                          ) : null}
+                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">{formatRequestWhen(req.createdAt)}</td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">
+                            {req.reviewedByUsername ?? "—"}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">
+                            {formatRequestWhen(req.reviewedAt)}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => void openRequestDetail(req.id)}
+                              className="inline-flex items-center gap-1 rounded-md border border-cf-line px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                            >
+                              <Eye className="h-3 w-3" />
+                              Ver
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </AtlasModalFrame>
+
+      <AtlasConfirmDialog
+        open={approveConfirmId !== null}
+        title="Aprobar y publicar"
+        message={
+          <>
+            <p>Se aplicará la configuración en el equipo vía Fleet (Rancher). La sincronización puede tardar unos minutos.</p>
+            {approveDetailLoading ? (
+              <p className="mt-3 inline-flex items-center gap-2 text-xs text-zinc-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Cargando detalle del cambio…
+              </p>
+            ) : approveDetailLines.length > 0 ? (
+              <div className="mt-3">
+                <PublishChangeSummary lines={approveDetailLines} />
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-zinc-500">No hay líneas de detalle disponibles para esta solicitud.</p>
+            )}
+          </>
+        }
+        confirmLabel="Aprobar y publicar"
+        cancelLabel="Cancelar"
+        busy={requestActionBusy}
+        onConfirm={() => approveConfirmId !== null && void onApproveRequest(approveConfirmId)}
+        onCancel={() => setApproveConfirmId(null)}
+      />
+
+      <AtlasPromptDialog
+        open={rejectRequestId !== null}
+        title="Rechazar solicitud"
+        message="Indica el motivo para el operador."
+        label="Motivo"
+        confirmLabel="Rechazar"
+        cancelLabel="Cancelar"
+        onConfirm={(note) => rejectRequestId !== null && void onRejectRequest(rejectRequestId, note)}
+        onCancel={() => setRejectRequestId(null)}
+      />
+
       <AnimatePresence>
         {requestDetailId !== null ? (
           <AtlasModalShell
+            zIndexClass="z-[160]"
             onBackdropClick={requestDetailLoading ? undefined : closeRequestDetail}
             panelClassName="w-full max-w-lg rounded-2xl border border-cf-line bg-[#111418] p-5 shadow-2xl ring-1 ring-white/[0.06]"
           >
