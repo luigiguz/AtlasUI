@@ -14,7 +14,17 @@ import { api } from "../apiClient";
 import type { AtlasRouteId } from "../atlasNav";
 import type { NotificationItem, NotificationsResponse, NotificationSeverity } from "../notificationTypes";
 
-const POLL_MS = 60_000;
+/** Polling con pestaña visible (notificaciones «en vivo» sin WebSocket). */
+const POLL_VISIBLE_MS = 5_000;
+/** Polling en segundo plano — ahorra requests. */
+const POLL_HIDDEN_MS = 60_000;
+
+export const ATLAS_NOTIFICATIONS_REFRESH_EVENT = "atlas:notifications-refresh";
+
+/** Fuerza recarga inmediata del badge (p. ej. tras aprobar/rechazar solicitudes). */
+export function pulseAtlasNotifications(): void {
+  window.dispatchEvent(new CustomEvent(ATLAS_NOTIFICATIONS_REFRESH_EVENT));
+}
 
 type Props = {
   onNavigate: (route: AtlasRouteId) => void;
@@ -103,8 +113,34 @@ export function AtlasNotifications({ onNavigate, buttonClassName }: Props): Reac
 
   useEffect(() => {
     void load(true);
-    const id = window.setInterval(() => void load(true), POLL_MS);
-    return () => window.clearInterval(id);
+
+    let intervalId = 0;
+
+    const schedulePoll = () => {
+      window.clearInterval(intervalId);
+      const ms = document.visibilityState === "visible" ? POLL_VISIBLE_MS : POLL_HIDDEN_MS;
+      intervalId = window.setInterval(() => void load(true), ms);
+    };
+
+    schedulePoll();
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void load(true);
+      schedulePoll();
+    };
+    const onFocus = () => void load(true);
+    const onPulse = () => void load(true);
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener(ATLAS_NOTIFICATIONS_REFRESH_EVENT, onPulse);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener(ATLAS_NOTIFICATIONS_REFRESH_EVENT, onPulse);
+    };
   }, [load]);
 
   useEffect(() => {

@@ -298,13 +298,19 @@ def list_change_requests(
     can_approve: bool,
     status: str | None = None,
     limit: int = 50,
+    folder: str | None = None,
 ) -> list[dict[str, Any]]:
     lim = max(1, min(int(limit), 200))
     st = (status or STATUS_PENDING).strip().lower()
+    folder_q = (folder or "").strip()
     with session_scope() as session:
         q = select(StoreChangeRequest).order_by(StoreChangeRequest.created_at.desc()).limit(lim)
-        if st != "all":
+        if st == "history":
+            q = q.where(StoreChangeRequest.status != STATUS_PENDING)
+        elif st != "all":
             q = q.where(StoreChangeRequest.status == st)
+        if folder_q:
+            q = q.where(StoreChangeRequest.folder_name.ilike(f"%{folder_q}%"))
         if not can_approve:
             q = q.where(StoreChangeRequest.created_by_user_id == _user_id(user))
         rows = session.scalars(q).all()

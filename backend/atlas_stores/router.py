@@ -378,12 +378,19 @@ def get_change_requests(
     user: dict[str, Any] = Depends(require_permission(PERM_STORES_READ)),
     status: str = "pending",
     limit: int = 50,
+    folder: str | None = None,
 ) -> dict[str, Any]:
     can_approve = has_permission(user, PERM_STORES_APPROVE)
     if not can_approve and not has_permission(user, PERM_STORES_WRITE):
         raise HTTPException(403, "Sin permiso para ver solicitudes de cambio.")
     try:
-        items = list_change_requests(user, can_approve=can_approve, status=status, limit=limit)
+        items = list_change_requests(
+            user,
+            can_approve=can_approve,
+            status=status,
+            limit=limit,
+            folder=folder,
+        )
     except ChangeRequestError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "canApprove": can_approve, "requests": items}
