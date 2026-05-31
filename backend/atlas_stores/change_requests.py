@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from atlas_core.db.models import StoreChangeRequest
 from atlas_core.db.session import session_scope
-from atlas_core.notifications import notify_user
+from atlas_core.notifications import notify_approvers_new_store_request, notify_user
 from atlas_stores.equipment import EquipmentNotFoundError, RancherNotConfiguredError, find_equipment_for_store
 from atlas_stores.git_repo import StoresRepoError, git_commit_and_push, resolve_repo_root
 from atlas_stores.settings_store import load_stores_settings
@@ -255,7 +255,16 @@ def create_update_request(
         )
         session.add(row)
         session.flush()
-        return _row_dict(row)
+        result = _row_dict(row)
+    notify_approvers_new_store_request(
+        request_id=int(result["id"]),
+        summary=summary,
+        folder_name=folder,
+        creator_username=_username(user),
+        exclude_user_id=_user_id(user),
+        request_kind=KIND_UPDATE,
+    )
+    return result
 
 
 def create_create_request(
@@ -289,7 +298,16 @@ def create_create_request(
         )
         session.add(row)
         session.flush()
-        return _row_dict(row)
+        result = _row_dict(row)
+    notify_approvers_new_store_request(
+        request_id=int(result["id"]),
+        summary=summary,
+        folder_name=folder,
+        creator_username=_username(user),
+        exclude_user_id=_user_id(user),
+        request_kind=KIND_CREATE,
+    )
+    return result
 
 
 def list_change_requests(
@@ -461,9 +479,15 @@ def approve_change_request(
         kind="store_change_approved",
         severity="success",
         title="Solicitud de tienda aprobada",
-        body=f"{summary} — publicada por {reviewer_name}.",
+        body=f"Tu solicitud para «{folder_name}» fue aprobada y publicada en Git.",
         route="rancher-store-requests",
-        payload={"requestId": request_id, "folderName": folder_name},
+        payload={
+            "requestId": request_id,
+            "folderName": folder_name,
+            "summary": summary,
+            "reviewedByUsername": reviewer_name,
+            "requestKind": str(result.get("kind") or "update"),
+        },
     )
     return result
 
@@ -492,15 +516,23 @@ def reject_change_request(
         creator_id = int(row.created_by_user_id)
         summary = str(row.summary or row.folder_name)
         folder_name = str(row.folder_name)
+        req_kind = str(row.kind or "update")
 
     notify_user(
         user_id=creator_id,
         kind="store_change_rejected",
         severity="warning",
         title="Solicitud de tienda rechazada",
-        body=f"{summary}. Motivo: {note}",
+        body=f"Tu solicitud para «{folder_name}» fue rechazada.",
         route="rancher-store-requests",
-        payload={"requestId": request_id, "folderName": folder_name},
+        payload={
+            "requestId": request_id,
+            "folderName": folder_name,
+            "summary": summary,
+            "reviewedByUsername": _username(reviewer),
+            "reviewNote": note,
+            "requestKind": req_kind,
+        },
     )
     return result
 

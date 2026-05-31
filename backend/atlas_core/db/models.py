@@ -27,6 +27,9 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(String(254), nullable=True)
     first_name: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
     last_name: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
+    email_notifications_enabled: Mapped[bool] = mapped_column(
+        Boolean(), nullable=False, server_default="true"
+    )
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(

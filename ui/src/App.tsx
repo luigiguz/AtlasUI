@@ -2,24 +2,13 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   CheckCircle2,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Database,
   Pencil,
   PlusCircle,
-  Search,
   Terminal,
   Trash2,
 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type Dispatch,
-  type SetStateAction,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { API_BASE, api, apiUrl, bearerHeaders, clearAuthTokens } from "./apiClient";
 import { clearSessionActivity, touchSessionActivity, useIdleLogout } from "./useIdleLogout";
@@ -46,6 +35,15 @@ import { AtlasConfirmDialog } from "./components/AtlasConfirmDialog";
 import { AuthLoginPanel } from "./components/AuthLoginPanel";
 import { AtlasLoadingSplash } from "./components/AtlasLoadingSplash";
 import { AtlasShell } from "./components/AtlasShell";
+import {
+  filterSitesByNameQuery,
+  SITES_PAGE_SIZE,
+  SitePaginationBar,
+  SiteSearchInput,
+  siteListVariants,
+  siteRowVariants,
+  type SiteRow,
+} from "./components/AtlasSiteListUi";
 import { PoweredByVerkkutech } from "./components/PoweredByVerkkutech";
 import {
   parseSshWebPopoutParams,
@@ -55,6 +53,8 @@ import {
   type SshWebSession,
 } from "./WebSshSessionsDock";
 import { rememberTiendaForContainers } from "./rancherContainersNav";
+import { focusStoreRequestsView } from "./storeRequestsNav";
+import { AtlasDnsView } from "./views/AtlasDnsView";
 import { AtlasHomeView } from "./views/AtlasHomeView";
 import { AtlasRancherClustersView } from "./views/AtlasRancherClustersView";
 import { AtlasRancherPodsView } from "./views/AtlasRancherPodsView";
@@ -63,26 +63,7 @@ import { AtlasStoresView } from "./views/AtlasStoresView";
 import { AtlasRolesView } from "./views/AtlasRolesView";
 import { AtlasUsersView } from "./views/AtlasUsersView";
 
-type SiteRow = {
-  id: string;
-  name: string;
-  ssh?: { hostname: string; local_port: number } | null;
-  db?: { hostname: string; local_port: number } | null;
-  sshStatus: string;
-  dbStatus: string;
-  posliteUrls?: { url: string; suffix?: string | null; port?: number | null }[];
-};
-
 type SitesResponse = { configPath: string; domainSuffix?: string; sites: SiteRow[] };
-
-/** Tarjetas por página en Conexiones y Poslite. */
-const SITES_PAGE_SIZE = 12;
-
-function filterSitesByNameQuery(sites: SiteRow[], query: string): SiteRow[] {
-  const t = query.trim().toLowerCase();
-  if (!t) return sites;
-  return sites.filter((s) => s.name.toLowerCase().includes(t) || s.id.toLowerCase().includes(t));
-}
 
 type AuthStatusResponse = {
   authenticated: boolean;
@@ -131,108 +112,6 @@ function siteTunnelDotClass(tone: "up" | "down" | "idle"): string {
   return "bg-zinc-500";
 }
 
-const listVariants = {
-  hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: { staggerChildren: 0.045, delayChildren: 0.06 },
-  },
-};
-
-const rowVariants = {
-  hidden: { opacity: 0, y: 14, scale: 0.98 },
-  show: {
-    opacity: 1,
-    y: 0,
-    scale: 1,
-    transition: { type: "spring", stiffness: 420, damping: 28 },
-  },
-};
-
-function SitePaginationBar({
-  page,
-  setPage,
-  totalItems,
-  pageSize,
-}: {
-  page: number;
-  setPage: Dispatch<SetStateAction<number>>;
-  totalItems: number;
-  pageSize: number;
-}) {
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
-  const safePage = Math.min(Math.max(0, page), totalPages - 1);
-  const start = totalItems === 0 ? 0 : safePage * pageSize + 1;
-  const end = Math.min(totalItems, (safePage + 1) * pageSize);
-  return (
-    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-cf-line/60 bg-black/15 px-2 py-2 sm:px-3">
-      <p className="text-[11px] tabular-nums text-zinc-500">
-        {totalItems === 0 ? "Sin resultados" : `${start}–${end} de ${totalItems}`}
-      </p>
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() =>
-            setPage((p) => {
-              const sp = Math.min(Math.max(0, p), totalPages - 1);
-              return Math.max(0, sp - 1);
-            })
-          }
-          disabled={safePage <= 0}
-          className="inline-flex items-center gap-1 rounded-lg bg-zinc-800 px-2 py-1.5 text-xs text-zinc-200 ring-1 ring-zinc-600 hover:bg-zinc-700 disabled:pointer-events-none disabled:opacity-35"
-        >
-          <ChevronLeft className="h-4 w-4 shrink-0" aria-hidden />
-          Anterior
-        </button>
-        <span className="min-w-[6.5rem] text-center text-[11px] text-zinc-400">
-          Página {safePage + 1} / {totalPages}
-        </span>
-        <button
-          type="button"
-          onClick={() =>
-            setPage((p) => {
-              const sp = Math.min(Math.max(0, p), totalPages - 1);
-              return Math.min(totalPages - 1, sp + 1);
-            })
-          }
-          disabled={safePage >= totalPages - 1}
-          className="inline-flex items-center gap-1 rounded-lg bg-zinc-800 px-2 py-1.5 text-xs text-zinc-200 ring-1 ring-zinc-600 hover:bg-zinc-700 disabled:pointer-events-none disabled:opacity-35"
-        >
-          Siguiente
-          <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function SiteSearchInput({
-  id,
-  value,
-  onChange,
-  placeholder,
-}: {
-  id: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <div className="relative w-full min-w-0 max-w-md flex-1">
-      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" aria-hidden />
-      <input
-        id={id}
-        type="search"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder ?? "Buscar por nombre…"}
-        autoComplete="off"
-        className="w-full rounded-xl border border-cf-line bg-cf-panel py-2 pl-9 pr-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50 focus:ring-2 focus:ring-cf-orange/25"
-      />
-    </div>
-  );
-}
-
 function StatusPill({ kind }: { kind: string }) {
   const active = kind === "active";
   return (
@@ -267,12 +146,11 @@ export default function App() {
   /** Tienda a preseleccionar al abrir Contenedores desde Equipos. */
   const [containersFocusId, setContainersFocusId] = useState<string | null>(null);
   const [sites, setSites] = useState<SiteRow[]>([]);
+  const [sitesDomainSuffix, setSitesDomainSuffix] = useState<string | undefined>();
   /** Sitio con panel de acciones desplegado (acordeón). */
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [connSiteQuery, setConnSiteQuery] = useState("");
   const [connListPage, setConnListPage] = useState(0);
-  const [posliteSiteQuery, setPosliteSiteQuery] = useState("");
-  const [posliteListPage, setPosliteListPage] = useState(0);
   const [logOpen, setLogOpen] = useState(true);
   const [logs, setLogs] = useState<string[]>([]);
   const [pendingConfirm, setPendingConfirm] = useState<{
@@ -395,6 +273,7 @@ export default function App() {
     try {
       const d = await api<SitesResponse>("/api/sites");
       setSites(d.sites);
+      setSitesDomainSuffix(d.domainSuffix);
     } catch {
       setSites([]);
     }
@@ -406,6 +285,29 @@ export default function App() {
     const t = window.setInterval(() => void loadSites(), 3000);
     return () => window.clearInterval(t);
   }, [authPhase, loadSites]);
+
+  useEffect(() => {
+    if (authPhase !== "app" || !me) return;
+    const params = new URLSearchParams(window.location.search);
+    const routeParam = params.get("route");
+    if (!routeParam) return;
+    setTab(routeParam as AtlasRouteId);
+    const requestIdRaw = params.get("requestId");
+    if (routeParam === "rancher-store-requests" && requestIdRaw) {
+      const requestId = Number(requestIdRaw);
+      if (Number.isFinite(requestId)) {
+        window.setTimeout(
+          () => focusStoreRequestsView({ tab: "queue", requestId }),
+          350
+        );
+      }
+    }
+    params.delete("route");
+    params.delete("requestId");
+    const rest = params.toString();
+    const nextUrl = `${window.location.pathname}${rest ? `?${rest}` : ""}${window.location.hash}`;
+    window.history.replaceState({}, "", nextUrl);
+  }, [authPhase, me]);
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
@@ -614,29 +516,13 @@ export default function App() {
     [connFiltered, connPageSafe],
   );
 
-  const posliteFiltered = useMemo(() => filterSitesByNameQuery(sites, posliteSiteQuery), [sites, posliteSiteQuery]);
-  const posliteTotalPages = Math.max(1, Math.ceil(posliteFiltered.length / SITES_PAGE_SIZE));
-  const poslitePageSafe = Math.min(posliteListPage, posliteTotalPages - 1);
-  const poslitePageSlice = useMemo(
-    () => posliteFiltered.slice(poslitePageSafe * SITES_PAGE_SIZE, (poslitePageSafe + 1) * SITES_PAGE_SIZE),
-    [posliteFiltered, poslitePageSafe],
-  );
-
   useEffect(() => {
     setConnListPage((p) => Math.min(p, connTotalPages - 1));
   }, [connTotalPages]);
 
   useEffect(() => {
-    setPosliteListPage((p) => Math.min(p, posliteTotalPages - 1));
-  }, [posliteTotalPages]);
-
-  useEffect(() => {
     setConnListPage(0);
   }, [connSiteQuery]);
-
-  useEffect(() => {
-    setPosliteListPage(0);
-  }, [posliteSiteQuery]);
 
   if (sshPopoutSite) {
     if (authPhase === "loading") {
@@ -781,7 +667,7 @@ export default function App() {
               </div>
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-cf-line/60 bg-black/[0.12]">
               <motion.div
-                variants={listVariants}
+                variants={siteListVariants}
                 initial="hidden"
                 animate="show"
                 className="grid min-h-0 flex-1 auto-rows-min gap-3 overflow-y-auto p-2 pb-1 sm:grid-cols-2 sm:p-3 lg:grid-cols-3 [scrollbar-gutter:stable]"
@@ -802,7 +688,7 @@ export default function App() {
                   return (
                     <motion.div
                       key={s.id}
-                      variants={rowVariants}
+                      variants={siteRowVariants}
                       layout
                       className={
                         open
@@ -1221,84 +1107,7 @@ export default function App() {
 
         {canRoles && tab === "roles" && me && <AtlasRolesView me={me} />}
 
-        {tab === "poslite" && (
-          <motion.div
-            key="poslite"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-4"
-          >
-            <p className="text-sm text-zinc-400">Registros DNS por tienda.</p>
-            {sites.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-cf-line bg-cf-panel/50 p-8 text-center text-zinc-500">
-                No hay sitios. Sincroniza desde Cloudflare primero.
-              </div>
-            ) : (
-              <>
-                <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                  <SiteSearchInput
-                    id="poslite-site-search"
-                    value={posliteSiteQuery}
-                    onChange={setPosliteSiteQuery}
-                    placeholder="Buscar por nombre de tienda…"
-                  />
-                  <p className="shrink-0 text-xs tabular-nums text-zinc-500">
-                    {posliteFiltered.length} de {sites.length} sitio{sites.length !== 1 ? "s" : ""}
-                  </p>
-                </div>
-                {posliteFiltered.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-cf-line bg-cf-panel/50 p-8 text-center text-zinc-500">
-                    Ningún sitio coincide con «{posliteSiteQuery.trim()}». Prueba otro texto o borra el filtro.
-                  </div>
-                ) : (
-                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-cf-line/60 bg-black/[0.08]">
-                    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
-                      {poslitePageSlice.map((s) => (
-                        <motion.div
-                          key={s.id}
-                          layout
-                          className="rounded-2xl border border-cf-line bg-cf-card/90 p-4 ring-1 ring-white/[0.03]"
-                        >
-                          <h3 className="font-semibold text-zinc-100">{s.name}</h3>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {(s.posliteUrls ?? []).map((link) => {
-                              const label =
-                                link.suffix && String(link.suffix).trim()
-                                  ? String(link.suffix).trim().slice(0, 22)
-                                  : link.port != null
-                                    ? `:${link.port}`
-                                    : "·";
-                              return (
-                                <a
-                                  key={`${s.id}-${link.suffix ?? link.port ?? link.url}`}
-                                  href={link.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center rounded-lg bg-zinc-800 px-3 py-2 text-xs font-medium text-cf-orange ring-1 ring-zinc-600 hover:bg-zinc-700"
-                                >
-                                  {label}
-                                </a>
-                              );
-                            })}
-                          </div>
-                          <p className="mt-2 break-all font-mono text-[11px] text-zinc-500">
-                            {(s.posliteUrls ?? []).map((l) => l.url).join(" · ")}
-                          </p>
-                        </motion.div>
-                      ))}
-                    </div>
-                    <SitePaginationBar
-                      page={posliteListPage}
-                      setPage={setPosliteListPage}
-                      totalItems={posliteFiltered.length}
-                      pageSize={SITES_PAGE_SIZE}
-                    />
-                  </div>
-                )}
-              </>
-            )}
-          </motion.div>
-        )}
+        {tab === "poslite" && <AtlasDnsView sites={sites} domainSuffix={sitesDomainSuffix} />}
 
         {tab === "about" && (
           <motion.div

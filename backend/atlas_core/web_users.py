@@ -202,6 +202,7 @@ def _user_row_dict(r: User) -> dict[str, Any]:
         "email": r.email or "",
         "first_name": r.first_name or "",
         "last_name": r.last_name or "",
+        "email_notifications_enabled": bool(getattr(r, "email_notifications_enabled", True)),
         "role": r.role,
         "roles": roles,
         "created_at": created,
@@ -254,8 +255,11 @@ def update_user(
     email: str | None = None,
     first_name: str | None = None,
     last_name: str | None = None,
+    email_notifications: bool | None = None,
 ) -> None:
-    profile_change = any(x is not None for x in (email, first_name, last_name))
+    profile_change = any(
+        x is not None for x in (email, first_name, last_name, email_notifications)
+    )
     if role_ids is None and (password is None or password == "") and not profile_change:
         raise ValueError("Nada que actualizar.")
     target_key = target_username.strip().lower()
@@ -289,7 +293,8 @@ def update_user(
                 row.email = em
                 row.first_name = fn
                 row.last_name = ln
-            if password is not None and password != "":
+            if email_notifications is not None:
+                row.email_notifications_enabled = bool(email_notifications)
                 if len(password) < 12:
                     raise ValueError("La contraseña debe tener al menos 12 caracteres.")
                 row.password_hash = _ph.hash(password)

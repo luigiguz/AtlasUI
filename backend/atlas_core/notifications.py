@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy import delete, func, select, update
 
+from atlas_core.notification_email import queue_notification_email, user_ids_with_permission
 from atlas_core.db.models import AuditWeb, NotificationDismissal, StoreChangeRequest, UserNotification
 from atlas_core.db.session import session_scope
 from atlas_core.permissions import (
@@ -63,6 +64,15 @@ def notify_user(
                     payload=payload if isinstance(payload, dict) else {},
                 )
             )
+        queue_notification_email(
+            user_id=int(user_id),
+            title=title.strip()[:256],
+            body=(body or "").strip()[:1024],
+            severity=severity.strip()[:16] or "info",
+            route=(route or "home").strip()[:32],
+            payload=payload if isinstance(payload, dict) else {},
+            kind=kind.strip()[:64],
+        )
     except Exception as e:
         _log.warning("notify_user failed kind=%s user_id=%s: %s", kind, user_id, e)
 
@@ -506,6 +516,35 @@ def list_notifications(user: dict[str, Any]) -> dict[str, Any]:
 
     unread = sum(1 for i in items if not i.get("read"))
     return {"ok": True, "unreadCount": unread, "items": items[:60]}
+
+
+def notify_approvers_new_store_request(
+    *,
+    request_id: int,
+    summary: str,
+    folder_name: str,
+    creator_username: str,
+    exclude_user_id: int,
+    request_kind: str = "update",
+) -> None:
+    for uid in user_ids_with_permission(PERM_STORES_APPROVE):
+        if uid == exclude_user_id:
+            continue
+        notify_user(
+            user_id=uid,
+            kind="store_change_pending",
+            severity="info",
+            title="Nueva solicitud de tienda",
+            body=f"{creator_username} envió una solicitud que requiere aprobación.",
+            route="rancher-store-requests",
+            payload={
+                "requestId": request_id,
+                "folderName": folder_name,
+                "summary": summary,
+                "createdByUsername": creator_username,
+                "requestKind": request_kind,
+            },
+        )
 
 
 def record_cf_sync_result(*, ok: bool, message: str) -> None:

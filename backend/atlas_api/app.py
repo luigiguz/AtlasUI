@@ -203,6 +203,7 @@ class UpdateUserBody(BaseModel):
     first_name: str | None = Field(None, max_length=64)
     last_name: str | None = Field(None, max_length=64)
     password: str | None = Field(None, max_length=256)
+    email_notifications: bool | None = None
 
 
 class RoleBody(BaseModel):
@@ -571,6 +572,7 @@ def create_app() -> FastAPI:
                 email=body.email.strip() if body.email is not None else None,
                 first_name=body.first_name.strip() if body.first_name is not None else None,
                 last_name=body.last_name.strip() if body.last_name is not None else None,
+                email_notifications=body.email_notifications,
             )
         except ValueError as e:
             raise HTTPException(400, str(e)) from e

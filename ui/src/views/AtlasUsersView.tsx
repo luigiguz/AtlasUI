@@ -21,6 +21,7 @@ type ListedUser = {
   email: string;
   first_name: string;
   last_name: string;
+  email_notifications_enabled?: boolean;
   role: string;
   roles: AtlasRoleRef[];
   created_at: number;
@@ -190,6 +191,7 @@ export function AtlasUsersView({ me }: Props) {
   const [editEmail, setEditEmail] = useState("");
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
+  const [editEmailNotifications, setEditEmailNotifications] = useState(true);
   const [editPw, setEditPw] = useState("");
   const [editErr, setEditErr] = useState("");
   const [editBusy, setEditBusy] = useState(false);
@@ -252,6 +254,7 @@ export function AtlasUsersView({ me }: Props) {
     setEditEmail(u.email);
     setEditFirstName(u.first_name);
     setEditLastName(u.last_name);
+    setEditEmailNotifications(u.email_notifications_enabled !== false);
     setEditPw("");
     setEditErr("");
   };
@@ -275,6 +278,7 @@ export function AtlasUsersView({ me }: Props) {
         email: editEmail.trim(),
         first_name: editFirstName.trim(),
         last_name: editLastName.trim(),
+        email_notifications: editEmailNotifications,
       };
       const p = editPw.trim();
       if (p) body.password = p;
@@ -522,6 +526,20 @@ export function AtlasUsersView({ me }: Props) {
               <Field label="Roles">
                 <RolePicker options={roleOptions} selected={editRoleIds} onChange={setEditRoleIds} />
               </Field>
+              <label className="flex cursor-pointer items-start gap-2 text-sm text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={editEmailNotifications}
+                  onChange={(e) => setEditEmailNotifications(e.target.checked)}
+                  className="mt-0.5 rounded border-cf-line"
+                />
+                <span>
+                  Recibir notificaciones por correo
+                  <span className="mt-0.5 block text-xs text-zinc-500">
+                    Requiere correo válido y SMTP configurado en el servidor.
+                  </span>
+                </span>
+              </label>
               <Field label="Nueva contraseña (opcional)">
                 <input type="password" className={inputClass} value={editPw} onChange={(e) => setEditPw(e.target.value)} />
               </Field>

@@ -75,6 +75,13 @@ services:
       ATLAS_DEFAULT_ADMIN_PASSWORD: Atlas_Admin_Initial12
       ATLAS_CORS_ORIGINS: "https://atlas-ui.verkku.com,https://atlas-vpn.verkku.com,http://127.0.0.1:5173,http://localhost:5173"
       ATLAS_DATABASE_URL: postgresql+psycopg://atlas:Atlas_Pg_Dev_2026@atlas-postgres:5432/atlas
+      # Notificaciones por correo (opcional):
+      # ATLAS_SMTP_HOST: smtp.example.com
+      # ATLAS_SMTP_PORT: "587"
+      # ATLAS_SMTP_USER: atlas@verkku.com
+      # ATLAS_SMTP_PASSWORD: secret
+      # ATLAS_SMTP_FROM: "Atlas <noreply@verkku.com>"
+      # ATLAS_PUBLIC_UI_URL: https://atlas-ui.verkku.com
     volumes:
       - atlas_settings:/app/.atlas
       - atlas_cloudflared:/app/.cloudflared-tunnels
