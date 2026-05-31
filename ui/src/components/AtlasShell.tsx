@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import {
   buildAtlasNav,
-  flattenNavRoutes,
+  isNavEntryActive,
   isNavLeafActive,
   routeMeta,
   type AtlasNavEntry,
@@ -23,7 +23,7 @@ import {
 } from "../atlasNav";
 import type { AuthUser } from "../atlasAuth";
 import { apiUrl } from "../apiClient";
-import { openStoreRequestsModal } from "../storeRequestsNav";
+import { filterNavEntries } from "../storeRequestsNav";
 import { AtlasConfirmDialog } from "./AtlasConfirmDialog";
 import { AtlasNotifications } from "./AtlasNotifications";
 
@@ -92,9 +92,52 @@ function SidebarBrand({ collapsed }: { collapsed: boolean }) {
 function pickNavLeaf(leaf: AtlasNavLeaf, onNavigate: (r: AtlasRouteId) => void) {
   if (leaf.comingSoon) return;
   onNavigate(leaf.route);
-  if (leaf.navAction === "open-store-requests") {
-    window.setTimeout(() => openStoreRequestsModal(), 0);
+}
+
+function NavEntryBlock({
+  entry,
+  route,
+  onNavigate,
+  groupOpen,
+  setGroupOpen,
+  collapsed,
+  onExpandSidebar,
+  nested,
+}: {
+  entry: AtlasNavEntry;
+  route: AtlasRouteId;
+  onNavigate: (r: AtlasRouteId) => void;
+  groupOpen: Record<string, boolean>;
+  setGroupOpen: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  collapsed: boolean;
+  onExpandSidebar: () => void;
+  nested?: boolean;
+}) {
+  if (entry.kind === "leaf") {
+    return (
+      <NavLeafButton
+        item={entry}
+        indent={nested}
+        collapsed={collapsed}
+        active={isNavLeafActive(entry, route)}
+        onPick={() => pickNavLeaf(entry, onNavigate)}
+      />
+    );
   }
+  return (
+    <NavGroupBlock
+      group={entry}
+      route={route}
+      onNavigate={onNavigate}
+      collapsed={collapsed}
+      onExpandSidebar={onExpandSidebar}
+      groupOpen={groupOpen}
+      setGroupOpen={setGroupOpen}
+      open={groupOpen[entry.id] ?? entry.defaultOpen ?? false}
+      onToggle={() => setGroupOpen((o) => ({ ...o, [entry.id]: !(o[entry.id] ?? entry.defaultOpen) }))}
+      nested={nested}
+    />
+  );
 }
 
 function NavLeafButton({
@@ -165,6 +208,9 @@ function NavGroupBlock({
   onToggle,
   collapsed,
   onExpandSidebar,
+  groupOpen,
+  setGroupOpen,
+  nested,
 }: {
   group: AtlasNavGroup;
   route: AtlasRouteId;
@@ -173,16 +219,31 @@ function NavGroupBlock({
   onToggle: () => void;
   collapsed: boolean;
   onExpandSidebar: () => void;
+  groupOpen: Record<string, boolean>;
+  setGroupOpen: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  nested?: boolean;
 }) {
   const Icon = group.icon;
-  const childActive = group.children.some((c) => isNavLeafActive(c, route));
+  const groupActive = isNavEntryActive(group, route);
+  const hasChildren = group.children.length > 0;
 
   const handleGroupClick = () => {
     if (collapsed) {
       onExpandSidebar();
-      if (!open) onToggle();
+      if (!open && hasChildren) onToggle();
+      if (group.route) onNavigate(group.route);
       return;
     }
+    if (group.route) {
+      onNavigate(group.route);
+      if (!open && hasChildren) onToggle();
+      return;
+    }
+    onToggle();
+  };
+
+  const handleChevronClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
     onToggle();
   };
 
@@ -193,7 +254,7 @@ function NavGroupBlock({
         title={group.label}
         onClick={handleGroupClick}
         className={
-          childActive
+          groupActive
             ? "flex w-full items-center justify-center rounded-lg bg-white/[0.08] p-2 text-zinc-100 ring-1 ring-white/10"
             : "flex w-full items-center justify-center rounded-lg p-2 text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
         }
@@ -204,26 +265,35 @@ function NavGroupBlock({
   }
 
   return (
-    <div className="space-y-0.5">
-      <button
-        type="button"
-        onClick={handleGroupClick}
+    <div className={`space-y-0.5 ${nested ? "pl-1" : ""}`}>
+      <div
         className={
-          childActive
+          groupActive
             ? "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm font-medium text-zinc-100"
             : "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-zinc-300 hover:bg-white/[0.04]"
         }
       >
-        <Icon className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
-        <span className="min-w-0 flex-1 truncate">{group.label}</span>
-        {open ? (
-          <ChevronDown className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
-        ) : (
-          <ChevronRight className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
-        )}
-      </button>
+        <button type="button" onClick={handleGroupClick} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+          <Icon className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
+          <span className="min-w-0 flex-1 truncate">{group.label}</span>
+        </button>
+        {hasChildren ? (
+          <button
+            type="button"
+            onClick={handleChevronClick}
+            aria-label={open ? "Contraer" : "Expandir"}
+            className="rounded p-0.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-300"
+          >
+            {open ? (
+              <ChevronDown className="h-4 w-4 shrink-0" aria-hidden />
+            ) : (
+              <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
+            )}
+          </button>
+        ) : null}
+      </div>
       <AnimatePresence initial={false}>
-        {open ? (
+        {open && hasChildren ? (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -233,13 +303,16 @@ function NavGroupBlock({
           >
             <motion.div layout className="ml-3 space-y-0.5 border-l border-white/[0.06] pl-1">
               {group.children.map((child) => (
-                <NavLeafButton
-                  key={child.id}
-                  item={child}
-                  indent
+                <NavEntryBlock
+                  key={child.kind === "leaf" ? child.id : child.id}
+                  entry={child}
+                  route={route}
+                  onNavigate={onNavigate}
+                  groupOpen={groupOpen}
+                  setGroupOpen={setGroupOpen}
                   collapsed={false}
-                  active={isNavLeafActive(child, route)}
-                  onPick={() => pickNavLeaf(child, onNavigate)}
+                  onExpandSidebar={onExpandSidebar}
+                  nested
                 />
               ))}
             </motion.div>
@@ -269,31 +342,18 @@ function SidebarNav({
 }) {
   return (
     <nav className={`flex flex-col gap-0.5 ${collapsed ? "p-1.5" : "p-2"}`} aria-label="Navegación Atlas">
-      {entries.map((entry) => {
-        if (entry.kind === "leaf") {
-          return (
-            <NavLeafButton
-              key={entry.id}
-              item={entry}
-              collapsed={collapsed}
-              active={isNavLeafActive(entry, route)}
-              onPick={() => pickNavLeaf(entry, onNavigate)}
-            />
-          );
-        }
-        return (
-          <NavGroupBlock
-            key={entry.id}
-            group={entry}
-            route={route}
-            onNavigate={onNavigate}
-            collapsed={collapsed}
-            onExpandSidebar={onExpandSidebar}
-            open={groupOpen[entry.id] ?? entry.defaultOpen ?? false}
-            onToggle={() => setGroupOpen((o) => ({ ...o, [entry.id]: !(o[entry.id] ?? entry.defaultOpen) }))}
-          />
-        );
-      })}
+      {entries.map((entry) => (
+        <NavEntryBlock
+          key={entry.kind === "leaf" ? entry.id : entry.id}
+          entry={entry}
+          route={route}
+          onNavigate={onNavigate}
+          groupOpen={groupOpen}
+          setGroupOpen={setGroupOpen}
+          collapsed={collapsed}
+          onExpandSidebar={onExpandSidebar}
+        />
+      ))}
     </nav>
   );
 }
@@ -415,26 +475,13 @@ export function AtlasShell({ route, onNavigate, user, onLogout, children }: Prop
     return () => window.removeEventListener("keydown", onKey);
   }, [sidebarCollapsed, expandSidebar]);
 
-  const filteredEntries = useMemo(() => {
-    const q = navQuery.trim().toLowerCase();
-    if (!q) return navEntries;
-    const leaves = flattenNavRoutes(navEntries).filter(
-      (l) => l.label.toLowerCase().includes(q) || l.id.toLowerCase().includes(q),
-    );
-    const routeSet = new Set(leaves.map((l) => l.route));
-    const out: AtlasNavEntry[] = [];
-    for (const e of navEntries) {
-      if (e.kind === "leaf") {
-        if (e.label.toLowerCase().includes(q)) out.push(e);
-        continue;
-      }
-      const kids = e.children.filter((c) => c.label.toLowerCase().includes(q) || routeSet.has(c.route));
-      if (kids.length > 0 || e.label.toLowerCase().includes(q)) {
-        out.push({ ...e, children: kids.length > 0 ? kids : e.children });
-      }
+  const filteredEntries = useMemo(() => filterNavEntries(navEntries, navQuery), [navEntries, navQuery]);
+
+  useEffect(() => {
+    if (route === "rancher-stores" || route === "rancher-store-requests") {
+      setGroupOpen((o) => ({ ...o, "atlas-rancher": true, "rancher-tiendas": true }));
     }
-    return out;
-  }, [navEntries, navQuery]);
+  }, [route]);
 
   /** En el drawer móvil siempre expandido; en desktop respeta la preferencia guardada. */
   const sidebarCollapsedEffective = sidebarCollapsed && !mobileOpen;

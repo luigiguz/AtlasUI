@@ -462,7 +462,7 @@ def approve_change_request(
         severity="success",
         title="Solicitud de tienda aprobada",
         body=f"{summary} — publicada por {reviewer_name}.",
-        route="rancher-stores",
+        route="rancher-store-requests",
         payload={"requestId": request_id, "folderName": folder_name},
     )
     return result
@@ -499,7 +499,7 @@ def reject_change_request(
         severity="warning",
         title="Solicitud de tienda rechazada",
         body=f"{summary}. Motivo: {note}",
-        route="rancher-stores",
+        route="rancher-store-requests",
         payload={"requestId": request_id, "folderName": folder_name},
     )
     return result

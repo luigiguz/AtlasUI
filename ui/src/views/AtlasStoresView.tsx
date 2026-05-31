@@ -1,18 +1,17 @@
-import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock, Eye, GitBranch, History, Loader2, Plus, RefreshCw, Save, Search, Server, Store, Trash2, Upload, X } from "lucide-react";
+﻿import { AnimatePresence, motion } from "framer-motion";
+import { AlertTriangle, ChevronLeft, ChevronRight, GitBranch, Loader2, Plus, RefreshCw, Save, Search, Server, Store, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { api } from "../apiClient";
 import type { ClustersResponse, RancherCustomCluster } from "../rancherTypes";
 import { AtlasAlertDialog } from "../components/AtlasAlertDialog";
 import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
+import { pulseAtlasNotifications } from "../components/AtlasNotifications";
 import { AtlasLoadingSplash } from "../components/AtlasLoadingSplash";
-import { AtlasModalFrame, AtlasModalShell } from "../components/AtlasModalFrame";
-import { AtlasPromptDialog } from "../components/AtlasPromptDialog";
+import { AtlasModalShell } from "../components/AtlasModalFrame";
+import { PublishChangeSummary, STORE_FLEET_PUBLISH_SUCCESS } from "../storeRequestUi";
 import { STORE_IMAGE_PULL_POLICIES } from "../storeTypes";
 import type {
-  StoreChangeRequest,
-  StoreChangeRequestsResponse,
   StoreCreatePreview,
   StoreImagePullPolicy,
   StoreServiceToggle,
@@ -27,11 +26,6 @@ import type {
   StoreWorkerToggle,
   StoresListResponse,
 } from "../storeTypes";
-import {
-  STORE_REQUESTS_OPEN_EVENT,
-  type StoreRequestsOpenDetail,
-  type StoreRequestsPanelTab,
-} from "../storeRequestsNav";
 
 type StoresViewMode = "list" | "detail";
 
@@ -58,7 +52,7 @@ const inputClass =
 function distroLabel(d: string): string {
   if (d === "horustech") return "Horustech";
   if (d === "pam") return "PAM";
-  return d || "—";
+  return d || "â€”";
 }
 
 function workerGroupsFromStation(station: StoreDetail["station"]): StoreWorkerGroup[] {
@@ -116,12 +110,6 @@ const tagInputClass =
 
 const CLUSTERS_CACHE_MS = 60_000;
 
-const STORE_FLEET_PUBLISH_SUCCESS = {
-  title: "Configuración enviada",
-  message:
-    "Fleet aplicará los cambios en Rancher en breve. Espera unos minutos hasta que el equipo sincronice; puedes revisar el progreso en Equipos o Contenedores.",
-} as const;
-
 function gitChangeBadgeClass(status: string): string {
   if (status === "unmerged") return "bg-rose-950/60 text-rose-200 ring-rose-500/30";
   if (status === "deleted") return "bg-zinc-800 text-zinc-300 ring-zinc-600/40";
@@ -134,46 +122,10 @@ function cloneStoreDetail(d: StoreDetail): StoreDetail {
   return JSON.parse(JSON.stringify(d)) as StoreDetail;
 }
 
-type RequestsPanelTab = StoreRequestsPanelTab;
-
-type HistoryStatusFilter = "all" | "approved" | "rejected" | "cancelled";
-
-function requestStatusLabel(status: StoreChangeRequest["status"]): string {
-  switch (status) {
-    case "approved":
-      return "Aprobada";
-    case "rejected":
-      return "Rechazada";
-    case "cancelled":
-      return "Cancelada";
-    default:
-      return "Pendiente";
-  }
-}
-
-function requestStatusBadgeClass(status: StoreChangeRequest["status"]): string {
-  switch (status) {
-    case "approved":
-      return "bg-emerald-500/15 text-emerald-200 ring-emerald-500/30";
-    case "rejected":
-      return "bg-rose-500/15 text-rose-200 ring-rose-500/30";
-    case "cancelled":
-      return "bg-zinc-700/40 text-zinc-400 ring-zinc-600/40";
-    default:
-      return "bg-sky-500/15 text-sky-200 ring-sky-500/30";
-  }
-}
-
-function formatRequestWhen(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("es-PA");
-}
-
 function computeStoreChangeLines(baseline: StoreDetail, current: StoreDetail): string[] {
   const lines: string[] = [];
   if (baseline.id !== current.id) {
-    lines.push(`Código tienda: ${baseline.id} → ${current.id}`);
+    lines.push(`CÃ³digo tienda: ${baseline.id} â†’ ${current.id}`);
   }
   if (Boolean(baseline.db?.pgadminEnabled) !== Boolean(current.db?.pgadminEnabled)) {
     lines.push(`PgAdmin: ${current.db?.pgadminEnabled ? "activado" : "desactivado"}`);
@@ -181,27 +133,27 @@ function computeStoreChangeLines(baseline: StoreDetail, current: StoreDetail): s
   const basePolicy = baseline.station?.pullPolicy ?? "IfNotPresent";
   const curPolicy = current.station?.pullPolicy ?? "IfNotPresent";
   if (basePolicy !== curPolicy) {
-    lines.push(`Pull policy: ${basePolicy} → ${curPolicy}`);
+    lines.push(`Pull policy: ${basePolicy} â†’ ${curPolicy}`);
   }
   const baseConfig = (baseline.station?.config ?? {}) as Record<string, unknown>;
   const curConfig = (current.station?.config ?? {}) as Record<string, unknown>;
   for (const key of new Set([...Object.keys(baseConfig), ...Object.keys(curConfig)])) {
     const b = String(baseConfig[key] ?? "");
     const c = String(curConfig[key] ?? "");
-    if (b !== c) lines.push(`Config ${key}: ${b || "—"} → ${c || "—"}`);
+    if (b !== c) lines.push(`Config ${key}: ${b || "â€”"} â†’ ${c || "â€”"}`);
   }
   const baseSvc = new Map((baseline.station?.services ?? []).map((s) => [s.key, s]));
   for (const svc of current.station?.services ?? []) {
     const prev = baseSvc.get(svc.key);
     if (!prev) {
-      lines.push(`Servicio ${svc.key}: nuevo (${svc.enabled ? "on" : "off"}, tag ${svc.tag || "—"})`);
+      lines.push(`Servicio ${svc.key}: nuevo (${svc.enabled ? "on" : "off"}, tag ${svc.tag || "â€”"})`);
       continue;
     }
     if (prev.enabled !== svc.enabled) {
       lines.push(`Servicio ${svc.key}: ${svc.enabled ? "activado" : "desactivado"}`);
     }
     if (prev.tag !== svc.tag) {
-      lines.push(`Servicio ${svc.key} tag: ${prev.tag || "—"} → ${svc.tag || "—"}`);
+      lines.push(`Servicio ${svc.key} tag: ${prev.tag || "â€”"} â†’ ${svc.tag || "â€”"}`);
     }
   }
   const baseWrk = new Map(
@@ -215,25 +167,10 @@ function computeStoreChangeLines(baseline: StoreDetail, current: StoreDetail): s
       lines.push(`Proceso ${label}: ${wrk.enabled ? "activado" : "desactivado"}`);
     }
     if (prev.tag !== wrk.tag) {
-      lines.push(`Proceso ${label} tag: ${prev.tag || "—"} → ${wrk.tag || "—"}`);
+      lines.push(`Proceso ${label} tag: ${prev.tag || "â€”"} â†’ ${wrk.tag || "â€”"}`);
     }
   }
   return lines;
-}
-
-function PublishChangeSummary({ lines }: { lines: string[] }) {
-  return (
-    <div className="space-y-3">
-      <ul className="max-h-52 space-y-1.5 overflow-y-auto rounded-lg border border-cf-line/50 bg-black/25 px-3 py-2.5 text-xs text-zinc-300">
-        {lines.map((line) => (
-          <li key={line} className="leading-relaxed">
-            {line}
-          </li>
-        ))}
-      </ul>
-      <p className="text-[11px] text-zinc-500">{lines.length} cambio(s) respecto a la versión cargada.</p>
-    </div>
-  );
 }
 
 export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
@@ -289,27 +226,10 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const [discardConfirm, setDiscardConfirm] = useState<StoreGitDiscardMode | null>(null);
   const [discarding, setDiscarding] = useState(false);
   const [discardMsg, setDiscardMsg] = useState("");
-  const [publishMessage, setPublishMessage] = useState("Atlas: publicar cambios locales del caché");
+  const [publishMessage, setPublishMessage] = useState("Atlas: publicar cambios locales del cachÃ©");
   const [publishing, setPublishing] = useState(false);
 
-  const [changeRequests, setChangeRequests] = useState<StoreChangeRequest[]>([]);
-  const [requestsLoading, setRequestsLoading] = useState(false);
-  const [requestsModalOpen, setRequestsModalOpen] = useState(false);
-  const [requestsPanelTab, setRequestsPanelTab] = useState<RequestsPanelTab>("queue");
-  const [historyRequests, setHistoryRequests] = useState<StoreChangeRequest[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyStatusFilter, setHistoryStatusFilter] = useState<HistoryStatusFilter>("all");
-  const [historySearch, setHistorySearch] = useState("");
-  const [historySearchDebounced, setHistorySearchDebounced] = useState("");
   const [pendingFolders, setPendingFolders] = useState<string[]>([]);
-  const [approveConfirmId, setApproveConfirmId] = useState<number | null>(null);
-  const [approveDetailLines, setApproveDetailLines] = useState<string[]>([]);
-  const [approveDetailLoading, setApproveDetailLoading] = useState(false);
-  const [rejectRequestId, setRejectRequestId] = useState<number | null>(null);
-  const [requestDetailId, setRequestDetailId] = useState<number | null>(null);
-  const [requestDetail, setRequestDetail] = useState<StoreChangeRequest | null>(null);
-  const [requestDetailLoading, setRequestDetailLoading] = useState(false);
-  const [requestActionBusy, setRequestActionBusy] = useState(false);
 
   const clustersCacheRef = useRef<{ clusters: RancherCustomCluster[]; at: number } | null>(null);
 
@@ -325,11 +245,11 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     if (dbTpl?.source === "reference") {
       dbPath = `${dbTpl.templatePath} (referencia; falta ${dbTpl.primaryTemplatePath})`;
     } else if (dbTpl?.source === "builtin" || (dbTpl && !dbTpl.available)) {
-      dbPath = "plantilla mínima integrada (sin db en el repo)";
+      dbPath = "plantilla mÃ­nima integrada (sin db en el repo)";
     } else if (dbTpl?.available) {
       dbPath = dbTpl.templatePath;
     }
-    return `Se copiará ${stationPath} y ${dbPath}, sustituyendo <id-tienda> y <tag-imagen> (${newChannel}).`;
+    return `Se copiarÃ¡ ${stationPath} y ${dbPath}, sustituyendo <id-tienda> y <tag-imagen> (${newChannel}).`;
   }, [newDistro, newChannel, storeTemplates]);
 
   const publishChangeLines = useMemo(() => {
@@ -356,45 +276,6 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     }
   }, []);
 
-  const loadChangeRequests = useCallback(async () => {
-    if (!canEdit && !canApprove) return;
-    setRequestsLoading(true);
-    try {
-      const data = await api<StoreChangeRequestsResponse>(
-        "/api/atlas-stores/change-requests?status=pending&limit=50"
-      );
-      setChangeRequests(data.requests ?? []);
-    } catch {
-      setChangeRequests([]);
-    } finally {
-      setRequestsLoading(false);
-    }
-  }, [canEdit, canApprove]);
-
-  const loadHistoryRequests = useCallback(async () => {
-    if (!canEdit && !canApprove) return;
-    setHistoryLoading(true);
-    try {
-      const statusParam = historyStatusFilter === "all" ? "history" : historyStatusFilter;
-      const params = new URLSearchParams({ status: statusParam, limit: "100" });
-      if (historySearchDebounced.trim()) {
-        params.set("folder", historySearchDebounced.trim());
-      }
-      const data = await api<StoreChangeRequestsResponse>(
-        `/api/atlas-stores/change-requests?${params.toString()}`
-      );
-      setHistoryRequests(data.requests ?? []);
-    } catch {
-      setHistoryRequests([]);
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, [canEdit, canApprove, historyStatusFilter, historySearchDebounced]);
-
-  const refreshAllRequests = useCallback(async () => {
-    await Promise.all([loadChangeRequests(), loadHistoryRequests()]);
-  }, [loadChangeRequests, loadHistoryRequests]);
-
   const loadStores = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -409,17 +290,15 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       else setMessage("");
       if (data.configured !== false) {
         void loadGitStatus();
-        void loadChangeRequests();
       }
     } catch (e) {
       setStores([]);
       setError(e instanceof Error ? e.message : "No se pudieron cargar las tiendas.");
       void loadGitStatus();
-      void loadChangeRequests();
     } finally {
       setLoading(false);
     }
-  }, [loadGitStatus, loadChangeRequests]);
+  }, [loadGitStatus]);
 
   const resolveEquipmentForStore = useCallback(async (storeId: string) => {
     setEquipmentLoading(true);
@@ -474,84 +353,6 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   }, [loadStores]);
 
   useEffect(() => {
-    const t = window.setTimeout(() => setHistorySearchDebounced(historySearch), 300);
-    return () => window.clearTimeout(t);
-  }, [historySearch]);
-
-  useEffect(() => {
-    if (requestsModalOpen && requestsPanelTab === "history" && (canEdit || canApprove)) {
-      void loadHistoryRequests();
-    }
-  }, [requestsModalOpen, requestsPanelTab, loadHistoryRequests, canEdit, canApprove]);
-
-  useEffect(() => {
-    if (requestsModalOpen && requestsPanelTab === "queue" && (canEdit || canApprove)) {
-      void loadChangeRequests();
-    }
-  }, [requestsModalOpen, requestsPanelTab, loadChangeRequests, canEdit, canApprove]);
-
-  useEffect(() => {
-    if (approveConfirmId === null) {
-      setApproveDetailLines([]);
-      setApproveDetailLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setApproveDetailLoading(true);
-    void (async () => {
-      try {
-        const r = await api<{ ok: boolean; request: StoreChangeRequest }>(
-          `/api/atlas-stores/change-requests/${approveConfirmId}`
-        );
-        if (!cancelled) setApproveDetailLines(r.request.changeLines ?? []);
-      } catch {
-        if (!cancelled) setApproveDetailLines([]);
-      } finally {
-        if (!cancelled) setApproveDetailLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [approveConfirmId]);
-
-  async function openRequestDetail(requestId: number) {
-    setRequestDetailId(requestId);
-    setRequestDetail(null);
-    setRequestDetailLoading(true);
-    try {
-      const r = await api<{ ok: boolean; request: StoreChangeRequest }>(
-        `/api/atlas-stores/change-requests/${requestId}`
-      );
-      setRequestDetail(r.request);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo cargar el detalle de la solicitud.");
-      setRequestDetailId(null);
-    } finally {
-      setRequestDetailLoading(false);
-    }
-  }
-
-  function closeRequestDetail() {
-    setRequestDetailId(null);
-    setRequestDetail(null);
-  }
-
-  useEffect(() => {
-    const onOpenRequests = (ev: Event) => {
-      const detail = (ev as CustomEvent<StoreRequestsOpenDetail>).detail ?? {};
-      setViewMode("list");
-      if (detail.tab) setRequestsPanelTab(detail.tab);
-      setRequestsModalOpen(true);
-      if (detail.requestId != null) {
-        window.setTimeout(() => void openRequestDetail(detail.requestId!), 0);
-      }
-    };
-    window.addEventListener(STORE_REQUESTS_OPEN_EVENT, onOpenRequests);
-    return () => window.removeEventListener(STORE_REQUESTS_OPEN_EVENT, onOpenRequests);
-  }, []);
-
-  useEffect(() => {
     if (!canAdmin || !settingsOpen) return;
     void (async () => {
       try {
@@ -589,7 +390,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       setSettingsOpen(false);
       await loadStores();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al guardar conexión.");
+      setError(err instanceof Error ? err.message : "Error al guardar conexiÃ³n.");
     } finally {
       setCfgSaving(false);
     }
@@ -616,10 +417,10 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         setCfgToken("");
       }
       const r = await api<{ message: string }>("/api/atlas-stores/settings/test", { method: "POST" });
-      setCfgTestMsg(r.message ?? "Conexión correcta.");
+      setCfgTestMsg(r.message ?? "ConexiÃ³n correcta.");
     } catch (e) {
       setCfgTestMsg("");
-      setError(e instanceof Error ? e.message : "Error al probar la conexión Git.");
+      setError(e instanceof Error ? e.message : "Error al probar la conexiÃ³n Git.");
     } finally {
       setCfgTesting(false);
     }
@@ -666,7 +467,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   }
 
   const gitErrorHint = useMemo(
-    () => Boolean(error && /merge|conflicto|repositorio local|cach[eé] git|needs merge/i.test(error)),
+    () => Boolean(error && /merge|conflicto|repositorio local|cach[eÃ©] git|needs merge/i.test(error)),
     [error]
   );
 
@@ -677,11 +478,11 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const discardConfirmCopy = useMemo(() => {
     if (discardConfirm === "remote") {
       return {
-        title: "Usar versión remota",
+        title: "Usar versiÃ³n remota",
         message: (
           <>
-            Se descartarán todos los cambios locales del caché Git y se restaurará la rama{" "}
-            <strong className="text-zinc-300">{gitStatus?.branch ?? "remota"}</strong> desde el servidor. Esta acción
+            Se descartarÃ¡n todos los cambios locales del cachÃ© Git y se restaurarÃ¡ la rama{" "}
+            <strong className="text-zinc-300">{gitStatus?.branch ?? "remota"}</strong> desde el servidor. Esta acciÃ³n
             no se puede deshacer.
           </>
         ),
@@ -692,13 +493,13 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       return {
         title: "Descartar cambios locales",
         message:
-          "Se eliminarán los cambios sin publicar en el caché Git de Atlas. Los commits ya publicados en el remoto no se tocan.",
+          "Se eliminarÃ¡n los cambios sin publicar en el cachÃ© Git de Atlas. Los commits ya publicados en el remoto no se tocan.",
         confirmLabel: "Descartar",
       };
     }
     return {
-      title: "Abortar operación Git",
-      message: "Se cancelará el merge, rebase o cherry-pick en curso. Puede que sigan quedando archivos modificados.",
+      title: "Abortar operaciÃ³n Git",
+      message: "Se cancelarÃ¡ el merge, rebase o cherry-pick en curso. Puede que sigan quedando archivos modificados.",
       confirmLabel: "Abortar",
     };
   }, [discardConfirm, gitStatus?.branch]);
@@ -725,7 +526,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
             services: detail.station?.services,
             workers: flattenWorkerGroups(workerGroupsFromStation(detail.station)),
           },
-          commit_message: `Atlas: configuración tienda ${detail.id}`,
+          commit_message: `Atlas: configuraciÃ³n tienda ${detail.id}`,
         }),
       });
       setPublishConfirmOpen(false);
@@ -736,7 +537,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
             r.message ??
             "Un administrador debe aprobar los cambios antes de que Fleet los aplique en el equipo.",
         });
-        await refreshAllRequests();
+        pulseAtlasNotifications();
         await loadStores();
         if (r.store) {
           setDetail(r.store);
@@ -756,7 +557,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       setPublishConfirmOpen(false);
       setPublishResultAlert({
         title: "No se pudo publicar",
-        message: e instanceof Error ? e.message : "Error al guardar la configuración.",
+        message: e instanceof Error ? e.message : "Error al guardar la configuraciÃ³n.",
       });
     } finally {
       setSaving(false);
@@ -766,63 +567,6 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   function cancelPublishConfirm() {
     if (detailBaseline) setDetail(cloneStoreDetail(detailBaseline));
     setPublishConfirmOpen(false);
-  }
-
-  async function onApproveRequest(requestId: number) {
-    setRequestActionBusy(true);
-    try {
-      await api<{ publishMessage?: string; message?: string }>(
-        `/api/atlas-stores/change-requests/${requestId}/approve`,
-        { method: "POST", body: JSON.stringify({ review_note: "" }) }
-      );
-      setApproveConfirmId(null);
-      setPublishResultAlert({
-        title: STORE_FLEET_PUBLISH_SUCCESS.title,
-        message: STORE_FLEET_PUBLISH_SUCCESS.message,
-      });
-      await refreshAllRequests();
-      await loadStores();
-    } catch (e) {
-      setApproveConfirmId(null);
-      setPublishResultAlert({
-        title: "No se pudo aprobar",
-        message: e instanceof Error ? e.message : "Error al aprobar la solicitud.",
-      });
-    } finally {
-      setRequestActionBusy(false);
-    }
-  }
-
-  async function onRejectRequest(requestId: number, note: string) {
-    setRequestActionBusy(true);
-    try {
-      await api(`/api/atlas-stores/change-requests/${requestId}/reject`, {
-        method: "POST",
-        body: JSON.stringify({ review_note: note }),
-      });
-      setSaveMsg("Solicitud rechazada.");
-      setRejectRequestId(null);
-      await refreshAllRequests();
-      await loadStores();
-    } catch (e) {
-      setSaveMsg(e instanceof Error ? e.message : "No se pudo rechazar.");
-    } finally {
-      setRequestActionBusy(false);
-    }
-  }
-
-  async function onCancelRequest(requestId: number) {
-    setRequestActionBusy(true);
-    try {
-      await api(`/api/atlas-stores/change-requests/${requestId}`, { method: "DELETE" });
-      setSaveMsg("Solicitud cancelada.");
-      await refreshAllRequests();
-      await loadStores();
-    } catch (e) {
-      setSaveMsg(e instanceof Error ? e.message : "No se pudo cancelar.");
-    } finally {
-      setRequestActionBusy(false);
-    }
   }
 
   const resolveNewStoreId = useCallback(
@@ -854,8 +598,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         setEquipmentCheck(null);
         setCreateError(
           anyStore
-            ? `Hay un equipo para «${sid}», pero con otra distribución. Ajusta etiquetas en Equipos o cambia la distribución aquí.`
-            : `No hay equipo en Rancher con tienda «${sid}». Créalo primero en Equipos con etiqueta store.`
+            ? `Hay un equipo para Â«${sid}Â», pero con otra distribuciÃ³n. Ajusta etiquetas en Equipos o cambia la distribuciÃ³n aquÃ­.`
+            : `No hay equipo en Rancher con tienda Â«${sid}Â». CrÃ©alo primero en Equipos con etiqueta store.`
         );
         return null;
       }
@@ -903,7 +647,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     if (!canEdit) return;
     const sid = resolveNewStoreId();
     if (!sid) {
-      setCreateError("Indica el código de tienda.");
+      setCreateError("Indica el cÃ³digo de tienda.");
       return;
     }
     const eq = equipmentCheck ?? (await checkEquipmentForNewStore());
@@ -953,13 +697,13 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       });
       resetCreateModal();
       if (r.pendingApproval) {
-        setSaveMsg(r.message ?? "Solicitud enviada para aprobación.");
-        await refreshAllRequests();
+        setSaveMsg(r.message ?? "Solicitud enviada para aprobaciÃ³n.");
+        pulseAtlasNotifications();
         await loadStores();
         return;
       }
       setSaveMsg(
-        "Tienda registrada. Fleet desplegará la configuración en Rancher; espera unos minutos hasta que el equipo sincronice."
+        "Tienda registrada. Fleet desplegarÃ¡ la configuraciÃ³n en Rancher; espera unos minutos hasta que el equipo sincronice."
       );
       await loadStores();
       if (r.store) await loadDetail(r.store.folderName);
@@ -1045,10 +789,10 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         <>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-100">Gestión de Tiendas</h1>
+          <h1 className="text-lg font-semibold text-zinc-100">GestiÃ³n de Tiendas</h1>
           <p className="text-xs text-zinc-500">
-            Configura qué software se despliega en cada tienda. Al publicar, se actualiza el repositorio y el
-            despliegue automático lo aplica en el equipo.
+            Configura quÃ© software se despliega en cada tienda. Al publicar, se actualiza el repositorio y el
+            despliegue automÃ¡tico lo aplica en el equipo.
           </p>
           <p className="mt-1 text-[11px] text-zinc-600">
             Haz clic en una tienda para abrir su ficha y gestionar servicios, tags y despliegue.
@@ -1062,7 +806,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               onClick={() => setSettingsOpen((v) => !v)}
               className="rounded-lg border border-cf-line bg-cf-panel px-3 py-1.5 text-xs text-zinc-300"
             >
-              {settingsOpen ? "Cerrar conexión" : "Conexión repositorio"}
+              {settingsOpen ? "Cerrar conexiÃ³n" : "ConexiÃ³n repositorio"}
             </button>
           ) : null}
           {canEdit ? (
@@ -1117,7 +861,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 value={cfgUsername}
                 onChange={(e) => setCfgUsername(e.target.value)}
                 className={inputClass}
-                placeholder="Azure DevOps: vacío o cualquier texto"
+                placeholder="Azure DevOps: vacÃ­o o cualquier texto"
                 autoComplete="username"
               />
             </label>
@@ -1128,7 +872,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 value={cfgToken}
                 onChange={(e) => setCfgToken(e.target.value)}
                 className={inputClass}
-                placeholder={cfgAuthConfigured ? "Dejar vacío para no cambiar el token guardado" : "Personal Access Token con lectura y escritura en el repo"}
+                placeholder={cfgAuthConfigured ? "Dejar vacÃ­o para no cambiar el token guardado" : "Personal Access Token con lectura y escritura en el repo"}
                 autoComplete="new-password"
               />
             </label>
@@ -1141,14 +885,14 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   : "bg-amber-950/40 text-amber-100 ring-amber-500/30"
               }`}
             >
-              {cfgAuthConfigured ? "Token configurado" : "Sin token — no podrás publicar en repos privados"}
+              {cfgAuthConfigured ? "Token configurado" : "Sin token â€” no podrÃ¡s publicar en repos privados"}
             </span>
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-            Atlas sincroniza el repositorio automáticamente al cargar Tiendas (como Rancher y Cloudflare). Al crear
+            Atlas sincroniza el repositorio automÃ¡ticamente al cargar Tiendas (como Rancher y Cloudflare). Al crear
             o guardar una tienda se publica en la rama configurada. Necesitas un{" "}
             <strong className="font-medium text-zinc-400">PAT</strong> con permiso de lectura/escritura en el repo.
-            En <strong className="font-medium text-zinc-400">Azure DevOps</strong> créalo en User settings → Personal
+            En <strong className="font-medium text-zinc-400">Azure DevOps</strong> crÃ©alo en User settings â†’ Personal
             access tokens (Code: Read &amp; write). En GitHub usa un fine-grained token con acceso al repo.
           </p>
           {cfgTestMsg ? <p className="mt-2 text-xs text-emerald-300">{cfgTestMsg}</p> : null}
@@ -1160,10 +904,10 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-800 px-4 py-2 text-xs font-medium text-zinc-200 ring-1 ring-zinc-600 hover:bg-zinc-700 disabled:opacity-50"
             >
               {cfgTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              Probar conexión Git
+              Probar conexiÃ³n Git
             </button>
             <button type="submit" disabled={cfgSaving} className="rounded-lg bg-cf-orange px-4 py-2 text-xs font-medium text-black disabled:opacity-50">
-              {cfgSaving ? "Guardando…" : "Guardar conexión"}
+              {cfgSaving ? "Guardandoâ€¦" : "Guardar conexiÃ³n"}
             </button>
           </div>
         </form>
@@ -1193,8 +937,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               </div>
               <p className="mt-1 text-xs leading-relaxed text-zinc-400">
                 {gitStatus?.blocked || gitErrorHint
-                  ? "El caché Git de Atlas quedó con conflictos (p. ej. tras sincronizar). Restaura la versión remota para volver a operar con normalidad."
-                  : "Hay cambios locales sin publicar en el caché Git. Puedes publicarlos al remoto o descartarlos."}
+                  ? "El cachÃ© Git de Atlas quedÃ³ con conflictos (p. ej. tras sincronizar). Restaura la versiÃ³n remota para volver a operar con normalidad."
+                  : "Hay cambios locales sin publicar en el cachÃ© Git. Puedes publicarlos al remoto o descartarlos."}
               </p>
               {error && (gitStatus?.blocked || gitErrorHint) ? (
                 <p className="mt-1 text-[11px] text-rose-200/80">{error}</p>
@@ -1212,7 +956,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     onClick={() => setDiscardConfirm("abort")}
                     className="rounded-lg border border-cf-line bg-cf-panel px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
                   >
-                    Abortar operación
+                    Abortar operaciÃ³n
                   </button>
                 ) : null}
                 {!gitStatus?.blocked && !gitErrorHint && gitStatus?.canPublish ? (
@@ -1242,7 +986,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   className="inline-flex items-center gap-1 rounded-lg bg-cf-orange px-3 py-1.5 text-xs font-medium text-black hover:brightness-110 disabled:opacity-50"
                 >
                   {discarding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                  Usar versión remota
+                  Usar versiÃ³n remota
                 </button>
               </div>
             ) : null}
@@ -1255,7 +999,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 value={publishMessage}
                 onChange={(e) => setPublishMessage(e.target.value)}
                 className={inputClass}
-                placeholder="Atlas: publicar cambios locales del caché"
+                placeholder="Atlas: publicar cambios locales del cachÃ©"
               />
             </label>
           ) : null}
@@ -1263,7 +1007,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
           {gitStatusLoading ? (
             <div className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Leyendo estado Git…
+              Leyendo estado Gitâ€¦
             </div>
           ) : gitStatus?.changes?.length ? (
             <ul className="mt-3 max-h-44 space-y-1 overflow-y-auto rounded-lg border border-white/[0.06] bg-black/25 p-2">
@@ -1303,7 +1047,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
 
       <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90">
           {loading ? (
-            <AtlasLoadingSplash message="Cargando tiendas…" minHeight="min-h-[280px]" />
+            <AtlasLoadingSplash message="Cargando tiendasâ€¦" minHeight="min-h-[280px]" />
           ) : sortedStores.length === 0 ? (
             <div className="p-10 text-center text-sm text-zinc-500">
               <Store className="mx-auto mb-2 h-8 w-8 text-zinc-600" />
@@ -1314,8 +1058,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               <thead>
                 <tr className="border-b border-cf-line/50 text-xs uppercase text-zinc-500">
                   <th className="px-4 py-3">Tienda</th>
-                  <th className="px-4 py-3">Distribución</th>
-                  <th className="px-4 py-3">Tag (versión)</th>
+                  <th className="px-4 py-3">DistribuciÃ³n</th>
+                  <th className="px-4 py-3">Tag (versiÃ³n)</th>
                   <th className="hidden px-4 py-3 text-right sm:table-cell" aria-hidden />
                 </tr>
               </thead>
@@ -1339,7 +1083,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     </td>
                     <td className="px-4 py-3 text-zinc-400">{distroLabel(s.distro)}</td>
                     <td className="px-4 py-3 text-zinc-500" title="Resumen; cada servicio puede tener otro tag en la ficha">
-                      {s.imageChannel || "—"}
+                      {s.imageChannel || "â€”"}
                     </td>
                     <td className="hidden px-4 py-3 text-right sm:table-cell">
                       <span className="inline-flex items-center gap-1 rounded-lg border border-transparent px-2 py-1 text-xs text-zinc-500 transition-colors group-hover:border-cf-orange/30 group-hover:bg-cf-orange/10 group-hover:text-cf-orange">
@@ -1370,7 +1114,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 <h1 className="truncate text-lg font-semibold text-zinc-100">{detail?.id ?? selectedFolder}</h1>
                 {detail ? (
                   <p className="truncate text-xs text-zinc-500">
-                    {detail.folderName} · {distroLabel(detail.distro)} · {detail.stacks.join(", ")}
+                    {detail.folderName} Â· {distroLabel(detail.distro)} Â· {detail.stacks.join(", ")}
                   </p>
                 ) : null}
               </div>
@@ -1383,14 +1127,14 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-cf-orange px-3 py-1.5 text-xs font-medium text-black disabled:opacity-50"
               >
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                {canApprove ? "Publicar cambios" : "Enviar para aprobación"}
+                {canApprove ? "Publicar cambios" : "Enviar para aprobaciÃ³n"}
               </button>
             ) : null}
           </div>
 
           <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90">
           {detailLoading || !detail ? (
-            <AtlasLoadingSplash message={`Cargando ficha de ${selectedFolder ?? "tienda"}…`} />
+            <AtlasLoadingSplash message={`Cargando ficha de ${selectedFolder ?? "tienda"}â€¦`} />
           ) : (
             <div className="flex flex-col gap-5 p-4 sm:p-6">
               <section>
@@ -1398,19 +1142,19 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 {equipmentLoading ? (
                   <p className="mt-1 inline-flex items-center gap-2 text-sm text-zinc-500">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                    Buscando equipo en Rancher…
+                    Buscando equipo en Rancherâ€¦
                   </p>
                 ) : equipment ? (
                   <p className="mt-1 text-sm text-zinc-300">
                     <Server className="mr-1 inline h-3.5 w-3.5" />
-                    {equipment.displayName || equipment.name} —{" "}
+                    {equipment.displayName || equipment.name} â€”{" "}
                     <span className={equipment.state?.toLowerCase().includes("ready") ? "text-emerald-400" : "text-zinc-400"}>
                       {equipment.state}
                     </span>
                   </p>
                 ) : (
                   <p className="mt-1 text-sm text-amber-400/90">
-                    No hay equipo en Rancher con código de tienda «{detail.id}». Revisa etiquetas en Equipos.
+                    No hay equipo en Rancher con cÃ³digo de tienda Â«{detail.id}Â». Revisa etiquetas en Equipos.
                   </p>
                 )}
                 <p className="mt-1 text-[11px] text-zinc-600">
@@ -1423,7 +1167,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 <h3 className="text-xs font-medium uppercase text-zinc-500">General</h3>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <label className="text-xs text-zinc-500">
-                    Código de tienda
+                    CÃ³digo de tienda
                     <input
                       value={detail.id}
                       onChange={(e) => setDetail({ ...detail, id: e.target.value })}
@@ -1436,7 +1180,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     <p className="mt-0.5 text-[11px] text-zinc-600">
                       Cada servicio y proceso tiene su propio tag (p. ej.{" "}
                       <span className="text-zinc-400">stable</span>,{" "}
-                      <span className="text-zinc-400">unstable</span>). Edítalos en las tablas de abajo. La pull
+                      <span className="text-zinc-400">unstable</span>). EdÃ­talos en las tablas de abajo. La pull
                       policy es la clave global{" "}
                       <span className="text-zinc-400">values.pullPolicy</span> del fleet.yaml (junto a{" "}
                       <span className="text-zinc-400">nameOverride</span>).
@@ -1493,7 +1237,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       <div>
                         <h3 className="text-xs font-medium uppercase text-zinc-500">Software desplegado</h3>
                         <p className="mt-0.5 text-[11px] text-zinc-600">
-                          Busca en servicios de estación, iERP y procesos generales.
+                          Busca en servicios de estaciÃ³n, iERP y procesos generales.
                         </p>
                       </div>
                       <label className="relative block w-full sm:max-w-xs">
@@ -1502,14 +1246,14 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                           type="search"
                           value={serviceFilter}
                           onChange={(e) => setServiceFilter(e.target.value)}
-                          placeholder="Buscar servicio o proceso…"
+                          placeholder="Buscar servicio o procesoâ€¦"
                           className="w-full rounded-lg border border-cf-line bg-black/40 py-1.5 pl-8 pr-3 text-xs text-zinc-100 outline-none focus:border-cf-orange/50"
                         />
                       </label>
                     </div>
                     {filterQ && filteredSoftwareCount === 0 ? (
                       <p className="mt-3 rounded-lg border border-cf-line/40 bg-black/20 px-3 py-4 text-center text-xs text-zinc-500">
-                        Ningún servicio o proceso coincide con «{serviceFilter.trim()}».
+                        NingÃºn servicio o proceso coincide con Â«{serviceFilter.trim()}Â».
                       </p>
                     ) : null}
                     {filterQ && filteredSoftwareCount > 0 ? (
@@ -1522,14 +1266,14 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   {detail.station?.services?.length &&
                   (!filterQ || filteredServices.length > 0) ? (
                     <section>
-                      <h3 className="text-xs font-medium uppercase text-zinc-500">Servicios de estación</h3>
+                      <h3 className="text-xs font-medium uppercase text-zinc-500">Servicios de estaciÃ³n</h3>
                       <div className="mt-2 max-h-72 overflow-y-auto rounded border border-cf-line/40">
                         <table className="w-full text-left text-xs">
                           <thead className="sticky top-0 bg-[#111418] text-[10px] uppercase text-zinc-600">
                             <tr>
                               <th className="w-8 px-2 py-1.5" />
                               <th className="px-2 py-1.5">Servicio</th>
-                              <th className="px-2 py-1.5">Tag (versión)</th>
+                              <th className="px-2 py-1.5">Tag (versiÃ³n)</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1574,7 +1318,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                           <h3 className="text-xs font-medium uppercase text-zinc-500">{group.label}</h3>
                           {group.id === "ierp" ? (
                             <p className="mt-0.5 text-[11px] text-zinc-600">
-                              Integración iERP: cada fila es un proceso de sincronización.
+                              IntegraciÃ³n iERP: cada fila es un proceso de sincronizaciÃ³n.
                             </p>
                           ) : null}
                         </div>
@@ -1594,7 +1338,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                             <tr>
                               <th className="w-8 px-2 py-1.5" />
                               <th className="px-2 py-1.5">Proceso</th>
-                              <th className="px-2 py-1.5">Tag (versión)</th>
+                              <th className="px-2 py-1.5">Tag (versiÃ³n)</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1659,7 +1403,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
 
               {detail.station?.config && Object.keys(detail.station.config).length > 0 ? (
                 <section>
-                  <h3 className="text-xs font-medium uppercase text-zinc-500">Conexión on-prem</h3>
+                  <h3 className="text-xs font-medium uppercase text-zinc-500">ConexiÃ³n on-prem</h3>
                   <div className="mt-2 grid gap-2">
                     {Object.entries(detail.station.config as Record<string, unknown>)
                       .filter(([, v]) => typeof v === "string" || typeof v === "number")
@@ -1693,18 +1437,18 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
 
       <AtlasConfirmDialog
         open={publishConfirmOpen}
-        title={canApprove ? "Publicar cambios" : "Enviar para aprobación"}
+        title={canApprove ? "Publicar cambios" : "Enviar para aprobaciÃ³n"}
         message={
           <>
             {detailHasChanges ? (
               <p>
                 {canApprove
-                  ? "Revisa el resumen antes de enviar la configuración a Fleet (Rancher)."
-                  : "Revisa el resumen antes de enviar la solicitud. Un administrador deberá aprobarla para que Fleet aplique los cambios."}
+                  ? "Revisa el resumen antes de enviar la configuraciÃ³n a Fleet (Rancher)."
+                  : "Revisa el resumen antes de enviar la solicitud. Un administrador deberÃ¡ aprobarla para que Fleet aplique los cambios."}
               </p>
             ) : (
               <p className="text-amber-200/90">
-                No hay cambios respecto a la versión cargada del servidor. Edita la ficha antes de publicar.
+                No hay cambios respecto a la versiÃ³n cargada del servidor. Edita la ficha antes de publicar.
               </p>
             )}
             {detailHasChanges ? (
@@ -1714,7 +1458,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
             ) : null}
             {detailHasChanges ? (
               <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
-                Cancelar descarta los cambios locales y restaura la configuración cargada del servidor.
+                Cancelar descarta los cambios locales y restaura la configuraciÃ³n cargada del servidor.
               </p>
             ) : null}
           </>
@@ -1733,416 +1477,6 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         message={publishResultAlert?.message ?? ""}
         onClose={() => setPublishResultAlert(null)}
       />
-
-      <AtlasModalFrame
-        open={requestsModalOpen && (canApprove || canEdit)}
-        zIndexClass="z-[140]"
-        onBackdropClick={requestActionBusy ? undefined : () => setRequestsModalOpen(false)}
-        panelClassName="flex max-h-[min(90vh,880px)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.06]"
-      >
-        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-cf-line/50 px-5 py-4">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-100">Solicitudes de cambio</h2>
-            <p className="mt-0.5 text-xs text-zinc-500">
-              {canApprove
-                ? "Aprueba o rechaza cambios propuestos por operadores."
-                : "Consulta el estado de tus solicitudes enviadas."}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setRequestsModalOpen(false)}
-            disabled={requestActionBusy}
-            aria-label="Cerrar"
-            className="rounded-lg p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-50"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="inline-flex rounded-lg bg-black/40 p-1 ring-1 ring-white/[0.06]">
-              <button
-                type="button"
-                onClick={() => setRequestsPanelTab("queue")}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                  requestsPanelTab === "queue"
-                    ? "bg-sky-500/20 text-sky-100 ring-1 ring-sky-500/30"
-                    : "text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                <Clock className="h-3.5 w-3.5" aria-hidden />
-                {canApprove ? "Cola pendiente" : "Mis pendientes"}
-                {changeRequests.length > 0 ? (
-                  <span className="rounded-full bg-sky-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-sky-100">
-                    {changeRequests.length}
-                  </span>
-                ) : null}
-              </button>
-              <button
-                type="button"
-                onClick={() => setRequestsPanelTab("history")}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                  requestsPanelTab === "history"
-                    ? "bg-cf-orange/15 text-cf-orange ring-1 ring-cf-orange/30"
-                    : "text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                <History className="h-3.5 w-3.5" aria-hidden />
-                Historial
-              </button>
-            </div>
-            {requestsPanelTab === "history" ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="relative min-w-[10rem] flex-1 sm:max-w-xs">
-                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
-                  <input
-                    type="search"
-                    value={historySearch}
-                    onChange={(e) => setHistorySearch(e.target.value)}
-                    placeholder="Buscar carpeta tienda…"
-                    className="w-full rounded-lg border border-cf-line bg-black/40 py-1.5 pl-8 pr-2 text-xs text-zinc-100 outline-none focus:border-cf-orange/50"
-                  />
-                </div>
-                <button
-                  type="button"
-                  disabled={historyLoading}
-                  onClick={() => void loadHistoryRequests()}
-                  className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${historyLoading ? "animate-spin" : ""}`} />
-                  Actualizar
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          {requestsPanelTab === "queue" ? (
-            <>
-              <p className="mt-3 text-xs text-zinc-500">
-                {canApprove
-                  ? "Los operadores proponen cambios aquí. Aprueba para aplicar la configuración en Fleet (Rancher)."
-                  : "Tus cambios quedan en espera hasta que un administrador los apruebe."}
-              </p>
-              {requestsLoading ? (
-                <div className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Cargando solicitudes…
-                </div>
-              ) : changeRequests.length === 0 ? (
-                <p className="mt-3 text-xs text-zinc-500">No hay solicitudes pendientes.</p>
-              ) : (
-                <ul className="mt-3 space-y-2">
-                  {changeRequests.map((req) => (
-                    <li
-                      key={req.id}
-                      className="flex flex-col gap-2 rounded-lg border border-white/[0.06] bg-black/25 p-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-zinc-200">
-                          #{req.id} · {req.kind === "create" ? "Nueva tienda" : "Actualización"} · {req.storeId}
-                        </p>
-                        <p className="mt-0.5 text-xs text-zinc-400">{req.summary}</p>
-                        <p className="mt-1 text-[11px] text-zinc-600">
-                          {req.createdByUsername} · {formatRequestWhen(req.createdAt)}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-wrap gap-2">
-                        <button
-                          type="button"
-                          disabled={requestActionBusy}
-                          onClick={() => void openRequestDetail(req.id)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          Ver detalle
-                        </button>
-                        {canApprove ? (
-                          <>
-                            <button
-                              type="button"
-                              disabled={requestActionBusy}
-                              onClick={() => setApproveConfirmId(req.id)}
-                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-600/90 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-                            >
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              Aprobar
-                            </button>
-                            <button
-                              type="button"
-                              disabled={requestActionBusy}
-                              onClick={() => setRejectRequestId(req.id)}
-                              className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
-                            >
-                              Rechazar
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={requestActionBusy}
-                            onClick={() => void onCancelRequest(req.id)}
-                            className="rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
-                          >
-                            Cancelar
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          ) : (
-            <>
-              <p className="mt-3 text-xs text-zinc-500">
-                {canApprove
-                  ? "Historial de solicitudes de todas las tiendas. Solo lectura."
-                  : "Historial de tus solicitudes enviadas."}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {(
-                  [
-                    ["all", "Todas"],
-                    ["approved", "Aprobadas"],
-                    ["rejected", "Rechazadas"],
-                    ["cancelled", "Canceladas"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setHistoryStatusFilter(key)}
-                    className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
-                      historyStatusFilter === key
-                        ? "bg-zinc-700 text-zinc-100"
-                        : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {historyLoading ? (
-                <div className="mt-4 flex items-center gap-2 text-xs text-zinc-500">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Cargando historial…
-                </div>
-              ) : historyRequests.length === 0 ? (
-                <p className="mt-4 text-xs text-zinc-500">No hay solicitudes en este filtro.</p>
-              ) : (
-                <div className="mt-3 overflow-x-auto rounded-lg border border-white/[0.06]">
-                  <table className="w-full min-w-[640px] text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-white/[0.06] text-[10px] uppercase tracking-wide text-zinc-500">
-                        <th className="px-3 py-2 font-medium">#</th>
-                        <th className="px-3 py-2 font-medium">Tienda</th>
-                        <th className="px-3 py-2 font-medium">Resumen</th>
-                        <th className="px-3 py-2 font-medium">Estado</th>
-                        {canApprove ? <th className="px-3 py-2 font-medium">Solicitante</th> : null}
-                        <th className="px-3 py-2 font-medium">Enviada</th>
-                        <th className="px-3 py-2 font-medium">Revisada por</th>
-                        <th className="px-3 py-2 font-medium">Fecha revisión</th>
-                        <th className="px-3 py-2 font-medium text-right">Detalle</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/[0.04]">
-                      {historyRequests.map((req) => (
-                        <tr key={req.id} className="bg-black/20 hover:bg-black/30">
-                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">{req.id}</td>
-                          <td className="whitespace-nowrap px-3 py-2.5 font-medium text-zinc-200">{req.storeId}</td>
-                          <td className="max-w-[14rem] truncate px-3 py-2.5 text-zinc-400" title={req.summary}>
-                            {req.summary}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2.5">
-                            <span
-                              className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1 ${requestStatusBadgeClass(req.status)}`}
-                            >
-                              {requestStatusLabel(req.status)}
-                            </span>
-                          </td>
-                          {canApprove ? (
-                            <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">{req.createdByUsername}</td>
-                          ) : null}
-                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">{formatRequestWhen(req.createdAt)}</td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">
-                            {req.reviewedByUsername ?? "—"}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">
-                            {formatRequestWhen(req.reviewedAt)}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-right">
-                            <button
-                              type="button"
-                              onClick={() => void openRequestDetail(req.id)}
-                              className="inline-flex items-center gap-1 rounded-md border border-cf-line px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800"
-                            >
-                              <Eye className="h-3 w-3" />
-                              Ver
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </AtlasModalFrame>
-
-      <AtlasConfirmDialog
-        open={approveConfirmId !== null}
-        title="Aprobar y publicar"
-        message={
-          <>
-            <p>Se aplicará la configuración en el equipo vía Fleet (Rancher). La sincronización puede tardar unos minutos.</p>
-            {approveDetailLoading ? (
-              <p className="mt-3 inline-flex items-center gap-2 text-xs text-zinc-500">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Cargando detalle del cambio…
-              </p>
-            ) : approveDetailLines.length > 0 ? (
-              <div className="mt-3">
-                <PublishChangeSummary lines={approveDetailLines} />
-              </div>
-            ) : (
-              <p className="mt-3 text-xs text-zinc-500">No hay líneas de detalle disponibles para esta solicitud.</p>
-            )}
-          </>
-        }
-        confirmLabel="Aprobar y publicar"
-        cancelLabel="Cancelar"
-        busy={requestActionBusy}
-        onConfirm={() => approveConfirmId !== null && void onApproveRequest(approveConfirmId)}
-        onCancel={() => setApproveConfirmId(null)}
-      />
-
-      <AtlasPromptDialog
-        open={rejectRequestId !== null}
-        title="Rechazar solicitud"
-        message="Indica el motivo para el operador."
-        label="Motivo"
-        confirmLabel="Rechazar"
-        cancelLabel="Cancelar"
-        onConfirm={(note) => rejectRequestId !== null && void onRejectRequest(rejectRequestId, note)}
-        onCancel={() => setRejectRequestId(null)}
-      />
-
-      <AnimatePresence>
-        {requestDetailId !== null ? (
-          <AtlasModalShell
-            zIndexClass="z-[160]"
-            onBackdropClick={requestDetailLoading ? undefined : closeRequestDetail}
-            panelClassName="w-full max-w-lg rounded-2xl border border-cf-line bg-[#111418] p-5 shadow-2xl ring-1 ring-white/[0.06]"
-          >
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="text-sm font-semibold text-zinc-100">Detalle de la solicitud</h2>
-                {requestDetail ? (
-                  <p className="mt-1 text-xs text-zinc-500">
-                    #{requestDetail.id} · {requestDetail.kind === "create" ? "Nueva tienda" : "Actualización"} ·{" "}
-                    {requestDetail.storeId}
-                  </p>
-                ) : null}
-              </div>
-              <button type="button" onClick={closeRequestDetail} aria-label="Cerrar" disabled={requestDetailLoading}>
-                <X className="h-4 w-4 text-zinc-500" />
-              </button>
-            </div>
-            {requestDetailLoading ? (
-              <div className="flex items-center justify-center gap-2 py-10 text-sm text-zinc-500">
-                <Loader2 className="h-4 w-4 animate-spin text-cf-orange" />
-                Cargando detalle…
-              </div>
-            ) : requestDetail ? (
-              <div className="space-y-4 text-xs">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1 ${requestStatusBadgeClass(requestDetail.status)}`}
-                  >
-                    {requestStatusLabel(requestDetail.status)}
-                  </span>
-                  <span className="text-zinc-500">
-                    {requestDetail.kind === "create" ? "Nueva tienda" : "Actualización"} · {requestDetail.folderName}
-                  </span>
-                </div>
-                <dl className="grid gap-2 rounded-lg border border-cf-line/50 bg-black/25 px-3 py-2.5 text-zinc-400">
-                  <div>
-                    <dt className="text-zinc-600">Resumen</dt>
-                    <dd className="text-zinc-300">{requestDetail.summary}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-zinc-600">Solicitante</dt>
-                    <dd className="text-zinc-300">
-                      {requestDetail.createdByUsername} · {formatRequestWhen(requestDetail.createdAt)}
-                    </dd>
-                  </div>
-                  {requestDetail.reviewedByUsername ? (
-                    <div>
-                      <dt className="text-zinc-600">Revisión</dt>
-                      <dd className="text-zinc-300">
-                        {requestDetail.reviewedByUsername} · {formatRequestWhen(requestDetail.reviewedAt)}
-                      </dd>
-                    </div>
-                  ) : null}
-                  {requestDetail.reviewNote ? (
-                    <div>
-                      <dt className="text-zinc-600">Motivo / nota</dt>
-                      <dd className="text-zinc-300">{requestDetail.reviewNote}</dd>
-                    </div>
-                  ) : null}
-                  {requestDetail.commitMessage ? (
-                    <div>
-                      <dt className="text-zinc-600">Mensaje Git</dt>
-                      <dd className="font-mono text-[11px] text-zinc-300">{requestDetail.commitMessage}</dd>
-                    </div>
-                  ) : null}
-                </dl>
-                {(requestDetail.changeLines?.length ?? 0) > 0 ? (
-                  <div>
-                    <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                      Cambios propuestos
-                    </p>
-                    <PublishChangeSummary lines={requestDetail.changeLines ?? []} />
-                  </div>
-                ) : (
-                  <p className="text-zinc-500">No hay detalle granular disponible para esta solicitud.</p>
-                )}
-                {canApprove && requestDetail.status === "pending" ? (
-                  <div className="flex flex-wrap justify-end gap-2 border-t border-cf-line/40 pt-4">
-                    <button
-                      type="button"
-                      disabled={requestActionBusy}
-                      onClick={() => {
-                        closeRequestDetail();
-                        setRejectRequestId(requestDetail.id);
-                      }}
-                      className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
-                    >
-                      Rechazar
-                    </button>
-                    <button
-                      type="button"
-                      disabled={requestActionBusy}
-                      onClick={() => {
-                        closeRequestDetail();
-                        setApproveConfirmId(requestDetail.id);
-                      }}
-                      className="inline-flex items-center gap-1 rounded-lg bg-emerald-600/90 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
-                    >
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      Aprobar
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </AtlasModalShell>
-        ) : null}
-      </AnimatePresence>
 
       <AnimatePresence>
         {createOpen ? (
@@ -2164,7 +1498,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               <form onSubmit={(e) => void onReviewCreate(e)}>
                 <div className="grid gap-3">
                   <label className="text-xs text-zinc-500">
-                    Tienda (código / etiqueta store)
+                    Tienda (cÃ³digo / etiqueta store)
                     <input
                       value={newStoreId}
                       onChange={(e) => setNewStoreId(e.target.value)}
@@ -2179,11 +1513,11 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       value={newFolder}
                       onChange={(e) => setNewFolder(e.target.value)}
                       className={inputClass}
-                      placeholder="Igual que tienda si vacío"
+                      placeholder="Igual que tienda si vacÃ­o"
                     />
                   </label>
                   <label className="text-xs text-zinc-500">
-                    Distribución
+                    DistribuciÃ³n
                     <select
                       value={newDistro}
                       onChange={(e) => setNewDistro(e.target.value as "horustech" | "pam")}
@@ -2194,7 +1528,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     </select>
                   </label>
                   <label className="text-xs text-zinc-500">
-                    Tag (versión)
+                    Tag (versiÃ³n)
                     <select value={newChannel} onChange={(e) => setNewChannel(e.target.value)} className={inputClass}>
                       <option value="stable">stable</option>
                       <option value="unstable">unstable</option>
@@ -2205,7 +1539,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 {equipmentChecking ? (
                   <p className="mt-3 flex items-center gap-2 text-xs text-zinc-500">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Comprobando equipo en Rancher…
+                    Comprobando equipo en Rancherâ€¦
                   </p>
                 ) : equipmentCheck ? (
                   <p className="mt-3 text-xs text-emerald-400/90">
@@ -2219,7 +1553,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   disabled={!equipmentCheck || equipmentChecking || createPreviewLoading}
                   className="mt-4 w-full rounded-lg bg-cf-orange py-2 text-xs font-medium text-black disabled:opacity-50"
                 >
-                  {createPreviewLoading ? "Generando resumen…" : "Ver resumen"}
+                  {createPreviewLoading ? "Generando resumenâ€¦" : "Ver resumen"}
                 </button>
               </form>
             ) : createPreview ? (
@@ -2236,11 +1570,11 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       <dd className="text-zinc-200">{createPreview.folderName}</dd>
                     </div>
                     <div>
-                      <dt className="text-zinc-500">Distribución</dt>
+                      <dt className="text-zinc-500">DistribuciÃ³n</dt>
                       <dd className="text-zinc-200">{distroLabel(createPreview.distro)}</dd>
                     </div>
                     <div>
-                      <dt className="text-zinc-500">Tag imágenes</dt>
+                      <dt className="text-zinc-500">Tag imÃ¡genes</dt>
                       <dd className="text-zinc-200">{createPreview.imageChannel}</dd>
                     </div>
                     <div className="sm:col-span-2">
@@ -2268,13 +1602,13 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 </section>
 
                 <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
-                  <p className="font-medium text-zinc-300">Archivos que se subirán al repositorio</p>
+                  <p className="font-medium text-zinc-300">Archivos que se subirÃ¡n al repositorio</p>
                   <ul className="mt-2 space-y-2">
                     {createPreview.files.map((f) => (
                       <li key={f.path} className="rounded border border-cf-line/40 bg-black/20 px-2 py-1.5">
                         <p className="font-mono text-[11px] text-zinc-200">{f.path}</p>
                         <p className="text-zinc-500">
-                          Plantilla: {f.sourceTemplate} · chart {f.chart} {f.chartVersion}
+                          Plantilla: {f.sourceTemplate} Â· chart {f.chart} {f.chartVersion}
                         </p>
                       </li>
                     ))}
@@ -2284,13 +1618,13 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
                   <p className="font-medium text-zinc-300">Base de datos</p>
                   <p className="mt-1 text-zinc-400">
-                    DB {createPreview.db.database || "poslite"} ·{" "}
+                    DB {createPreview.db.database || "poslite"} Â·{" "}
                     {createPreview.db.persistenceEnabled ? "persistencia on" : "sin persistencia"}
                   </p>
                 </section>
 
                 <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
-                  <p className="font-medium text-zinc-300">Estación ({distroLabel(createPreview.distro)})</p>
+                  <p className="font-medium text-zinc-300">EstaciÃ³n ({distroLabel(createPreview.distro)})</p>
                   <p className="mt-1 text-zinc-400">
                     Servicios activos:{" "}
                     {(createPreview.station.services ?? []).filter((s) => s.enabled).length} /{" "}
@@ -2299,8 +1633,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   <ul className="mt-2 max-h-32 overflow-y-auto space-y-0.5 text-zinc-500">
                     {(createPreview.station.services ?? []).map((s) => (
                       <li key={s.key}>
-                        {s.enabled ? "✓" : "○"} {s.key} · tag {s.tag}
-                        {s.hostPort != null ? ` · puerto ${s.hostPort}` : ""}
+                        {s.enabled ? "âœ“" : "â—‹"} {s.key} Â· tag {s.tag}
+                        {s.hostPort != null ? ` Â· puerto ${s.hostPort}` : ""}
                       </li>
                     ))}
                   </ul>
@@ -2310,7 +1644,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       <ul className="mt-0.5 space-y-0.5 text-zinc-500">
                         {g.workers.map((w) => (
                           <li key={w.key}>
-                            {w.enabled ? "✓" : "○"} {workerDisplayName(w.key, g.id)} · {w.tag}
+                            {w.enabled ? "âœ“" : "â—‹"} {workerDisplayName(w.key, g.id)} Â· {w.tag}
                           </li>
                         ))}
                       </ul>
@@ -2358,10 +1692,10 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     className="flex-1 rounded-lg bg-cf-orange py-2 text-xs font-medium text-black disabled:opacity-50"
                   >
                     {createPublishing
-                      ? "Enviando…"
+                      ? "Enviandoâ€¦"
                       : canApprove
                         ? "Confirmar y publicar en Git"
-                        : "Enviar solicitud de creación"}
+                        : "Enviar solicitud de creaciÃ³n"}
                   </button>
                 </div>
               </div>

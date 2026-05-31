@@ -34,6 +34,7 @@ export type AtlasRouteId =
   | "poslite"
   | "cf"
   | "rancher-stores"
+  | "rancher-store-requests"
   | "rancher-clusters"
   | "rancher-pods"
   | "users"
@@ -47,8 +48,6 @@ export function isAtlasVpnRoute(route: AtlasRouteId): boolean {
   return (ATLAS_VPN_ROUTE_IDS as readonly AtlasRouteId[]).includes(route);
 }
 
-export type AtlasNavAction = "open-store-requests";
-
 export type AtlasNavLeaf = {
   kind: "leaf";
   id: string;
@@ -59,8 +58,6 @@ export type AtlasNavLeaf = {
   adminOnly?: boolean;
   /** Visible pero deshabilitado (próximamente) */
   comingSoon?: boolean;
-  /** Abre un modal u otra UI en lugar de marcar la ruta como activa */
-  navAction?: AtlasNavAction;
 };
 
 export type AtlasNavGroup = {
@@ -69,7 +66,9 @@ export type AtlasNavGroup = {
   label: string;
   icon: LucideIcon;
   defaultOpen?: boolean;
-  children: AtlasNavLeaf[];
+  /** Si está definida, el encabezado del grupo navega a esta ruta. */
+  route?: AtlasRouteId;
+  children: AtlasNavEntry[];
 };
 
 export type AtlasNavEntry = AtlasNavLeaf | AtlasNavGroup;
@@ -89,6 +88,49 @@ export function buildAtlasNav(user: AuthUser): AtlasNavEntry[] {
       : []),
   ];
 
+  const rancherChildren: AtlasNavEntry[] = [];
+
+  if (canStoresRead) {
+    const tiendasChildren: AtlasNavLeaf[] = canStoresRequests
+      ? [
+          {
+            kind: "leaf",
+            id: "rancher-store-requests",
+            route: "rancher-store-requests",
+            label: "Solicitudes",
+            icon: Clock,
+          },
+        ]
+      : [];
+
+    rancherChildren.push({
+      kind: "group",
+      id: "rancher-tiendas",
+      label: "Tiendas",
+      icon: Store,
+      route: "rancher-stores",
+      defaultOpen: true,
+      children: tiendasChildren,
+    });
+  }
+
+  rancherChildren.push(
+    {
+      kind: "leaf",
+      id: "rancher-clusters",
+      route: "rancher-clusters",
+      label: "Equipos",
+      icon: Server,
+    },
+    {
+      kind: "leaf",
+      id: "rancher-pods",
+      route: "rancher-pods",
+      label: "Contenedores",
+      icon: Box,
+    }
+  );
+
   const entries: AtlasNavEntry[] = [
     { kind: "leaf", id: "home", route: "home", label: "Inicio", icon: Home },
     {
@@ -105,45 +147,7 @@ export function buildAtlasNav(user: AuthUser): AtlasNavEntry[] {
       label: "Atlas Rancher",
       icon: Server,
       defaultOpen: true,
-      children: [
-        ...(canStoresRead
-          ? ([
-              {
-                kind: "leaf",
-                id: "rancher-stores",
-                route: "rancher-stores",
-                label: "Tiendas",
-                icon: Store,
-              },
-            ] satisfies AtlasNavLeaf[])
-          : []),
-        ...(canStoresRequests
-          ? ([
-              {
-                kind: "leaf",
-                id: "rancher-store-requests",
-                route: "rancher-stores",
-                label: "Solicitudes",
-                icon: Clock,
-                navAction: "open-store-requests",
-              },
-            ] satisfies AtlasNavLeaf[])
-          : []),
-        {
-          kind: "leaf",
-          id: "rancher-clusters",
-          route: "rancher-clusters",
-          label: "Equipos",
-          icon: Server,
-        },
-        {
-          kind: "leaf",
-          id: "rancher-pods",
-          route: "rancher-pods",
-          label: "Contenedores",
-          icon: Box,
-        },
-      ],
+      children: rancherChildren,
     },
   ];
 
@@ -196,6 +200,11 @@ export function routeMeta(route: AtlasRouteId): { title: string; breadcrumb: str
       return { title: "Cloudflare", breadcrumb: ["Atlas", "Atlas VPN", "Cloudflare"] };
     case "rancher-stores":
       return { title: "Gestión de Tiendas", breadcrumb: ["Atlas", "Atlas Rancher", "Tiendas"] };
+    case "rancher-store-requests":
+      return {
+        title: "Solicitudes de cambio",
+        breadcrumb: ["Atlas", "Atlas Rancher", "Tiendas", "Solicitudes"],
+      };
     case "rancher-clusters":
       return { title: "Equipos", breadcrumb: ["Atlas", "Atlas Rancher", "Equipos"] };
     case "rancher-pods":
@@ -215,12 +224,22 @@ export function flattenNavRoutes(entries: AtlasNavEntry[]): AtlasNavLeaf[] {
   const out: AtlasNavLeaf[] = [];
   for (const e of entries) {
     if (e.kind === "leaf") out.push(e);
-    else out.push(...e.children);
+    else out.push(...flattenNavRoutes(e.children));
   }
   return out;
 }
 
 export function isNavLeafActive(leaf: AtlasNavLeaf, route: AtlasRouteId): boolean {
-  if (leaf.comingSoon || leaf.navAction) return false;
+  if (leaf.comingSoon) return false;
   return leaf.route === route;
+}
+
+export function isNavGroupActive(group: AtlasNavGroup, route: AtlasRouteId): boolean {
+  if (group.route === route) return true;
+  return group.children.some((c) => isNavEntryActive(c, route));
+}
+
+export function isNavEntryActive(entry: AtlasNavEntry, route: AtlasRouteId): boolean {
+  if (entry.kind === "leaf") return isNavLeafActive(entry, route);
+  return isNavGroupActive(entry, route);
 }

@@ -58,6 +58,7 @@ import { rememberTiendaForContainers } from "./rancherContainersNav";
 import { AtlasHomeView } from "./views/AtlasHomeView";
 import { AtlasRancherClustersView } from "./views/AtlasRancherClustersView";
 import { AtlasRancherPodsView } from "./views/AtlasRancherPodsView";
+import { AtlasStoreRequestsView } from "./views/AtlasStoreRequestsView";
 import { AtlasStoresView } from "./views/AtlasStoresView";
 import { AtlasRolesView } from "./views/AtlasRolesView";
 import { AtlasUsersView } from "./views/AtlasUsersView";
@@ -725,6 +726,15 @@ export default function App() {
         {tab === "rancher-stores" && !canStoresRead && (
           <div className="mx-auto max-w-lg rounded-xl border border-cf-line/80 bg-cf-panel/80 p-6 text-center text-sm text-zinc-400">
             No tienes permiso para ver Gestión de Tiendas.
+          </div>
+        )}
+
+        {tab === "rancher-store-requests" && (canStoresWrite || canStoresApprove) && (
+          <AtlasStoreRequestsView canEdit={canStoresWrite} canApprove={canStoresApprove} />
+        )}
+        {tab === "rancher-store-requests" && !canStoresWrite && !canStoresApprove && (
+          <div className="mx-auto max-w-lg rounded-xl border border-cf-line/80 bg-cf-panel/80 p-6 text-center text-sm text-zinc-400">
+            No tienes permiso para ver solicitudes de tiendas.
           </div>
         )}
 

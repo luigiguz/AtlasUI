@@ -14,9 +14,10 @@ import { api } from "../apiClient";
 import type { AtlasRouteId } from "../atlasNav";
 import type { NotificationItem, NotificationsResponse, NotificationSeverity } from "../notificationTypes";
 import {
+  focusStoreRequestsView,
   isStoreRequestsNotification,
-  openStoreRequestsModal,
   requestIdFromNotification,
+  STORE_REQUESTS_ROUTE,
   storeRequestsTabFromNotification,
 } from "../storeRequestsNav";
 
@@ -77,6 +78,7 @@ function isAtlasRoute(route: string): route is AtlasRouteId {
     "poslite",
     "cf",
     "rancher-stores",
+    "rancher-store-requests",
     "rancher-clusters",
     "rancher-pods",
     "users",
@@ -212,16 +214,16 @@ export function AtlasNotifications({ onNavigate, buttonClassName }: Props): Reac
 
   const onPick = (item: NotificationItem) => {
     if (!item.read) void markRead([item.id]);
-    if (isAtlasRoute(item.route)) {
+    if (isStoreRequestsNotification(item)) {
+      onNavigate(STORE_REQUESTS_ROUTE);
+      window.setTimeout(() => {
+        focusStoreRequestsView({
+          tab: storeRequestsTabFromNotification(item),
+          requestId: requestIdFromNotification(item),
+        });
+      }, 0);
+    } else if (isAtlasRoute(item.route)) {
       onNavigate(item.route);
-      if (isStoreRequestsNotification(item)) {
-        window.setTimeout(() => {
-          openStoreRequestsModal({
-            tab: storeRequestsTabFromNotification(item),
-            requestId: requestIdFromNotification(item),
-          });
-        }, 0);
-      }
     }
     setOpen(false);
   };
