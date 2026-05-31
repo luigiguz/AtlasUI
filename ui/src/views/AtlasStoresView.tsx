@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock, GitBranch, Loader2, Plus, RefreshCw, Save, Search, Server, Store, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock, Eye, GitBranch, Loader2, Plus, RefreshCw, Save, Search, Server, Store, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { api } from "../apiClient";
@@ -255,7 +255,12 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [pendingFolders, setPendingFolders] = useState<string[]>([]);
   const [approveConfirmId, setApproveConfirmId] = useState<number | null>(null);
+  const [approveDetailLines, setApproveDetailLines] = useState<string[]>([]);
+  const [approveDetailLoading, setApproveDetailLoading] = useState(false);
   const [rejectRequestId, setRejectRequestId] = useState<number | null>(null);
+  const [requestDetailId, setRequestDetailId] = useState<number | null>(null);
+  const [requestDetail, setRequestDetail] = useState<StoreChangeRequest | null>(null);
+  const [requestDetailLoading, setRequestDetailLoading] = useState(false);
   const [requestActionBusy, setRequestActionBusy] = useState(false);
 
   const clustersCacheRef = useRef<{ clusters: RancherCustomCluster[]; at: number } | null>(null);
@@ -395,6 +400,53 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   useEffect(() => {
     void loadStores();
   }, [loadStores]);
+
+  useEffect(() => {
+    if (approveConfirmId === null) {
+      setApproveDetailLines([]);
+      setApproveDetailLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setApproveDetailLoading(true);
+    void (async () => {
+      try {
+        const r = await api<{ ok: boolean; request: StoreChangeRequest }>(
+          `/api/atlas-stores/change-requests/${approveConfirmId}`
+        );
+        if (!cancelled) setApproveDetailLines(r.request.changeLines ?? []);
+      } catch {
+        if (!cancelled) setApproveDetailLines([]);
+      } finally {
+        if (!cancelled) setApproveDetailLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [approveConfirmId]);
+
+  async function openRequestDetail(requestId: number) {
+    setRequestDetailId(requestId);
+    setRequestDetail(null);
+    setRequestDetailLoading(true);
+    try {
+      const r = await api<{ ok: boolean; request: StoreChangeRequest }>(
+        `/api/atlas-stores/change-requests/${requestId}`
+      );
+      setRequestDetail(r.request);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo cargar el detalle de la solicitud.");
+      setRequestDetailId(null);
+    } finally {
+      setRequestDetailLoading(false);
+    }
+  }
+
+  function closeRequestDetail() {
+    setRequestDetailId(null);
+    setRequestDetail(null);
+  }
 
   useEffect(() => {
     if (!canAdmin || !settingsOpen) return;
@@ -620,12 +672,19 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         `/api/atlas-stores/change-requests/${requestId}/approve`,
         { method: "POST", body: JSON.stringify({ review_note: "" }) }
       );
-      setSaveMsg(STORE_FLEET_PUBLISH_SUCCESS.message);
       setApproveConfirmId(null);
+      setPublishResultAlert({
+        title: STORE_FLEET_PUBLISH_SUCCESS.title,
+        message: STORE_FLEET_PUBLISH_SUCCESS.message,
+      });
       await loadChangeRequests();
       await loadStores();
     } catch (e) {
-      setSaveMsg(e instanceof Error ? e.message : "No se pudo aprobar.");
+      setApproveConfirmId(null);
+      setPublishResultAlert({
+        title: "No se pudo aprobar",
+        message: e instanceof Error ? e.message : "Error al aprobar la solicitud.",
+      });
     } finally {
       setRequestActionBusy(false);
     }
@@ -1147,7 +1206,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
           </div>
           <p className="mt-1 text-xs text-zinc-500">
             {canApprove
-              ? "Los operadores proponen cambios aquí. Aprueba para publicar en Git (basta un administrador)."
+              ? "Los operadores proponen cambios aquí. Aprueba para aplicar la configuración en Fleet (Rancher)."
               : "Tus cambios quedan en espera hasta que un administrador los apruebe."}
           </p>
           {requestsLoading ? (
@@ -1174,6 +1233,15 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     <p className="mt-0.5 truncate text-[11px] text-zinc-600">{req.commitMessage}</p>
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={requestActionBusy}
+                      onClick={() => void openRequestDetail(req.id)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      Ver detalle
+                    </button>
                     {canApprove ? (
                       <>
                         <button
@@ -1215,7 +1283,23 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       <AtlasConfirmDialog
         open={approveConfirmId !== null}
         title="Aprobar y publicar"
-        message="Se aplicará la configuración en el equipo vía Fleet (Rancher). La sincronización puede tardar unos minutos."
+        message={
+          <>
+            <p>Se aplicará la configuración en el equipo vía Fleet (Rancher). La sincronización puede tardar unos minutos.</p>
+            {approveDetailLoading ? (
+              <p className="mt-3 inline-flex items-center gap-2 text-xs text-zinc-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Cargando detalle del cambio…
+              </p>
+            ) : approveDetailLines.length > 0 ? (
+              <div className="mt-3">
+                <PublishChangeSummary lines={approveDetailLines} />
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-zinc-500">No hay líneas de detalle disponibles para esta solicitud.</p>
+            )}
+          </>
+        }
         confirmLabel="Aprobar y publicar"
         cancelLabel="Cancelar"
         busy={requestActionBusy}
@@ -1669,6 +1753,97 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         message={publishResultAlert?.message ?? ""}
         onClose={() => setPublishResultAlert(null)}
       />
+
+      <AnimatePresence>
+        {requestDetailId !== null ? (
+          <AtlasModalShell
+            onBackdropClick={requestDetailLoading ? undefined : closeRequestDetail}
+            panelClassName="w-full max-w-lg rounded-2xl border border-cf-line bg-[#111418] p-5 shadow-2xl ring-1 ring-white/[0.06]"
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold text-zinc-100">Detalle de la solicitud</h2>
+                {requestDetail ? (
+                  <p className="mt-1 text-xs text-zinc-500">
+                    #{requestDetail.id} · {requestDetail.kind === "create" ? "Nueva tienda" : "Actualización"} ·{" "}
+                    {requestDetail.storeId}
+                  </p>
+                ) : null}
+              </div>
+              <button type="button" onClick={closeRequestDetail} aria-label="Cerrar" disabled={requestDetailLoading}>
+                <X className="h-4 w-4 text-zinc-500" />
+              </button>
+            </div>
+            {requestDetailLoading ? (
+              <div className="flex items-center justify-center gap-2 py-10 text-sm text-zinc-500">
+                <Loader2 className="h-4 w-4 animate-spin text-cf-orange" />
+                Cargando detalle…
+              </div>
+            ) : requestDetail ? (
+              <div className="space-y-4 text-xs">
+                <dl className="grid gap-2 rounded-lg border border-cf-line/50 bg-black/25 px-3 py-2.5 text-zinc-400">
+                  <div>
+                    <dt className="text-zinc-600">Resumen</dt>
+                    <dd className="text-zinc-300">{requestDetail.summary}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-zinc-600">Solicitante</dt>
+                    <dd className="text-zinc-300">
+                      {requestDetail.createdByUsername}
+                      {requestDetail.createdAt
+                        ? ` · ${new Date(requestDetail.createdAt).toLocaleString("es-PA")}`
+                        : ""}
+                    </dd>
+                  </div>
+                  {requestDetail.commitMessage ? (
+                    <div>
+                      <dt className="text-zinc-600">Mensaje</dt>
+                      <dd className="font-mono text-[11px] text-zinc-300">{requestDetail.commitMessage}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+                {(requestDetail.changeLines?.length ?? 0) > 0 ? (
+                  <div>
+                    <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                      Cambios propuestos
+                    </p>
+                    <PublishChangeSummary lines={requestDetail.changeLines ?? []} />
+                  </div>
+                ) : (
+                  <p className="text-zinc-500">No hay detalle granular disponible para esta solicitud.</p>
+                )}
+                {canApprove ? (
+                  <div className="flex flex-wrap justify-end gap-2 border-t border-cf-line/40 pt-4">
+                    <button
+                      type="button"
+                      disabled={requestActionBusy}
+                      onClick={() => {
+                        closeRequestDetail();
+                        setRejectRequestId(requestDetail.id);
+                      }}
+                      className="rounded-lg border border-rose-500/40 px-3 py-1.5 text-xs text-rose-200 hover:bg-rose-500/10 disabled:opacity-50"
+                    >
+                      Rechazar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={requestActionBusy}
+                      onClick={() => {
+                        closeRequestDetail();
+                        setApproveConfirmId(requestDetail.id);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-lg bg-emerald-600/90 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Aprobar
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </AtlasModalShell>
+        ) : null}
+      </AnimatePresence>
 
       <AnimatePresence>
         {createOpen ? (

@@ -13,7 +13,7 @@ from atlas_core.notifications import notify_user
 from atlas_stores.equipment import EquipmentNotFoundError, RancherNotConfiguredError, find_equipment_for_store
 from atlas_stores.git_repo import StoresRepoError, git_commit_and_push, resolve_repo_root
 from atlas_stores.settings_store import load_stores_settings
-from atlas_stores.yaml_store import create_store, save_store
+from atlas_stores.yaml_store import create_store, load_store, save_store
 
 STATUS_PENDING = "pending"
 STATUS_APPROVED = "approved"
@@ -68,6 +68,129 @@ def _summarize_create(body: dict[str, Any]) -> str:
     distro = str(body.get("distro") or "").strip().lower()
     folder = str(body.get("folder_name") or store_id).strip()
     return f"Nueva tienda {store_id} ({distro or '?'}) en {folder}"
+
+
+def _flatten_workers(station: dict[str, Any]) -> list[dict[str, Any]]:
+    workers = station.get("workers")
+    if isinstance(workers, list) and workers:
+        return [w for w in workers if isinstance(w, dict)]
+    grouped = station.get("workerGroups")
+    if isinstance(grouped, dict):
+        groups = grouped.get("groups")
+        if isinstance(groups, list):
+            flat: list[dict[str, Any]] = []
+            for group in groups:
+                if isinstance(group, dict):
+                    items = group.get("workers")
+                    if isinstance(items, list):
+                        flat.extend(w for w in items if isinstance(w, dict))
+            return flat
+    return []
+
+
+def _merge_store_with_patch(current: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    proposed = {**current}
+    if patch.get("id"):
+        proposed["id"] = patch["id"]
+    if patch.get("distro"):
+        proposed["distro"] = patch["distro"]
+    if isinstance(patch.get("db"), dict):
+        proposed["db"] = {**(current.get("db") or {}), **patch["db"]}
+    station_patch = patch.get("station")
+    if isinstance(station_patch, dict):
+        station = dict(current.get("station") or {})
+        for key in ("pullPolicy", "config", "stack"):
+            if key in station_patch and station_patch[key] is not None:
+                station[key] = station_patch[key]
+        if isinstance(station_patch.get("services"), list):
+            station["services"] = station_patch["services"]
+        if isinstance(station_patch.get("workers"), list):
+            station["workers"] = station_patch["workers"]
+        proposed["station"] = station
+    return proposed
+
+
+def _compare_store_snapshots(baseline: dict[str, Any], proposed: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    if baseline.get("id") != proposed.get("id"):
+        lines.append(f"Código tienda: {baseline.get('id')} → {proposed.get('id')}")
+    base_db = baseline.get("db") or {}
+    cur_db = proposed.get("db") or {}
+    if bool(base_db.get("pgadminEnabled")) != bool(cur_db.get("pgadminEnabled")):
+        lines.append(f"PgAdmin: {'activado' if cur_db.get('pgadminEnabled') else 'desactivado'}")
+    base_station = baseline.get("station") or {}
+    cur_station = proposed.get("station") or {}
+    base_policy = base_station.get("pullPolicy") or "IfNotPresent"
+    cur_policy = cur_station.get("pullPolicy") or "IfNotPresent"
+    if base_policy != cur_policy:
+        lines.append(f"Pull policy: {base_policy} → {cur_policy}")
+    base_config = base_station.get("config") or {}
+    cur_config = cur_station.get("config") or {}
+    if isinstance(base_config, dict) and isinstance(cur_config, dict):
+        for key in sorted(set(base_config.keys()) | set(cur_config.keys())):
+            b = str(base_config.get(key) or "")
+            c = str(cur_config.get(key) or "")
+            if b != c:
+                lines.append(f"Config {key}: {b or '—'} → {c or '—'}")
+    base_svc = {s.get("key"): s for s in (base_station.get("services") or []) if isinstance(s, dict) and s.get("key")}
+    for svc in cur_station.get("services") or []:
+        if not isinstance(svc, dict):
+            continue
+        key = svc.get("key")
+        if not key:
+            continue
+        prev = base_svc.get(key)
+        if not prev:
+            lines.append(
+                f"Servicio {key}: nuevo ({'on' if svc.get('enabled') else 'off'}, tag {svc.get('tag') or '—'})"
+            )
+            continue
+        if prev.get("enabled") != svc.get("enabled"):
+            lines.append(f"Servicio {key}: {'activado' if svc.get('enabled') else 'desactivado'}")
+        if prev.get("tag") != svc.get("tag"):
+            lines.append(f"Servicio {key} tag: {prev.get('tag') or '—'} → {svc.get('tag') or '—'}")
+    base_wrk = {w.get("key"): w for w in _flatten_workers(base_station) if w.get("key")}
+    for wrk in _flatten_workers(cur_station):
+        key = wrk.get("key")
+        if not key:
+            continue
+        prev = base_wrk.get(key)
+        if not prev:
+            continue
+        label = key[5:] if str(key).startswith("ierp.") else str(key)
+        if prev.get("enabled") != wrk.get("enabled"):
+            lines.append(f"Proceso {label}: {'activado' if wrk.get('enabled') else 'desactivado'}")
+        if prev.get("tag") != wrk.get("tag"):
+            lines.append(f"Proceso {label} tag: {prev.get('tag') or '—'} → {wrk.get('tag') or '—'}")
+    return lines
+
+
+def _create_request_lines(payload: dict[str, Any], store_id: str) -> list[str]:
+    folder = str(payload.get("folder_name") or store_id).strip()
+    distro = str(payload.get("distro") or "—").strip().lower() or "—"
+    channel = str(payload.get("image_channel") or payload.get("imageChannel") or "stable").strip()
+    return [
+        f"Nueva tienda: {store_id}",
+        f"Carpeta en repo: {folder}",
+        f"Distribución: {distro}",
+        f"Tag imágenes: {channel}",
+    ]
+
+
+def change_request_detail_lines(row: StoreChangeRequest) -> list[str]:
+    payload = row.payload if isinstance(row.payload, dict) else {}
+    if row.kind == KIND_CREATE:
+        return _create_request_lines(payload, str(row.store_id))
+    if row.kind != KIND_UPDATE:
+        return []
+    try:
+        settings = load_stores_settings()
+        root = resolve_repo_root(settings, pull=False)
+        current = load_store(root, row.folder_name)
+        proposed = _merge_store_with_patch(current, payload)
+        return _compare_store_snapshots(current, proposed)
+    except Exception:
+        return []
 
 
 def _row_dict(row: StoreChangeRequest, *, include_payload: bool = False) -> dict[str, Any]:
@@ -200,7 +323,9 @@ def get_change_request(
             raise ChangeRequestError("Solicitud no encontrada.")
         if not can_approve and int(row.created_by_user_id) != _user_id(user):
             raise ChangeRequestError("No tienes permiso para ver esta solicitud.")
-        return _row_dict(row, include_payload=True)
+        out = _row_dict(row, include_payload=True)
+        out["changeLines"] = change_request_detail_lines(row)
+        return out
 
 
 def cancel_change_request(request_id: int, user: dict[str, Any]) -> dict[str, Any]:
@@ -220,28 +345,31 @@ def cancel_change_request(request_id: int, user: dict[str, Any]) -> dict[str, An
 
 
 def _apply_and_publish(
-    row: StoreChangeRequest,
     *,
+    kind: str,
+    folder_name: str,
+    store_id: str,
+    payload: dict[str, Any],
+    commit_message: str,
     actor_suffix: str,
 ) -> tuple[dict[str, Any], str]:
     settings = load_stores_settings()
     root = resolve_repo_root(settings, pull=False)
-    payload = row.payload if isinstance(row.payload, dict) else {}
-    msg_base = (row.commit_message or "Atlas: cambio en tienda").strip()
+    msg_base = (commit_message or "Atlas: cambio en tienda").strip()
 
-    if row.kind == KIND_CREATE:
-        store_id = str(payload.get("store_id") or row.store_id).strip()
+    if kind == KIND_CREATE:
+        sid = str(payload.get("store_id") or store_id).strip()
         distro = str(payload.get("distro") or "").strip().lower()
-        find_equipment_for_store(store_id, distro=distro)
+        find_equipment_for_store(sid, distro=distro)
         store = create_store(
             root,
-            folder_name=str(payload.get("folder_name") or row.folder_name).strip(),
-            store_id=store_id,
+            folder_name=str(payload.get("folder_name") or folder_name).strip(),
+            store_id=sid,
             distro=distro,
             image_channel=str(payload.get("image_channel") or "stable").strip() or "stable",
         )
     else:
-        store = save_store(root, row.folder_name, payload)
+        store = save_store(root, folder_name, payload)
 
     git_msg = git_commit_and_push(settings, message=f"{msg_base}{actor_suffix}")
     safe = {k: v for k, v in store.items() if not str(k).startswith("_")}
@@ -261,9 +389,21 @@ def approve_change_request(
             raise ChangeRequestError("Solicitud no encontrada.")
         if row.status != STATUS_PENDING:
             raise ChangeRequestError("La solicitud ya fue procesada.")
+        kind = str(row.kind)
+        folder_name = str(row.folder_name)
+        store_id = str(row.store_id)
+        payload = dict(row.payload) if isinstance(row.payload, dict) else {}
+        commit_message = str(row.commit_message or "")
 
     try:
-        store, git_msg = _apply_and_publish(row, actor_suffix=actor_suffix)
+        store, git_msg = _apply_and_publish(
+            kind=kind,
+            folder_name=folder_name,
+            store_id=store_id,
+            payload=payload,
+            commit_message=commit_message,
+            actor_suffix=actor_suffix,
+        )
     except RancherNotConfiguredError as e:
         raise ChangeRequestError(str(e)) from e
     except EquipmentNotFoundError as e:

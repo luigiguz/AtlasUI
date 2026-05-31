@@ -87,6 +87,7 @@ export type StoreChangeRequest = {
   reviewedAt?: string | null;
   reviewNote?: string | null;
   payload?: Record<string, unknown>;
+  changeLines?: string[];
 };
 
 export type StoreChangeRequestsResponse = {
