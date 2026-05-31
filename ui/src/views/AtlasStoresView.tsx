@@ -103,24 +103,6 @@ function disableAllIerpWorkers(detail: StoreDetail): StoreDetail {
   };
 }
 
-function applyTagToAllComponents(detail: StoreDetail, tag: string): StoreDetail {
-  if (!detail.station) return { ...detail, imageChannel: tag };
-  const groups = workerGroupsFromStation(detail.station).map((g) => ({
-    ...g,
-    workers: g.workers.map((w) => ({ ...w, tag })),
-  }));
-  return {
-    ...detail,
-    imageChannel: tag,
-    station: {
-      ...detail.station,
-      services: (detail.station.services ?? []).map((s) => ({ ...s, tag })),
-      workerGroups: { groups },
-      workers: flattenWorkerGroups(groups),
-    },
-  };
-}
-
 const tagInputClass =
   "w-28 min-w-0 rounded border border-cf-line bg-black/50 px-1.5 py-0.5 text-[11px] text-zinc-200 outline-none focus:border-cf-orange/50";
 
@@ -164,7 +146,6 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const [newFolder, setNewFolder] = useState("");
   const [newStoreId, setNewStoreId] = useState("");
   const [newDistro, setNewDistro] = useState<"horustech" | "pam">("horustech");
-  const [bulkTag, setBulkTag] = useState("stable");
   const [newChannel, setNewChannel] = useState("stable");
   const [createError, setCreateError] = useState("");
   const [equipmentCheck, setEquipmentCheck] = useState<RancherCustomCluster | null>(null);
@@ -277,7 +258,6 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         `/api/atlas-stores/stores/${encodeURIComponent(folder)}`
       );
       setDetail(r.store);
-      setBulkTag(r.store.imageChannel && r.store.imageChannel !== "varios" ? r.store.imageChannel : "stable");
       setSelectedFolder(folder);
       setViewMode("detail");
       setServiceFilter("");
@@ -1271,60 +1251,36 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     />
                   </label>
                   <div className="sm:col-span-2">
-                    <p className="text-xs text-zinc-500">Tag (versión) por componente</p>
+                    <p className="text-xs text-zinc-500">Tags y pull policy</p>
                     <p className="mt-0.5 text-[11px] text-zinc-600">
-                      Cada servicio y proceso puede llevar un tag distinto (p. ej.{" "}
+                      Cada servicio y proceso tiene su propio tag (p. ej.{" "}
                       <span className="text-zinc-400">stable</span>,{" "}
-                      <span className="text-zinc-400">unstable</span>,{" "}
-                      <span className="text-zinc-400">v1.49.0-noble</span>). Edítalos abajo.
+                      <span className="text-zinc-400">unstable</span>). Edítalos en las tablas de abajo. La pull
+                      policy aplica a todos los servicios de estación.
                     </p>
                     {canEdit ? (
-                      <div className="mt-2 flex flex-wrap items-end gap-2">
-                        <label className="text-[11px] text-zinc-600">
-                          Aplicar el mismo tag a todos
-                          <input
-                            value={bulkTag}
-                            onChange={(e) => setBulkTag(e.target.value)}
-                            className={`${inputClass} mt-0.5 max-w-[12rem]`}
-                            placeholder="stable, unstable…"
-                            list="atlas-store-tag-suggestions"
-                          />
-                          <datalist id="atlas-store-tag-suggestions">
-                            <option value="stable" />
-                            <option value="unstable" />
-                          </datalist>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => setDetail((d) => (d ? applyTagToAllComponents(d, bulkTag.trim()) : d))}
-                          className="rounded-lg border border-cf-line px-2.5 py-1.5 text-[11px] text-zinc-300 hover:border-cf-orange/40"
+                      <label className="mt-2 inline-block text-[11px] text-zinc-600">
+                        Pull policy
+                        <select
+                          value={detail.station?.pullPolicy ?? "IfNotPresent"}
+                          onChange={(e) =>
+                            setDetail({
+                              ...detail,
+                              station: {
+                                ...detail.station,
+                                pullPolicy: e.target.value as StoreImagePullPolicy,
+                              },
+                            })
+                          }
+                          className={`${inputClass} mt-0.5 max-w-[12rem]`}
                         >
-                          Aplicar a todos
-                        </button>
-                        <label className="text-[11px] text-zinc-600">
-                          Pull policy (todos los servicios)
-                          <select
-                            value={detail.station?.pullPolicy ?? "IfNotPresent"}
-                            onChange={(e) =>
-                              setDetail({
-                                ...detail,
-                                station: {
-                                  ...detail.station,
-                                  pullPolicy: e.target.value as StoreImagePullPolicy,
-                                },
-                              })
-                            }
-                            disabled={!canEdit}
-                            className={`${inputClass} mt-0.5 max-w-[12rem]`}
-                          >
-                            {STORE_IMAGE_PULL_POLICIES.map((p) => (
-                              <option key={p} value={p}>
-                                {p}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
+                          {STORE_IMAGE_PULL_POLICIES.map((p) => (
+                            <option key={p} value={p}>
+                              {p}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     ) : null}
                   </div>
                 </div>

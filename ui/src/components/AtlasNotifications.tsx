@@ -18,6 +18,8 @@ const POLL_MS = 60_000;
 
 type Props = {
   onNavigate: (route: AtlasRouteId) => void;
+  /** Estilos del botón campana (p. ej. integrado en barra del header). */
+  buttonClassName?: string;
 };
 
 function severityIcon(severity: NotificationSeverity): ReactNode {
@@ -67,7 +69,7 @@ function isAtlasRoute(route: string): route is AtlasRouteId {
   ].includes(route);
 }
 
-export function AtlasNotifications({ onNavigate }: Props): ReactNode {
+export function AtlasNotifications({ onNavigate, buttonClassName }: Props): ReactNode {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<NotificationItem[]>([]);
@@ -257,6 +259,15 @@ export function AtlasNotifications({ onNavigate }: Props): ReactNode {
       </motion.div>
     ) : null;
 
+  const bellButtonClass =
+    buttonClassName != null
+      ? `${buttonClassName}${open ? " bg-white/[0.06] text-zinc-100" : ""}`
+      : `relative inline-flex h-10 w-10 items-center justify-center rounded-lg ring-1 transition ${
+          open
+            ? "bg-white/10 text-zinc-100 ring-white/20"
+            : "text-zinc-300 ring-white/10 hover:bg-white/5 hover:text-zinc-100"
+        }`;
+
   return (
     <>
       <button
@@ -269,18 +280,14 @@ export function AtlasNotifications({ onNavigate }: Props): ReactNode {
             return next;
           });
         }}
-        className={`relative inline-flex h-10 w-10 items-center justify-center rounded-lg ring-1 transition ${
-          open
-            ? "bg-white/10 text-zinc-100 ring-white/20"
-            : "text-zinc-300 ring-white/10 hover:bg-white/5 hover:text-zinc-100"
-        }`}
+        className={bellButtonClass}
         title="Notificaciones"
         aria-label={unreadCount > 0 ? `Notificaciones (${unreadCount} sin leer)` : "Notificaciones"}
         aria-expanded={open}
       >
         <Bell className="h-[1.125rem] w-[1.125rem]" strokeWidth={2} aria-hidden />
         {unreadCount > 0 ? (
-          <span className="pointer-events-none absolute right-1 top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-cf-orange px-1 text-[10px] font-bold leading-none text-white ring-2 ring-[#0d0f12]">
+          <span className="pointer-events-none absolute right-1.5 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-cf-orange px-0.5 text-[9px] font-bold leading-none text-white ring-1 ring-[#0d0f12]">
             {badge}
           </span>
         ) : null}

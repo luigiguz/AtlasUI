@@ -1234,7 +1234,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-4"
           >
-            <p className="text-sm text-zinc-400">Accesos al portal Poslite por tienda.</p>
+            <p className="text-sm text-zinc-400">Registros DNS por tienda.</p>
             {sites.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-cf-line bg-cf-panel/50 p-8 text-center text-zinc-500">
                 No hay sitios. Sincroniza desde Cloudflare primero.

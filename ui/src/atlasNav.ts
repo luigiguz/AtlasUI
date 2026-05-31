@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Box,
   Cloud,
+  Globe,
   Home,
   Info,
   KeyRound,
@@ -36,7 +37,7 @@ export type AtlasRouteId =
   | "roles"
   | "about";
 
-/** Rutas del módulo Atlas VPN (sync CF, túneles, Poslite). */
+/** Rutas del módulo Atlas VPN (sync CF, túneles, DNS). */
 export const ATLAS_VPN_ROUTE_IDS = ["conn", "poslite", "cf"] as const satisfies readonly AtlasRouteId[];
 
 export function isAtlasVpnRoute(route: AtlasRouteId): boolean {
@@ -72,7 +73,7 @@ export function buildAtlasNav(user: AuthUser): AtlasNavEntry[] {
   const canStoresRead = hasPermission(user, PERM_STORES_READ);
   const vpnChildren: AtlasNavLeaf[] = [
     { kind: "leaf", id: "vpn-conn", route: "conn", label: "Conexiones", icon: Wifi },
-    { kind: "leaf", id: "vpn-poslite", route: "poslite", label: "Poslite", icon: Store },
+    { kind: "leaf", id: "vpn-dns", route: "poslite", label: "DNS", icon: Globe },
     ...(canCf
       ? ([
           { kind: "leaf", id: "vpn-cf", route: "cf", label: "Cloudflare", icon: Cloud, adminOnly: true },
@@ -170,7 +171,7 @@ export function routeMeta(route: AtlasRouteId): { title: string; breadcrumb: str
     case "conn":
       return { title: "Conexiones", breadcrumb: ["Atlas", "Atlas VPN", "Conexiones"] };
     case "poslite":
-      return { title: "Poslite", breadcrumb: ["Atlas", "Atlas VPN", "Poslite"] };
+      return { title: "DNS", breadcrumb: ["Atlas", "Atlas VPN", "DNS"] };
     case "cf":
       return { title: "Cloudflare", breadcrumb: ["Atlas", "Atlas VPN", "Cloudflare"] };
     case "rancher-stores":

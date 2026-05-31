@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { ArrowRight, Box, Cloud, Loader2, Server, Store, Wifi } from "lucide-react";
+import { ArrowRight, Box, Cloud, Globe, Loader2, Server, Store, Wifi } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "../apiClient";
@@ -241,7 +241,7 @@ export function AtlasHomeView({ sites, canAdmin, syncMsg, syncOk, lastSyncAt, on
         </div>
         <div className="flex flex-wrap gap-2">
           <QuickLink label="Conexiones" route="conn" icon={Wifi} primary onNavigate={onNavigate} />
-          <QuickLink label="Poslite" route="poslite" icon={Store} onNavigate={onNavigate} />
+          <QuickLink label="DNS" route="poslite" icon={Globe} onNavigate={onNavigate} />
           {canAdmin ? <QuickLink label="Cloudflare" route="cf" icon={Cloud} onNavigate={onNavigate} /> : null}
         </div>
       </section>

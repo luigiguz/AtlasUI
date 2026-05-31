@@ -558,20 +558,36 @@ export function AtlasShell({ route, onNavigate, user, onLogout, children }: Prop
             </nav>
             <h1 className="truncate text-lg font-semibold tracking-tight text-zinc-50 sm:text-xl">{meta.title}</h1>
           </div>
-          <div className="flex items-center gap-2">
-            <AtlasNotifications onNavigate={onNavigate} />
-            <div className="hidden text-right text-xs sm:block">
-              <p className="font-medium text-zinc-200">{user.username}</p>
-              <p className="font-mono text-[10px] uppercase text-zinc-500">{user.role}</p>
+          <div className="flex shrink-0 items-stretch overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.02]">
+            <div className="flex min-w-0 items-center gap-2 px-2.5">
+              <span
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-800/90 text-[10px] font-semibold uppercase text-zinc-400"
+                aria-hidden
+              >
+                {(user.username.trim()[0] ?? "?").toUpperCase()}
+              </span>
+              <div className="hidden min-w-0 leading-tight sm:block">
+                <p className="truncate text-xs font-medium text-zinc-200" title={user.username}>
+                  {user.username}
+                </p>
+                <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">{user.role}</p>
+              </div>
             </div>
+            <span className="my-2 w-px shrink-0 bg-white/[0.08]" aria-hidden />
+            <AtlasNotifications
+              onNavigate={onNavigate}
+              buttonClassName="relative inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-200"
+            />
+            <span className="my-2 w-px shrink-0 bg-white/[0.08]" aria-hidden />
             <button
               type="button"
               onClick={onLogout}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-800/80 px-3 py-2 text-sm text-zinc-300 ring-1 ring-white/10 hover:bg-zinc-700"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-200 sm:w-auto sm:gap-1.5 sm:px-2.5"
               title="Cerrar sesión"
+              aria-label="Cerrar sesión"
             >
-              <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">Salir</span>
+              <LogOut className="h-4 w-4 shrink-0" aria-hidden />
+              <span className="hidden text-xs text-zinc-400 sm:inline">Salir</span>
             </button>
           </div>
         </header>
