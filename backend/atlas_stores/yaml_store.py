@@ -210,6 +210,7 @@ def load_store(repo_root: Path, folder_name: str) -> dict[str, Any]:
         "station": {
             "stack": station.get("stack") if station else "",
             "config": (station.get("values") or {}).get("config") if station else {},
+            "pullPolicy": _derive_station_pull_policy(station.get("values") or {}) if station else "IfNotPresent",
             "services": services_summary,
             "workerGroups": workers_summary,
             "workers": _flatten_worker_groups(workers_summary),
@@ -235,6 +236,38 @@ def _summarize_db(values: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _derive_station_pull_policy(values: dict[str, Any]) -> str:
+    """Política global: común a todos los servicios o IfNotPresent si difieren."""
+    skip = {"config", "workers", "nameOverride", "bundleVersion"}
+    policies: set[str] = set()
+    for key, val in values.items():
+        if key in skip or not isinstance(val, dict):
+            continue
+        if "enabled" not in val and "image" not in val and "hostPort" not in val:
+            continue
+        img = val.get("image") if isinstance(val.get("image"), dict) else {}
+        policies.add(_normalize_pull_policy(img.get("pullPolicy")))
+    if not policies:
+        return "IfNotPresent"
+    if len(policies) == 1:
+        return next(iter(policies))
+    return "IfNotPresent"
+
+
+def _apply_pull_policy_to_all_services(values: dict[str, Any], policy: str) -> None:
+    """Aplica pullPolicy a todos los servicios de estación en values."""
+    normalized = _normalize_pull_policy(policy)
+    skip = {"config", "workers", "nameOverride", "bundleVersion"}
+    for key, val in values.items():
+        if key in skip or not isinstance(val, dict):
+            continue
+        if "enabled" not in val and "image" not in val and "hostPort" not in val:
+            continue
+        if "image" not in val or not isinstance(val["image"], dict):
+            val["image"] = {}
+        val["image"]["pullPolicy"] = normalized
+
+
 def _summarize_services(values: dict[str, Any]) -> list[dict[str, Any]]:
     skip = {"config", "workers", "nameOverride", "bundleVersion"}
     out: list[dict[str, Any]] = []
@@ -250,7 +283,6 @@ def _summarize_services(values: dict[str, Any]) -> list[dict[str, Any]]:
                 "enabled": bool(val.get("enabled", False)),
                 "tag": str(img.get("tag") or ""),
                 "hostPort": val.get("hostPort"),
-                "pullPolicy": _normalize_pull_policy(img.get("pullPolicy")),
             }
         )
     out.sort(key=lambda x: x["key"])
@@ -443,6 +475,9 @@ def _apply_station_patch(
             if v is not None and str(v).strip() != "":
                 values["config"][k] = v
 
+    if "pullPolicy" in station_patch:
+        _apply_pull_policy_to_all_services(values, station_patch.get("pullPolicy"))
+
     for svc in station_patch.get("services") or []:
         if not isinstance(svc, dict):
             continue
@@ -455,10 +490,6 @@ def _apply_station_patch(
             if "image" not in values[key] or not isinstance(values[key]["image"], dict):
                 values[key]["image"] = {}
             values[key]["image"]["tag"] = str(svc.get("tag") or "").strip()
-        if "pullPolicy" in svc:
-            if "image" not in values[key] or not isinstance(values[key]["image"], dict):
-                values[key]["image"] = {}
-            values[key]["image"]["pullPolicy"] = _normalize_pull_policy(svc.get("pullPolicy"))
 
     for wrk in station_patch.get("workers") or []:
         if not isinstance(wrk, dict):
@@ -699,6 +730,7 @@ def preview_create_store(
         "station": {
             "stack": (station_stack or {}).get("stack") or distro_l,
             "config": station_values.get("config") if isinstance(station_values.get("config"), dict) else {},
+            "pullPolicy": _derive_station_pull_policy(station_values),
             "services": services_summary,
             "workerGroups": workers_summary,
             "workers": _flatten_worker_groups(workers_summary),

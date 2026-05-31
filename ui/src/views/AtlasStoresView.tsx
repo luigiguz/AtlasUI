@@ -89,6 +89,20 @@ function workerDisplayName(key: string, groupId: string): string {
   return key;
 }
 
+function disableAllIerpWorkers(detail: StoreDetail): StoreDetail {
+  const groups = workerGroupsFromStation(detail.station).map((g) =>
+    g.id === "ierp" ? { ...g, workers: g.workers.map((w) => ({ ...w, enabled: false })) } : g
+  );
+  return {
+    ...detail,
+    station: {
+      ...detail.station,
+      workerGroups: { groups },
+      workers: flattenWorkerGroups(groups),
+    },
+  };
+}
+
 function applyTagToAllComponents(detail: StoreDetail, tag: string): StoreDetail {
   if (!detail.station) return { ...detail, imageChannel: tag };
   const groups = workerGroupsFromStation(detail.station).map((g) => ({
@@ -478,6 +492,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
           station: {
             stack: detail.station?.stack,
             config: detail.station?.config,
+            pullPolicy: detail.station?.pullPolicy ?? "IfNotPresent",
             services: detail.station?.services,
             workers: flattenWorkerGroups(workerGroupsFromStation(detail.station)),
           },
@@ -698,12 +713,44 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     [stores]
   );
 
+  const workerGroups = useMemo(
+    () => (detail?.station ? workerGroupsFromStation(detail.station) : []),
+    [detail?.station]
+  );
+
+  const filterQ = serviceFilter.trim().toLowerCase();
+
   const filteredServices = useMemo(() => {
     const services = detail?.station?.services ?? [];
-    const q = serviceFilter.trim().toLowerCase();
-    if (!q) return services;
-    return services.filter((s) => s.key.toLowerCase().includes(q));
-  }, [detail?.station?.services, serviceFilter]);
+    if (!filterQ) return services;
+    return services.filter((s) => s.key.toLowerCase().includes(filterQ));
+  }, [detail?.station?.services, filterQ]);
+
+  const filteredWorkerGroups = useMemo(() => {
+    if (!filterQ) return workerGroups;
+    return workerGroups
+      .map((g) => ({
+        ...g,
+        workers: g.workers.filter(
+          (w) =>
+            w.key.toLowerCase().includes(filterQ) ||
+            workerDisplayName(w.key, g.id).toLowerCase().includes(filterQ)
+        ),
+      }))
+      .filter((g) => g.workers.length > 0);
+  }, [workerGroups, filterQ]);
+
+  const totalSoftwareCount = useMemo(() => {
+    const svc = detail?.station?.services?.length ?? 0;
+    const wrk = workerGroups.reduce((n, g) => n + g.workers.length, 0);
+    return svc + wrk;
+  }, [detail?.station?.services, workerGroups]);
+
+  const filteredSoftwareCount =
+    filteredServices.length + filteredWorkerGroups.reduce((n, g) => n + g.workers.length, 0);
+
+  const hasSoftwareSections =
+    (detail?.station?.services?.length ?? 0) > 0 || workerGroups.some((g) => g.workers.length > 0);
 
   function goBackToList() {
     setViewMode("list");
@@ -1254,6 +1301,29 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                         >
                           Aplicar a todos
                         </button>
+                        <label className="text-[11px] text-zinc-600">
+                          Pull policy (todos los servicios)
+                          <select
+                            value={detail.station?.pullPolicy ?? "IfNotPresent"}
+                            onChange={(e) =>
+                              setDetail({
+                                ...detail,
+                                station: {
+                                  ...detail.station,
+                                  pullPolicy: e.target.value as StoreImagePullPolicy,
+                                },
+                              })
+                            }
+                            disabled={!canEdit}
+                            className={`${inputClass} mt-0.5 max-w-[12rem]`}
+                          >
+                            {STORE_IMAGE_PULL_POLICIES.map((p) => (
+                              <option key={p} value={p}>
+                                {p}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                       </div>
                     ) : null}
                   </div>
@@ -1277,171 +1347,176 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 </section>
               ) : null}
 
-              {detail.station?.services?.length ? (
-                <section>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                    <h3 className="text-xs font-medium uppercase text-zinc-500">Servicios de estación</h3>
-                    <label className="relative block w-full sm:max-w-xs">
-                      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
-                      <input
-                        type="search"
-                        value={serviceFilter}
-                        onChange={(e) => setServiceFilter(e.target.value)}
-                        placeholder="Buscar servicio…"
-                        className="w-full rounded-lg border border-cf-line bg-black/40 py-1.5 pl-8 pr-3 text-xs text-zinc-100 outline-none focus:border-cf-orange/50"
-                      />
-                    </label>
-                  </div>
-                  <div className="mt-2 max-h-72 overflow-y-auto rounded border border-cf-line/40">
-                    <table className="w-full text-left text-xs">
-                      <thead className="sticky top-0 bg-[#111418] text-[10px] uppercase text-zinc-600">
-                        <tr>
-                          <th className="w-8 px-2 py-1.5" />
-                          <th className="px-2 py-1.5">Servicio</th>
-                          <th className="px-2 py-1.5">Tag (versión)</th>
-                          <th className="px-2 py-1.5">Pull policy</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredServices.length === 0 ? (
-                          <tr>
-                            <td colSpan={4} className="px-2 py-4 text-center text-zinc-500">
-                              Ningún servicio coincide con la búsqueda.
-                            </td>
-                          </tr>
-                        ) : (
-                          filteredServices.map((svc) => (
-                            <tr key={svc.key} className="border-t border-cf-line/30">
-                              <td className="px-2 py-1.5">
-                                <input
-                                  type="checkbox"
-                                  checked={svc.enabled}
-                                  onChange={(e) => patchService(svc.key, { enabled: e.target.checked })}
-                                  disabled={!canEdit}
-                                  aria-label={`Activar ${svc.key}`}
-                                />
-                              </td>
-                              <td className="px-2 py-1.5 text-zinc-300">
-                                {svc.key}
-                                {svc.hostPort != null ? (
-                                  <span className="text-zinc-600">:{svc.hostPort}</span>
-                                ) : null}
-                              </td>
-                              <td className="px-2 py-1.5">
-                                <input
-                                  value={svc.tag}
-                                  onChange={(e) => patchService(svc.key, { tag: e.target.value })}
-                                  className={tagInputClass}
-                                  disabled={!canEdit}
-                                  placeholder="tag"
-                                />
-                              </td>
-                              <td className="px-2 py-1.5">
-                                <select
-                                  value={svc.pullPolicy ?? "IfNotPresent"}
-                                  onChange={(e) =>
-                                    patchService(svc.key, {
-                                      pullPolicy: e.target.value as StoreImagePullPolicy,
-                                    })
-                                  }
-                                  disabled={!canEdit}
-                                  className="w-full min-w-[7.5rem] rounded border border-cf-line bg-black/50 px-1.5 py-0.5 text-[11px] text-zinc-200 outline-none focus:border-cf-orange/50"
-                                >
-                                  {STORE_IMAGE_PULL_POLICIES.map((p) => (
-                                    <option key={p} value={p}>
-                                      {p}
-                                    </option>
-                                  ))}
-                                </select>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                  {serviceFilter.trim() ? (
-                    <p className="mt-1 text-[11px] text-zinc-600">
-                      {filteredServices.length} de {detail.station.services.length} servicios
-                    </p>
-                  ) : null}
-                </section>
-              ) : null}
+              {hasSoftwareSections ? (
+                <>
+                  <section>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <h3 className="text-xs font-medium uppercase text-zinc-500">Software desplegado</h3>
+                        <p className="mt-0.5 text-[11px] text-zinc-600">
+                          Busca en servicios de estación, iERP y procesos generales.
+                        </p>
+                      </div>
+                      <label className="relative block w-full sm:max-w-xs">
+                        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+                        <input
+                          type="search"
+                          value={serviceFilter}
+                          onChange={(e) => setServiceFilter(e.target.value)}
+                          placeholder="Buscar servicio o proceso…"
+                          className="w-full rounded-lg border border-cf-line bg-black/40 py-1.5 pl-8 pr-3 text-xs text-zinc-100 outline-none focus:border-cf-orange/50"
+                        />
+                      </label>
+                    </div>
+                    {filterQ && filteredSoftwareCount === 0 ? (
+                      <p className="mt-3 rounded-lg border border-cf-line/40 bg-black/20 px-3 py-4 text-center text-xs text-zinc-500">
+                        Ningún servicio o proceso coincide con «{serviceFilter.trim()}».
+                      </p>
+                    ) : null}
+                    {filterQ && filteredSoftwareCount > 0 ? (
+                      <p className="mt-2 text-[11px] text-zinc-600">
+                        {filteredSoftwareCount} de {totalSoftwareCount} coincidencias
+                      </p>
+                    ) : null}
+                  </section>
 
-              {workerGroupsFromStation(detail.station).map((group) => (
-                <section key={group.id}>
-                  <h3 className="text-xs font-medium uppercase text-zinc-500">{group.label}</h3>
-                  {group.id === "ierp" ? (
-                    <p className="mt-0.5 text-[11px] text-zinc-600">
-                      Integración iERP: cada fila es un proceso de sincronización.
-                    </p>
+                  {detail.station?.services?.length &&
+                  (!filterQ || filteredServices.length > 0) ? (
+                    <section>
+                      <h3 className="text-xs font-medium uppercase text-zinc-500">Servicios de estación</h3>
+                      <div className="mt-2 max-h-72 overflow-y-auto rounded border border-cf-line/40">
+                        <table className="w-full text-left text-xs">
+                          <thead className="sticky top-0 bg-[#111418] text-[10px] uppercase text-zinc-600">
+                            <tr>
+                              <th className="w-8 px-2 py-1.5" />
+                              <th className="px-2 py-1.5">Servicio</th>
+                              <th className="px-2 py-1.5">Tag (versión)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(filterQ ? filteredServices : detail.station.services).map((svc) => (
+                              <tr key={svc.key} className="border-t border-cf-line/30">
+                                <td className="px-2 py-1.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={svc.enabled}
+                                    onChange={(e) => patchService(svc.key, { enabled: e.target.checked })}
+                                    disabled={!canEdit}
+                                    aria-label={`Activar ${svc.key}`}
+                                  />
+                                </td>
+                                <td className="px-2 py-1.5 text-zinc-300">
+                                  {svc.key}
+                                  {svc.hostPort != null ? (
+                                    <span className="text-zinc-600">:{svc.hostPort}</span>
+                                  ) : null}
+                                </td>
+                                <td className="px-2 py-1.5">
+                                  <input
+                                    value={svc.tag}
+                                    onChange={(e) => patchService(svc.key, { tag: e.target.value })}
+                                    className={tagInputClass}
+                                    disabled={!canEdit}
+                                    placeholder="tag"
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
                   ) : null}
-                  <div className="mt-2 max-h-44 overflow-y-auto rounded border border-cf-line/40">
-                    <table className="w-full text-left text-xs">
-                      <thead className="sticky top-0 bg-[#111418] text-[10px] uppercase text-zinc-600">
-                        <tr>
-                          <th className="w-8 px-2 py-1.5" />
-                          <th className="px-2 py-1.5">Proceso</th>
-                          <th className="px-2 py-1.5">Tag (versión)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {group.workers.map((wrk) => (
-                          <tr key={wrk.key} className="border-t border-cf-line/30">
-                            <td className="px-2 py-1.5">
-                              <input
-                                type="checkbox"
-                                checked={wrk.enabled}
-                                onChange={(e) => {
-                                  const groups = updateWorkerInGroups(
-                                    workerGroupsFromStation(detail.station),
-                                    wrk.key,
-                                    { enabled: e.target.checked }
-                                  );
-                                  setDetail({
-                                    ...detail,
-                                    station: {
-                                      ...detail.station,
-                                      workerGroups: { groups },
-                                      workers: flattenWorkerGroups(groups),
-                                    },
-                                  });
-                                }}
-                                disabled={!canEdit}
-                              />
-                            </td>
-                            <td className="px-2 py-1.5 font-mono text-[11px] text-zinc-400">
-                              {workerDisplayName(wrk.key, group.id)}
-                            </td>
-                            <td className="px-2 py-1.5">
-                              <input
-                                value={wrk.tag}
-                                onChange={(e) => {
-                                  const groups = updateWorkerInGroups(
-                                    workerGroupsFromStation(detail.station),
-                                    wrk.key,
-                                    { tag: e.target.value }
-                                  );
-                                  setDetail({
-                                    ...detail,
-                                    station: {
-                                      ...detail.station,
-                                      workerGroups: { groups },
-                                      workers: flattenWorkerGroups(groups),
-                                    },
-                                  });
-                                }}
-                                className={tagInputClass}
-                                disabled={!canEdit}
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              ))}
+
+                  {filteredWorkerGroups.map((group) => (
+                    <section key={group.id}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <h3 className="text-xs font-medium uppercase text-zinc-500">{group.label}</h3>
+                          {group.id === "ierp" ? (
+                            <p className="mt-0.5 text-[11px] text-zinc-600">
+                              Integración iERP: cada fila es un proceso de sincronización.
+                            </p>
+                          ) : null}
+                        </div>
+                        {group.id === "ierp" && canEdit ? (
+                          <button
+                            type="button"
+                            onClick={() => setDetail((d) => (d ? disableAllIerpWorkers(d) : d))}
+                            className="rounded-lg border border-rose-500/30 bg-rose-950/20 px-2.5 py-1 text-[11px] text-rose-300 hover:border-rose-500/50"
+                          >
+                            Desactivar todo iERP
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 max-h-44 overflow-y-auto rounded border border-cf-line/40">
+                        <table className="w-full text-left text-xs">
+                          <thead className="sticky top-0 bg-[#111418] text-[10px] uppercase text-zinc-600">
+                            <tr>
+                              <th className="w-8 px-2 py-1.5" />
+                              <th className="px-2 py-1.5">Proceso</th>
+                              <th className="px-2 py-1.5">Tag (versión)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {group.workers.map((wrk) => (
+                              <tr key={wrk.key} className="border-t border-cf-line/30">
+                                <td className="px-2 py-1.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={wrk.enabled}
+                                    onChange={(e) => {
+                                      const groups = updateWorkerInGroups(
+                                        workerGroupsFromStation(detail.station),
+                                        wrk.key,
+                                        { enabled: e.target.checked }
+                                      );
+                                      setDetail({
+                                        ...detail,
+                                        station: {
+                                          ...detail.station,
+                                          workerGroups: { groups },
+                                          workers: flattenWorkerGroups(groups),
+                                        },
+                                      });
+                                    }}
+                                    disabled={!canEdit}
+                                  />
+                                </td>
+                                <td className="px-2 py-1.5 font-mono text-[11px] text-zinc-400">
+                                  {workerDisplayName(wrk.key, group.id)}
+                                </td>
+                                <td className="px-2 py-1.5">
+                                  <input
+                                    value={wrk.tag}
+                                    onChange={(e) => {
+                                      const groups = updateWorkerInGroups(
+                                        workerGroupsFromStation(detail.station),
+                                        wrk.key,
+                                        { tag: e.target.value }
+                                      );
+                                      setDetail({
+                                        ...detail,
+                                        station: {
+                                          ...detail.station,
+                                          workerGroups: { groups },
+                                          workers: flattenWorkerGroups(groups),
+                                        },
+                                      });
+                                    }}
+                                    className={tagInputClass}
+                                    disabled={!canEdit}
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  ))}
+                </>
+              ) : null}
 
               {detail.station?.config && Object.keys(detail.station.config).length > 0 ? (
                 <section>

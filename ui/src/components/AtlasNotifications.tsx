@@ -8,6 +8,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import { api } from "../apiClient";
 import type { AtlasRouteId } from "../atlasNav";
@@ -26,11 +27,18 @@ function severityIcon(severity: NotificationSeverity): ReactNode {
   return <Info className="h-4 w-4 text-sky-400" aria-hidden />;
 }
 
-function severityRing(severity: NotificationSeverity): string {
-  if (severity === "critical") return "ring-red-500/30";
-  if (severity === "warning") return "ring-amber-500/30";
-  if (severity === "success") return "ring-emerald-500/30";
-  return "ring-white/10";
+function severityAccent(severity: NotificationSeverity): string {
+  if (severity === "critical") return "border-l-red-400 bg-red-500/[0.07]";
+  if (severity === "warning") return "border-l-amber-400 bg-amber-500/[0.07]";
+  if (severity === "success") return "border-l-emerald-400 bg-emerald-500/[0.07]";
+  return "border-l-sky-400 bg-sky-500/[0.05]";
+}
+
+function severityIconBg(severity: NotificationSeverity): string {
+  if (severity === "critical") return "bg-red-500/15 ring-red-500/25";
+  if (severity === "warning") return "bg-amber-500/15 ring-amber-500/25";
+  if (severity === "success") return "bg-emerald-500/15 ring-emerald-500/25";
+  return "bg-sky-500/10 ring-sky-500/20";
 }
 
 function formatWhen(iso: string): string {
@@ -64,8 +72,19 @@ export function AtlasNotifications({ onNavigate }: Props): ReactNode {
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [panelStyle, setPanelStyle] = useState<{ top: number; right: number } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const updatePanelPosition = useCallback(() => {
+    const btn = buttonRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    setPanelStyle({
+      top: rect.bottom + 8,
+      right: Math.max(8, window.innerWidth - rect.right),
+    });
+  }, []);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -88,6 +107,7 @@ export function AtlasNotifications({ onNavigate }: Props): ReactNode {
 
   useEffect(() => {
     if (!open) return;
+    updatePanelPosition();
     void load();
     const onDoc = (e: MouseEvent) => {
       const t = e.target as Node | null;
@@ -95,9 +115,16 @@ export function AtlasNotifications({ onNavigate }: Props): ReactNode {
       if (panelRef.current?.contains(t) || buttonRef.current?.contains(t)) return;
       setOpen(false);
     };
+    const onResize = () => updatePanelPosition();
     document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open, load]);
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onResize, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onResize, true);
+    };
+  }, [open, load, updatePanelPosition]);
 
   const markRead = async (ids: string[]) => {
     if (!ids.length) return;
@@ -126,8 +153,7 @@ export function AtlasNotifications({ onNavigate }: Props): ReactNode {
     }
   };
 
-  const dismiss = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const dismiss = async (id: string) => {
     try {
       await api("/api/notifications/dismiss", {
         method: "POST",
@@ -148,108 +174,121 @@ export function AtlasNotifications({ onNavigate }: Props): ReactNode {
 
   const badge = unreadCount > 99 ? "99+" : String(unreadCount);
 
+  const panel =
+    open && panelStyle ? (
+      <motion.div
+        ref={panelRef}
+        initial={{ opacity: 0, y: -6, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: -6, scale: 0.98 }}
+        transition={{ duration: 0.15 }}
+        style={{ top: panelStyle.top, right: panelStyle.right }}
+        className="fixed z-[200] w-[min(22rem,calc(100vw-1rem))] overflow-hidden rounded-xl border border-white/10 bg-[#161a21] text-zinc-100 shadow-2xl shadow-black/50"
+      >
+        <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3">
+          <p className="text-sm font-semibold text-zinc-50">Notificaciones</p>
+          <div className="flex items-center gap-2">
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-400" aria-hidden /> : null}
+            {unreadCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => void markAllRead()}
+                className="rounded-md px-2 py-1 text-[11px] font-medium text-zinc-300 hover:bg-white/5 hover:text-zinc-100"
+              >
+                Marcar todo leído
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="max-h-[min(24rem,60vh)] overflow-y-auto">
+          {items.length === 0 ? (
+            <p className="px-4 py-10 text-center text-sm text-zinc-400">Sin notificaciones</p>
+          ) : (
+            <ul className="divide-y divide-white/[0.06]">
+              {items.map((item) => (
+                <li
+                  key={item.id}
+                  className={`flex items-stretch border-l-[3px] ${severityAccent(item.severity)} ${
+                    item.read ? "opacity-70" : ""
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => onPick(item)}
+                    className="flex min-w-0 flex-1 gap-3 px-3 py-3 text-left text-zinc-100 transition hover:bg-white/[0.04]"
+                  >
+                    <span
+                      className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 ${severityIconBg(item.severity)}`}
+                    >
+                      {severityIcon(item.severity)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-start justify-between gap-2">
+                        <span className="text-sm font-semibold leading-snug text-zinc-50">{item.title}</span>
+                        <span className="shrink-0 pt-0.5 text-[10px] text-zinc-400">{formatWhen(item.createdAt)}</span>
+                      </span>
+                      {item.body ? (
+                        <span className="mt-1 block text-xs leading-relaxed text-zinc-300">{item.body}</span>
+                      ) : null}
+                      {item.source === "live" ? (
+                        <span className="mt-1.5 inline-block rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-300">
+                          Alerta activa
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                  {item.dismissible ? (
+                    <button
+                      type="button"
+                      onClick={() => void dismiss(item.id)}
+                      className="shrink-0 self-start px-2 py-3 text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                      title="Descartar alerta"
+                      aria-label="Descartar alerta"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </motion.div>
+    ) : null;
+
   return (
-    <div className="relative">
+    <>
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg text-zinc-400 ring-1 ring-white/10 hover:bg-white/5 hover:text-zinc-200"
+        onClick={() => {
+          setOpen((v) => {
+            const next = !v;
+            if (next) requestAnimationFrame(updatePanelPosition);
+            return next;
+          });
+        }}
+        className={`relative inline-flex h-10 w-10 items-center justify-center rounded-lg ring-1 transition ${
+          open
+            ? "bg-white/10 text-zinc-100 ring-white/20"
+            : "text-zinc-300 ring-white/10 hover:bg-white/5 hover:text-zinc-100"
+        }`}
         title="Notificaciones"
         aria-label={unreadCount > 0 ? `Notificaciones (${unreadCount} sin leer)` : "Notificaciones"}
         aria-expanded={open}
       >
-        <Bell className="h-4 w-4" aria-hidden />
+        <Bell className="h-[1.125rem] w-[1.125rem]" strokeWidth={2} aria-hidden />
         {unreadCount > 0 ? (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-cf-orange px-1 text-[10px] font-semibold text-white">
+          <span className="pointer-events-none absolute right-1 top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-cf-orange px-1 text-[10px] font-bold leading-none text-white ring-2 ring-[#0d0f12]">
             {badge}
           </span>
         ) : null}
       </button>
 
-      <AnimatePresence>
-        {open ? (
-          <motion.div
-            ref={panelRef}
-            initial={{ opacity: 0, y: -6, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6, scale: 0.98 }}
-            transition={{ duration: 0.15 }}
-            className="absolute right-0 top-full z-50 mt-2 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-white/10 bg-[#12151a] shadow-2xl"
-          >
-            <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2.5">
-              <p className="text-sm font-medium text-zinc-100">Notificaciones</p>
-              <div className="flex items-center gap-1">
-                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-500" aria-hidden /> : null}
-                {unreadCount > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => void markAllRead()}
-                    className="rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
-                  >
-                    Marcar todo leído
-                  </button>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="max-h-[min(24rem,60vh)] overflow-y-auto">
-              {items.length === 0 ? (
-                <p className="px-4 py-8 text-center text-sm text-zinc-500">Sin notificaciones</p>
-              ) : (
-                <ul className="divide-y divide-white/[0.04]">
-                  {items.map((item) => (
-                    <li key={item.id}>
-                      <button
-                        type="button"
-                        onClick={() => onPick(item)}
-                        className={`flex w-full gap-2.5 px-3 py-3 text-left transition hover:bg-white/[0.03] ${
-                          item.read ? "opacity-75" : ""
-                        }`}
-                      >
-                        <span
-                          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black/30 ring-1 ${severityRing(item.severity)}`}
-                        >
-                          {severityIcon(item.severity)}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-start justify-between gap-2">
-                            <span className="text-sm font-medium text-zinc-100">{item.title}</span>
-                            <span className="shrink-0 text-[10px] text-zinc-500">{formatWhen(item.createdAt)}</span>
-                          </span>
-                          {item.body ? (
-                            <span className="mt-0.5 line-clamp-2 text-xs text-zinc-400">{item.body}</span>
-                          ) : null}
-                          {item.source === "live" ? (
-                            <span className="mt-1 inline-block rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-amber-400/90">
-                              Alerta activa
-                            </span>
-                          ) : null}
-                        </span>
-                        {item.dismissible ? (
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            onClick={(e) => void dismiss(item.id, e)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") void dismiss(item.id, e as unknown as React.MouseEvent);
-                            }}
-                            className="shrink-0 rounded p-1 text-zinc-500 hover:bg-white/5 hover:text-zinc-300"
-                            title="Descartar alerta"
-                            aria-label="Descartar alerta"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </span>
-                        ) : null}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-    </div>
+      {typeof document !== "undefined"
+        ? createPortal(<AnimatePresence>{panel}</AnimatePresence>, document.body)
+        : null}
+    </>
   );
 }

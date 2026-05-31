@@ -16,7 +16,6 @@ export type StoreServiceToggle = {
   enabled: boolean;
   tag: string;
   hostPort?: number | null;
-  pullPolicy?: "IfNotPresent" | "Never" | "Always";
 };
 
 export const STORE_IMAGE_PULL_POLICIES = ["IfNotPresent", "Never", "Always"] as const;
@@ -47,6 +46,8 @@ export type StoreDetail = StoreSummary & {
   station: {
     stack: string;
     config: Record<string, unknown>;
+    /** Política de pull global para todos los servicios de estación */
+    pullPolicy?: StoreImagePullPolicy;
     services: StoreServiceToggle[];
     /** Agrupado: generales + iERP */
     workerGroups?: { groups: StoreWorkerGroup[] };
