@@ -48,18 +48,16 @@ from atlas_stores.yaml_store import create_store, list_stores, load_store, previ
 router = APIRouter(prefix="/api/atlas-stores", tags=["atlas-stores"])
 log = logging.getLogger(__name__)
 
-# Git (sync, publicar, credenciales): admin y operador (Write). Solo lectura: viewer (Read).
-_STORES_GIT = (PERM_STORES_WRITE, PERM_STORES_CONFIGURE)
-
-
+# Git (publicar, descartar): admin y operador (Write). Conexión repo: solo Configure.
 def _stores_repo_root(
     settings: dict[str, str | bool],
     user: dict[str, Any],
     *,
     pull: bool | None = None,
 ):
+    del user  # permisos no condicionan el pull; solo la configuración auto_pull
     if pull is None:
-        pull = bool(settings.get("auto_pull")) and has_permission(user, PERM_STORES_WRITE)
+        pull = bool(settings.get("auto_pull", True))
     return resolve_repo_root(settings, pull=pull)
 
 
@@ -136,7 +134,7 @@ def stores_health() -> dict[str, str]:
 
 @router.get("/settings")
 def get_stores_settings(
-    _user: dict[str, Any] = Depends(require_permission(*_STORES_GIT)),
+    _user: dict[str, Any] = Depends(require_permission(PERM_STORES_CONFIGURE)),
 ) -> dict[str, Any]:
     s = load_stores_settings()
     configured = bool(s.get("repo_url"))
@@ -155,7 +153,7 @@ def get_stores_settings(
 @router.post("/settings")
 def post_stores_settings(
     body: StoresSettingsBody,
-    _user: dict[str, Any] = Depends(require_permission(*_STORES_GIT)),
+    _user: dict[str, Any] = Depends(require_permission(PERM_STORES_CONFIGURE)),
 ) -> dict[str, bool]:
     if not body.repo_url.strip():
         raise HTTPException(400, "La URL Git del repositorio atlas-stores es obligatoria.")
@@ -172,7 +170,7 @@ def post_stores_settings(
 
 @router.post("/settings/test")
 def post_stores_settings_test(
-    _user: dict[str, Any] = Depends(require_permission(*_STORES_GIT)),
+    _user: dict[str, Any] = Depends(require_permission(PERM_STORES_CONFIGURE)),
 ) -> dict[str, Any]:
     settings = load_stores_settings()
     if not str(settings.get("repo_url") or "").strip():
@@ -189,7 +187,7 @@ def post_stores_settings_test(
 
 @router.post("/sync")
 def post_stores_sync(
-    _user: dict[str, Any] = Depends(require_permission(PERM_STORES_WRITE)),
+    _user: dict[str, Any] = Depends(require_permission(PERM_STORES_CONFIGURE)),
 ) -> dict[str, Any]:
     settings = load_stores_settings()
     try:

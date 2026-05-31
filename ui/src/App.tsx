@@ -683,7 +683,7 @@ export default function App() {
   const canStoresRead = hasPermission(me, PERM_STORES_READ);
   const canStoresWrite = hasPermission(me, PERM_STORES_WRITE);
   const canStoresApprove = hasPermission(me, PERM_STORES_APPROVE);
-  const canStoresConfigure = hasAnyPermission(me, PERM_STORES_WRITE, PERM_STORES_CONFIGURE);
+  const canStoresConfigure = hasPermission(me, PERM_STORES_CONFIGURE);
   const canUsers = hasPermission(me, PERM_USERS_LIST);
   const canRoles = hasAnyPermission(me, PERM_ROLES_LIST, PERM_ROLES_MANAGE);
 

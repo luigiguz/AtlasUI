@@ -218,14 +218,12 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const [equipment, setEquipment] = useState<RancherCustomCluster | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [syncing, setSyncing] = useState(false);
 
   const [cfgUrl, setCfgUrl] = useState("");
   const [cfgBranch, setCfgBranch] = useState("main");
   const [cfgUsername, setCfgUsername] = useState("");
   const [cfgToken, setCfgToken] = useState("");
   const [cfgAuthConfigured, setCfgAuthConfigured] = useState(false);
-  const [cfgAutoPull, setCfgAutoPull] = useState(true);
   const [cfgSaving, setCfgSaving] = useState(false);
   const [cfgTesting, setCfgTesting] = useState(false);
   const [cfgTestMsg, setCfgTestMsg] = useState("");
@@ -407,7 +405,6 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         setCfgBranch(s.branch ?? "main");
         setCfgUsername(s.git_username ?? "");
         setCfgAuthConfigured(Boolean(s.git_auth_configured));
-        setCfgAutoPull(Boolean(s.auto_pull));
         setCfgToken("");
         setCfgTestMsg("");
       } catch {
@@ -427,7 +424,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
           branch: cfgBranch.trim(),
           git_username: cfgUsername.trim(),
           git_token: cfgToken.trim(),
-          auto_pull: cfgAutoPull,
+          auto_pull: true,
           auto_push: true,
         }),
       });
@@ -456,7 +453,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
             branch: cfgBranch.trim(),
             git_username: cfgUsername.trim(),
             git_token: cfgToken.trim(),
-            auto_pull: cfgAutoPull,
+            auto_pull: true,
             auto_push: true,
           }),
         });
@@ -470,22 +467,6 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       setError(e instanceof Error ? e.message : "Error al probar la conexión Git.");
     } finally {
       setCfgTesting(false);
-    }
-  }
-
-  async function onSync() {
-    setSyncing(true);
-    try {
-      const r = await api<{ message: string }>("/api/atlas-stores/sync", { method: "POST" });
-      setSaveMsg(r.message ?? "Repositorio actualizado.");
-      setError("");
-      await loadStores();
-      if (selectedFolder) await loadDetail(selectedFolder);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Error al sincronizar.");
-      void loadGitStatus();
-    } finally {
-      setSyncing(false);
     }
   }
 
@@ -910,7 +891,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
           <p className="mt-1 text-[11px] text-zinc-600">
             Haz clic en una tienda para abrir su ficha y gestionar servicios, tags y despliegue.
           </p>
-          {repoUrl ? <p className="mt-1 truncate text-[11px] text-zinc-600">{repoUrl}</p> : null}
+          {canAdmin && repoUrl ? <p className="mt-1 truncate text-[11px] text-zinc-600">{repoUrl}</p> : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {canAdmin ? (
@@ -920,17 +901,6 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               className="rounded-lg border border-cf-line bg-cf-panel px-3 py-1.5 text-xs text-zinc-300"
             >
               {settingsOpen ? "Cerrar conexión" : "Conexión repositorio"}
-            </button>
-          ) : null}
-          {canEdit ? (
-            <button
-              type="button"
-              onClick={() => void onSync()}
-              disabled={syncing || !configured}
-              className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-400 disabled:opacity-50"
-            >
-              {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              Sincronizar repo
             </button>
           ) : null}
           {canEdit ? (
@@ -1012,12 +982,9 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               {cfgAuthConfigured ? "Token configurado" : "Sin token — no podrás publicar en repos privados"}
             </span>
           </div>
-          <label className="mt-2 flex items-center gap-2 text-xs text-zinc-400">
-            <input type="checkbox" checked={cfgAutoPull} onChange={(e) => setCfgAutoPull(e.target.checked)} />
-            Actualizar al leer (pull)
-          </label>
           <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-            Al crear o guardar una tienda, Atlas hace commit y push a la rama configurada. Necesitas un{" "}
+            Atlas sincroniza el repositorio automáticamente al cargar Tiendas (como Rancher y Cloudflare). Al crear
+            o guardar una tienda se publica en la rama configurada. Necesitas un{" "}
             <strong className="font-medium text-zinc-400">PAT</strong> con permiso de lectura/escritura en el repo.
             En <strong className="font-medium text-zinc-400">Azure DevOps</strong> créalo en User settings → Personal
             access tokens (Code: Read &amp; write). En GitHub usa un fine-grained token con acceso al repo.

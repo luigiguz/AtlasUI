@@ -8,6 +8,8 @@ import os
 import re
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
 
@@ -17,6 +19,7 @@ log = logging.getLogger(__name__)
 
 REPO_CACHE_DIR = ATLAS_DATA_DIR / "stores-repo-cache"
 _STASH_LABEL = "atlas-stores-sync"
+_git_cache_lock = threading.Lock()
 
 
 class StoresRepoError(Exception):
@@ -358,6 +361,38 @@ def git_commit_and_push(
     return f"Cambios publicados en el repositorio remoto (rama {branch})."
 
 
+def _uses_stores_git_cache(cwd: Path | None) -> bool:
+    """Operaciones Git del caché atlas-stores (serializar para evitar config.lock)."""
+    if cwd is None:
+        return True
+    try:
+        Path(cwd).resolve().relative_to(REPO_CACHE_DIR.resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
+def _git_cache_root(cwd: Path | None) -> Path:
+    if cwd is not None:
+        return Path(cwd)
+    return REPO_CACHE_DIR
+
+
+def _clear_git_lock_files(root: Path) -> None:
+    """Quita locks huérfanos tras un git interrumpido (solo con exclusión en _git_cache_lock)."""
+    gd = root / ".git"
+    if not gd.is_dir():
+        return
+    for name in ("config.lock", "index.lock", "HEAD.lock", "shallow.lock", "packed-refs.lock"):
+        lock = gd / name
+        if lock.is_file():
+            with contextlib.suppress(OSError):
+                lock.unlink()
+    for lock in gd.rglob("*.lock"):
+        with contextlib.suppress(OSError):
+            lock.unlink()
+
+
 def _humanize_git_error(err: str) -> str:
     low = err.lower()
     if "needs merge" in low or "unmerged files" in low or "merge conflict" in low:
@@ -375,10 +410,15 @@ def _humanize_git_error(err: str) -> str:
             "Git necesita credenciales. Añade un token/PAT en Conexión repositorio "
             "(Azure DevOps, GitHub, GitLab, etc.)."
         )
+    if "could not lock config file" in low or "index.lock" in low:
+        return (
+            "El repositorio de tiendas está ocupado (otra sincronización en curso). "
+            "Espera unos segundos y pulsa Actualizar; si persiste, reinicia el contenedor atlas-api."
+        )
     return err
 
 
-def _run_git(args: list[str], *, cwd: Path | None) -> str:
+def _run_git_once(args: list[str], *, cwd: Path | None) -> str:
     try:
         proc = subprocess.run(
             ["git", *args],
@@ -405,3 +445,27 @@ def _run_git(args: list[str], *, cwd: Path | None) -> str:
         safe = re.sub(r"://[^@\s]+@", "://***@", safe)
         raise StoresRepoError(_humanize_git_error(safe or f"git {' '.join(args)} falló"))
     return (proc.stdout or "").strip()
+
+
+def _run_git(args: list[str], *, cwd: Path | None) -> str:
+    if not _uses_stores_git_cache(cwd):
+        return _run_git_once(args, cwd=cwd)
+
+    with _git_cache_lock:
+        root = _git_cache_root(cwd)
+        _clear_git_lock_files(root)
+        last_err: StoresRepoError | None = None
+        for attempt in range(3):
+            try:
+                return _run_git_once(args, cwd=cwd)
+            except StoresRepoError as e:
+                last_err = e
+                msg = str(e).lower()
+                if attempt < 2 and ("could not lock config file" in msg or "index.lock" in msg):
+                    _clear_git_lock_files(root)
+                    time.sleep(0.15 * (attempt + 1))
+                    continue
+                raise
+        if last_err:
+            raise last_err
+        raise StoresRepoError("git falló")
