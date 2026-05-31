@@ -341,8 +341,9 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       const r = await api<{ ok: boolean; store: StoreDetail }>(
         `/api/atlas-stores/stores/${encodeURIComponent(folder)}`
       );
-      setDetail(r.store);
-      setDetailBaseline(cloneStoreDetail(r.store));
+      const loaded = cloneStoreDetail(r.store);
+      setDetail(loaded);
+      setDetailBaseline(cloneStoreDetail(loaded));
       setSelectedFolder(folder);
       setViewMode("detail");
       setServiceFilter("");
@@ -1235,24 +1236,35 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         title={canApprove ? "Publicar cambios" : "Enviar para aprobación"}
         message={
           <>
-            <p>
-              {canApprove
-                ? "Revisa el resumen antes de hacer commit y push al repositorio remoto."
-                : "Revisa el resumen antes de enviar la solicitud. Un administrador deberá aprobarla para publicar en Git."}
-            </p>
-            <div className="mt-3">
-              <PublishChangeSummary lines={publishChangeLines} />
-            </div>
-            <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
-              Cancelar descarta los cambios locales y restaura la configuración cargada del servidor.
-            </p>
+            {detailHasChanges ? (
+              <p>
+                {canApprove
+                  ? "Revisa el resumen antes de hacer commit y push al repositorio remoto."
+                  : "Revisa el resumen antes de enviar la solicitud. Un administrador deberá aprobarla para publicar en Git."}
+              </p>
+            ) : (
+              <p className="text-amber-200/90">
+                No hay cambios respecto a la versión cargada del servidor. Edita la ficha antes de publicar.
+              </p>
+            )}
+            {detailHasChanges ? (
+              <div className="mt-3">
+                <PublishChangeSummary lines={publishChangeLines} />
+              </div>
+            ) : null}
+            {detailHasChanges ? (
+              <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
+                Cancelar descarta los cambios locales y restaura la configuración cargada del servidor.
+              </p>
+            ) : null}
           </>
         }
         confirmLabel={canApprove ? "Confirmar y publicar" : "Enviar solicitud"}
-        cancelLabel="Cancelar y descartar"
+        cancelLabel={detailHasChanges ? "Cancelar y descartar" : "Cerrar"}
+        confirmDisabled={!detailHasChanges}
         busy={saving}
         onConfirm={() => void executePublishDetail()}
-        onCancel={cancelPublishConfirm}
+        onCancel={detailHasChanges ? cancelPublishConfirm : () => setPublishConfirmOpen(false)}
       />
 
       <AtlasAlertDialog
@@ -1338,9 +1350,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               <button
                 type="button"
                 onClick={() => setPublishConfirmOpen(true)}
-                disabled={saving || detailLoading || !detail || !detailHasChanges}
+                disabled={saving || detailLoading || !detail}
                 className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-cf-orange px-3 py-1.5 text-xs font-medium text-black disabled:opacity-50"
-                title={detailHasChanges ? undefined : "No hay cambios respecto a la versión cargada"}
               >
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                 {canApprove ? "Publicar cambios" : "Enviar para aprobación"}

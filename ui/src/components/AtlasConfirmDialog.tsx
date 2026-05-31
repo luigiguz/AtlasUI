@@ -11,6 +11,7 @@ export type AtlasConfirmDialogProps = {
   cancelLabel?: string;
   variant?: "danger" | "default";
   busy?: boolean;
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -24,6 +25,7 @@ export function AtlasConfirmDialog({
   cancelLabel = "Cancelar",
   variant = "default",
   busy = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: AtlasConfirmDialogProps) {
@@ -56,7 +58,7 @@ export function AtlasConfirmDialog({
           </button>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             onClick={onConfirm}
             className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50 ${confirmClass}`}
           >

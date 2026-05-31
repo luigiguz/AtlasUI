@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import {
   atlasModalBackdropMotion,
@@ -22,7 +23,7 @@ type ShellProps = {
 export function AtlasModalShell({
   onBackdropClick,
   children,
-  zIndexClass = "z-[100]",
+  zIndexClass = "z-[150]",
   panelClassName = "",
   layout = "center",
   backdropClassName = "",
@@ -51,11 +52,13 @@ type FrameProps = ShellProps & {
   open: boolean;
 };
 
-/** Modal controlado por prop `open` (incluye `AnimatePresence`). */
+/** Modal controlado por prop `open` (incluye `AnimatePresence`). Montado en `document.body`. */
 export function AtlasModalFrame({ open, ...shell }: FrameProps) {
-  return (
+  const node = (
     <AnimatePresence>
       {open ? <AtlasModalShell key="atlas-modal" {...shell} /> : null}
     </AnimatePresence>
   );
+  if (typeof document === "undefined") return node;
+  return createPortal(node, document.body);
 }
