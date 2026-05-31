@@ -8,20 +8,39 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from atlas_core.permissions import PERM_STORES_CONFIGURE, PERM_STORES_WRITE
-from atlas_core.web_auth import current_user, require_permission
+from atlas_core.permissions import (
+    PERM_STORES_CONFIGURE,
+    PERM_STORES_READ,
+    PERM_STORES_WRITE,
+    has_permission,
+)
+from atlas_core.web_auth import require_permission
 from atlas_stores.equipment import (
     EquipmentNotFoundError,
     RancherNotConfiguredError,
     find_equipment_for_store,
 )
-from atlas_stores.git_repo import StoresRepoError, git_commit_and_push, git_pull, resolve_repo_root
+from atlas_stores.git_repo import StoresRepoError, git_commit_and_push, git_pull, git_test_connection, resolve_repo_root
 from atlas_stores.settings_store import load_stores_settings, save_stores_settings
 from atlas_stores.templates import StoreTemplateError, list_store_templates
 from atlas_stores.yaml_store import create_store, list_stores, load_store, preview_create_store, save_store
 
 router = APIRouter(prefix="/api/atlas-stores", tags=["atlas-stores"])
 log = logging.getLogger(__name__)
+
+# Git (sync, publicar, credenciales): admin y operador (Write). Solo lectura: viewer (Read).
+_STORES_GIT = (PERM_STORES_WRITE, PERM_STORES_CONFIGURE)
+
+
+def _stores_repo_root(
+    settings: dict[str, str | bool],
+    user: dict[str, Any],
+    *,
+    pull: bool | None = None,
+):
+    if pull is None:
+        pull = bool(settings.get("auto_pull")) and has_permission(user, PERM_STORES_WRITE)
+    return resolve_repo_root(settings, pull=pull)
 
 
 def _commit_actor_suffix(user: dict[str, Any]) -> str:
@@ -52,6 +71,7 @@ def _save_store_commit_message(
 class StoresSettingsBody(BaseModel):
     repo_url: str = ""
     branch: str = "main"
+    git_username: str = ""
     git_token: str = ""
     auto_pull: bool = True
     auto_push: bool = False
@@ -80,14 +100,16 @@ def stores_health() -> dict[str, str]:
 
 @router.get("/settings")
 def get_stores_settings(
-    user: dict[str, Any] = Depends(require_permission(PERM_STORES_CONFIGURE)),
+    _user: dict[str, Any] = Depends(require_permission(*_STORES_GIT)),
 ) -> dict[str, Any]:
     s = load_stores_settings()
     configured = bool(s.get("repo_url"))
     return {
         "repo_url": s.get("repo_url", ""),
         "branch": s.get("branch", "main"),
+        "git_username": s.get("git_username", ""),
         "git_token": "***" if s.get("git_token") else "",
+        "git_auth_configured": bool(s.get("git_token")),
         "auto_pull": s.get("auto_pull", True),
         "auto_push": s.get("auto_push", False),
         "configured": configured,
@@ -97,18 +119,36 @@ def get_stores_settings(
 @router.post("/settings")
 def post_stores_settings(
     body: StoresSettingsBody,
-    _admin: dict[str, Any] = Depends(require_permission(PERM_STORES_CONFIGURE)),
+    _user: dict[str, Any] = Depends(require_permission(*_STORES_GIT)),
 ) -> dict[str, bool]:
     if not body.repo_url.strip():
         raise HTTPException(400, "La URL Git del repositorio atlas-stores es obligatoria.")
     save_stores_settings(
         repo_url=body.repo_url,
         branch=body.branch,
+        git_username=body.git_username,
         git_token=body.git_token,
         auto_pull=body.auto_pull,
         auto_push=body.auto_push,
     )
     return {"ok": True}
+
+
+@router.post("/settings/test")
+def post_stores_settings_test(
+    _user: dict[str, Any] = Depends(require_permission(*_STORES_GIT)),
+) -> dict[str, Any]:
+    settings = load_stores_settings()
+    if not str(settings.get("repo_url") or "").strip():
+        raise HTTPException(400, "Configura la URL Git del repositorio antes de probar la conexión.")
+    try:
+        msg = git_test_connection(settings)
+    except StoresRepoError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        log.exception("stores git test failed")
+        raise HTTPException(status_code=500, detail="Error al probar la conexión Git.") from e
+    return {"ok": True, "message": msg}
 
 
 @router.post("/sync")
@@ -118,7 +158,7 @@ def post_stores_sync(
     settings = load_stores_settings()
     try:
         msg = git_pull(settings)
-        root = resolve_repo_root(settings)
+        root = resolve_repo_root(settings, pull=False)
         count = len(list_stores(root))
     except StoresRepoError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -130,7 +170,7 @@ def post_stores_sync(
 
 @router.get("/stores")
 def get_stores(
-    _user: dict[str, Any] = Depends(current_user),
+    user: dict[str, Any] = Depends(require_permission(PERM_STORES_READ)),
 ) -> dict[str, Any]:
     settings = load_stores_settings()
     if not settings.get("repo_url"):
@@ -141,7 +181,7 @@ def get_stores(
             "message": "Configura el repositorio atlas-stores (Gestión de Tiendas → Conexión repositorio).",
         }
     try:
-        root = resolve_repo_root(settings)
+        root = _stores_repo_root(settings, user)
         stores = list_stores(root)
     except StoresRepoError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -171,7 +211,7 @@ def post_store_create_preview(
     distro = body.distro.strip().lower()
     try:
         equipment = find_equipment_for_store(store_id, distro=distro)
-        root = resolve_repo_root(settings)
+        root = _stores_repo_root(settings, user)
         preview = preview_create_store(
             root,
             folder_name=body.folder_name.strip() or store_id,
@@ -215,11 +255,11 @@ def post_store_create_preview(
 @router.get("/stores/{folder_name}")
 def get_store_detail(
     folder_name: str,
-    _user: dict[str, Any] = Depends(current_user),
+    user: dict[str, Any] = Depends(require_permission(PERM_STORES_READ)),
 ) -> dict[str, Any]:
     settings = load_stores_settings()
     try:
-        root = resolve_repo_root(settings)
+        root = _stores_repo_root(settings, user)
         store = load_store(root, folder_name)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -240,7 +280,7 @@ def put_store(
 ) -> dict[str, Any]:
     settings = load_stores_settings()
     try:
-        root = resolve_repo_root(settings)
+        root = _stores_repo_root(settings, user)
         patch = body.model_dump(exclude_none=True, exclude={"commit_message"})
         msg = (body.commit_message or "Atlas: actualizar tienda").strip()
         store = save_store(root, folder_name, patch)
@@ -265,7 +305,7 @@ def put_store(
 
 @router.get("/store-templates")
 def get_store_templates(
-    _user: dict[str, Any] = Depends(current_user),
+    user: dict[str, Any] = Depends(require_permission(PERM_STORES_READ)),
 ) -> dict[str, Any]:
     settings = load_stores_settings()
     if not settings.get("repo_url"):
@@ -276,7 +316,7 @@ def get_store_templates(
             "message": "Configura la URL Git de atlas-stores.",
         }
     try:
-        root = resolve_repo_root(settings)
+        root = _stores_repo_root(settings, user)
         templates = list_store_templates(root)
     except StoresRepoError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -295,7 +335,7 @@ def post_create_store(
     distro = body.distro.strip().lower()
     try:
         equipment = find_equipment_for_store(store_id, distro=distro)
-        root = resolve_repo_root(settings)
+        root = _stores_repo_root(settings, user)
         store = create_store(
             root,
             folder_name=body.folder_name.strip(),

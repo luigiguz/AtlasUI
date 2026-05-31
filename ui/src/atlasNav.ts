@@ -18,6 +18,7 @@ import {
   hasPermission,
   PERM_CF_READ,
   PERM_ROLES_LIST,
+  PERM_STORES_READ,
   PERM_USERS_LIST,
   type AuthUser,
 } from "./atlasAuth";
@@ -68,6 +69,7 @@ export type AtlasNavEntry = AtlasNavLeaf | AtlasNavGroup;
 /** Menú lateral: plataforma Atlas → productos → páginas. Ampliar `children` al añadir módulos. */
 export function buildAtlasNav(user: AuthUser): AtlasNavEntry[] {
   const canCf = hasPermission(user, PERM_CF_READ);
+  const canStoresRead = hasPermission(user, PERM_STORES_READ);
   const vpnChildren: AtlasNavLeaf[] = [
     { kind: "leaf", id: "vpn-conn", route: "conn", label: "Conexiones", icon: Wifi },
     { kind: "leaf", id: "vpn-poslite", route: "poslite", label: "Poslite", icon: Store },
@@ -95,13 +97,17 @@ export function buildAtlasNav(user: AuthUser): AtlasNavEntry[] {
       icon: Server,
       defaultOpen: true,
       children: [
-        {
-          kind: "leaf",
-          id: "rancher-stores",
-          route: "rancher-stores",
-          label: "Tiendas",
-          icon: Store,
-        },
+        ...(canStoresRead
+          ? ([
+              {
+                kind: "leaf",
+                id: "rancher-stores",
+                route: "rancher-stores",
+                label: "Tiendas",
+                icon: Store,
+              },
+            ] satisfies AtlasNavLeaf[])
+          : []),
         {
           kind: "leaf",
           id: "rancher-clusters",

@@ -24,7 +24,9 @@ type Props = {
 type SettingsResponse = {
   repo_url: string;
   branch: string;
+  git_username: string;
   git_token: string;
+  git_auth_configured: boolean;
   auto_pull: boolean;
   auto_push: boolean;
   configured: boolean;
@@ -115,9 +117,13 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
 
   const [cfgUrl, setCfgUrl] = useState("");
   const [cfgBranch, setCfgBranch] = useState("main");
+  const [cfgUsername, setCfgUsername] = useState("");
   const [cfgToken, setCfgToken] = useState("");
+  const [cfgAuthConfigured, setCfgAuthConfigured] = useState(false);
   const [cfgAutoPull, setCfgAutoPull] = useState(true);
   const [cfgSaving, setCfgSaving] = useState(false);
+  const [cfgTesting, setCfgTesting] = useState(false);
+  const [cfgTestMsg, setCfgTestMsg] = useState("");
 
   const [newFolder, setNewFolder] = useState("");
   const [newStoreId, setNewStoreId] = useState("");
@@ -211,8 +217,11 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
         const s = await api<SettingsResponse>("/api/atlas-stores/settings");
         setCfgUrl(s.repo_url ?? "");
         setCfgBranch(s.branch ?? "main");
+        setCfgUsername(s.git_username ?? "");
+        setCfgAuthConfigured(Boolean(s.git_auth_configured));
         setCfgAutoPull(Boolean(s.auto_pull));
         setCfgToken("");
+        setCfgTestMsg("");
       } catch {
         /* ignore */
       }
@@ -228,17 +237,51 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
         body: JSON.stringify({
           repo_url: cfgUrl.trim(),
           branch: cfgBranch.trim(),
+          git_username: cfgUsername.trim(),
           git_token: cfgToken.trim(),
           auto_pull: cfgAutoPull,
           auto_push: true,
         }),
       });
+      setCfgAuthConfigured(Boolean(cfgToken.trim()) || cfgAuthConfigured);
+      setCfgToken("");
+      setCfgTestMsg("");
       setSettingsOpen(false);
       await loadStores();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar conexión.");
     } finally {
       setCfgSaving(false);
+    }
+  }
+
+  async function onTestGitConnection() {
+    setCfgTesting(true);
+    setCfgTestMsg("");
+    setError("");
+    try {
+      if (cfgToken.trim() || cfgUsername.trim() || cfgUrl.trim() !== repoUrl) {
+        await api("/api/atlas-stores/settings", {
+          method: "POST",
+          body: JSON.stringify({
+            repo_url: cfgUrl.trim(),
+            branch: cfgBranch.trim(),
+            git_username: cfgUsername.trim(),
+            git_token: cfgToken.trim(),
+            auto_pull: cfgAutoPull,
+            auto_push: true,
+          }),
+        });
+        if (cfgToken.trim()) setCfgAuthConfigured(true);
+        setCfgToken("");
+      }
+      const r = await api<{ message: string }>("/api/atlas-stores/settings/test", { method: "POST" });
+      setCfgTestMsg(r.message ?? "Conexión correcta.");
+    } catch (e) {
+      setCfgTestMsg("");
+      setError(e instanceof Error ? e.message : "Error al probar la conexión Git.");
+    } finally {
+      setCfgTesting(false);
     }
   }
 
@@ -509,21 +552,63 @@ export function AtlasStoresView({ canAdmin, canEdit }: Props) {
               <input value={cfgBranch} onChange={(e) => setCfgBranch(e.target.value)} className={inputClass} />
             </label>
             <label className="block text-xs text-zinc-400">
-              Token Git (opcional)
-              <input type="password" value={cfgToken} onChange={(e) => setCfgToken(e.target.value)} className={inputClass} placeholder="Dejar vacío para no cambiar" />
+              Usuario Git (opcional)
+              <input
+                value={cfgUsername}
+                onChange={(e) => setCfgUsername(e.target.value)}
+                className={inputClass}
+                placeholder="Azure DevOps: vacío o cualquier texto"
+                autoComplete="username"
+              />
             </label>
+            <label className="block text-xs text-zinc-400 sm:col-span-2">
+              Token / PAT
+              <input
+                type="password"
+                value={cfgToken}
+                onChange={(e) => setCfgToken(e.target.value)}
+                className={inputClass}
+                placeholder={cfgAuthConfigured ? "Dejar vacío para no cambiar el token guardado" : "Personal Access Token con lectura y escritura en el repo"}
+                autoComplete="new-password"
+              />
+            </label>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+            <span
+              className={`rounded-full px-2 py-0.5 ring-1 ${
+                cfgAuthConfigured
+                  ? "bg-emerald-950/50 text-emerald-200 ring-emerald-500/30"
+                  : "bg-amber-950/40 text-amber-100 ring-amber-500/30"
+              }`}
+            >
+              {cfgAuthConfigured ? "Token configurado" : "Sin token — no podrás publicar en repos privados"}
+            </span>
           </div>
           <label className="mt-2 flex items-center gap-2 text-xs text-zinc-400">
             <input type="checkbox" checked={cfgAutoPull} onChange={(e) => setCfgAutoPull(e.target.checked)} />
             Actualizar al leer (pull)
           </label>
           <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
-            Al crear o guardar una tienda, Atlas hace commit y push a la rama configurada en el remoto (GitHub, Azure DevOps,
-            etc.). El clon en el servidor API solo es un workspace temporal; la fuente de verdad es el repositorio Git.
+            Al crear o guardar una tienda, Atlas hace commit y push a la rama configurada. Necesitas un{" "}
+            <strong className="font-medium text-zinc-400">PAT</strong> con permiso de lectura/escritura en el repo.
+            En <strong className="font-medium text-zinc-400">Azure DevOps</strong> créalo en User settings → Personal
+            access tokens (Code: Read &amp; write). En GitHub usa un fine-grained token con acceso al repo.
           </p>
-          <button type="submit" disabled={cfgSaving} className="mt-3 rounded-lg bg-cf-orange px-4 py-2 text-xs font-medium text-black disabled:opacity-50">
-            {cfgSaving ? "Guardando…" : "Guardar conexión"}
-          </button>
+          {cfgTestMsg ? <p className="mt-2 text-xs text-emerald-300">{cfgTestMsg}</p> : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={cfgTesting || !cfgUrl.trim()}
+              onClick={() => void onTestGitConnection()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-800 px-4 py-2 text-xs font-medium text-zinc-200 ring-1 ring-zinc-600 hover:bg-zinc-700 disabled:opacity-50"
+            >
+              {cfgTesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              Probar conexión Git
+            </button>
+            <button type="submit" disabled={cfgSaving} className="rounded-lg bg-cf-orange px-4 py-2 text-xs font-medium text-black disabled:opacity-50">
+              {cfgSaving ? "Guardando…" : "Guardar conexión"}
+            </button>
+          </div>
         </form>
       ) : null}
 

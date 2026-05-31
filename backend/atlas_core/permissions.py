@@ -92,8 +92,8 @@ PERMISSION_GROUPS: list[dict[str, Any]] = [
         "label": "Tiendas (Git)",
         "permissions": [
             {"id": PERM_STORES_READ, "label": "Consultar tiendas"},
-            {"id": PERM_STORES_WRITE, "label": "Editar YAML y sincronizar"},
-            {"id": PERM_STORES_CONFIGURE, "label": "Configuración del módulo tiendas"},
+            {"id": PERM_STORES_WRITE, "label": "Editar, sincronizar Git y publicar fleets"},
+            {"id": PERM_STORES_CONFIGURE, "label": "Configuración avanzada del módulo tiendas"},
         ],
     },
 ]
