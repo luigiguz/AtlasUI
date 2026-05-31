@@ -111,6 +111,12 @@ const tagInputClass =
 
 const CLUSTERS_CACHE_MS = 60_000;
 
+const STORE_FLEET_PUBLISH_SUCCESS = {
+  title: "Configuración enviada",
+  message:
+    "Fleet aplicará los cambios en Rancher en breve. Espera unos minutos hasta que el equipo sincronice; puedes revisar el progreso en Equipos o Contenedores.",
+} as const;
+
 function gitChangeBadgeClass(status: string): string {
   if (status === "unmerged") return "bg-rose-950/60 text-rose-200 ring-rose-500/30";
   if (status === "deleted") return "bg-zinc-800 text-zinc-300 ring-zinc-600/40";
@@ -590,7 +596,9 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       if (r.pendingApproval) {
         setPublishResultAlert({
           title: "Solicitud enviada",
-          message: r.message ?? "Un administrador debe aprobar los cambios antes de publicarlos en Git.",
+          message:
+            r.message ??
+            "Un administrador debe aprobar los cambios antes de que Fleet los aplique en el equipo.",
         });
         await loadChangeRequests();
         await loadStores();
@@ -604,8 +612,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       setDetail(published);
       setDetailBaseline(cloneStoreDetail(published));
       setPublishResultAlert({
-        title: "Cambios publicados",
-        message: r.publishMessage ?? "La configuración se publicó correctamente en el repositorio remoto.",
+        title: STORE_FLEET_PUBLISH_SUCCESS.title,
+        message: STORE_FLEET_PUBLISH_SUCCESS.message,
       });
       await loadStores();
     } catch (e) {
@@ -627,11 +635,11 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   async function onApproveRequest(requestId: number) {
     setRequestActionBusy(true);
     try {
-      const r = await api<{ publishMessage?: string; message?: string }>(
+      await api<{ publishMessage?: string; message?: string }>(
         `/api/atlas-stores/change-requests/${requestId}/approve`,
         { method: "POST", body: JSON.stringify({ review_note: "" }) }
       );
-      setSaveMsg(r.publishMessage ?? r.message ?? "Solicitud aprobada y publicada.");
+      setSaveMsg(STORE_FLEET_PUBLISH_SUCCESS.message);
       setApproveConfirmId(null);
       await loadChangeRequests();
       await loadStores();
@@ -807,7 +815,9 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         await loadStores();
         return;
       }
-      setSaveMsg(r.publishMessage ?? "Tienda creada.");
+      setSaveMsg(
+        "Tienda registrada. Fleet desplegará la configuración en Rancher; espera unos minutos hasta que el equipo sincronice."
+      );
       await loadStores();
       if (r.store) await loadDetail(r.store.folderName);
     } catch (err) {
@@ -1238,7 +1248,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       <AtlasConfirmDialog
         open={approveConfirmId !== null}
         title="Aprobar y publicar"
-        message="Se aplicará el cambio en el repositorio Git y se hará commit/push. Esta acción publica la configuración en el remoto."
+        message="Se aplicará la configuración en el equipo vía Fleet (Rancher). La sincronización puede tardar unos minutos."
         confirmLabel="Aprobar y publicar"
         cancelLabel="Cancelar"
         busy={requestActionBusy}
@@ -1658,8 +1668,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
             {detailHasChanges ? (
               <p>
                 {canApprove
-                  ? "Revisa el resumen antes de hacer commit y push al repositorio remoto."
-                  : "Revisa el resumen antes de enviar la solicitud. Un administrador deberá aprobarla para publicar en Git."}
+                  ? "Revisa el resumen antes de enviar la configuración a Fleet (Rancher)."
+                  : "Revisa el resumen antes de enviar la solicitud. Un administrador deberá aprobarla para que Fleet aplique los cambios."}
               </p>
             ) : (
               <p className="text-amber-200/90">
