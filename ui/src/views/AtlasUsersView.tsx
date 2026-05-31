@@ -1,6 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Loader2,
   Pencil,
   Plus,
   Search,
@@ -13,6 +12,7 @@ import type { AtlasRoleRef, AuthUser } from "../atlasAuth";
 import { api } from "../apiClient";
 import { AtlasAlertDialog } from "../components/AtlasAlertDialog";
 import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
+import { AtlasLoadingSplash } from "../components/AtlasLoadingSplash";
 import { AtlasModalShell } from "../components/AtlasModalFrame";
 
 type ListedUser = {
@@ -393,10 +393,7 @@ export function AtlasUsersView({ me }: Props) {
         {loadErr ? (
           <p className="px-4 py-6 text-sm text-rose-300">{loadErr}</p>
         ) : loading ? (
-          <div className="flex justify-center gap-2 py-16 text-sm text-zinc-500">
-            <Loader2 className="h-5 w-5 animate-spin text-cf-orange" />
-            Cargando…
-          </div>
+          <AtlasLoadingSplash message="Cargando usuarios…" minHeight="min-h-[280px]" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[44rem] text-left text-sm">

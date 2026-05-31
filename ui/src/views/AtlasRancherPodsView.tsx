@@ -20,6 +20,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../apiClient";
+import { AtlasLoadingSplash } from "../components/AtlasLoadingSplash";
 import { AtlasModalShell } from "../components/AtlasModalFrame";
 import { PodLogsPanel } from "../components/PodLogsPanel";
 import { normalizeApplication, normalizeDistro, normalizeState } from "../rancherLabels";
@@ -893,10 +894,11 @@ function ClusterContainersPanel({
 
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center gap-2 p-12 text-sm text-zinc-500">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Cargando contenedores…
-      </div>
+      <AtlasLoadingSplash
+        className="min-h-0 flex-1"
+        message="Cargando contenedores…"
+        minHeight="min-h-[min(50vh,24rem)]"
+      />
     );
   }
 
@@ -1277,10 +1279,7 @@ export function AtlasRancherPodsView({
       ) : null}
 
       {loading && clusters.length === 0 ? (
-        <div className="flex items-center justify-center gap-2 p-12 text-sm text-zinc-500">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Cargando…
-        </div>
+        <AtlasLoadingSplash message="Cargando tiendas…" minHeight="min-h-[320px]" />
       ) : !rancherConfigured ? (
         <div className="rounded-xl border border-cf-line/70 bg-[#111418]/90 p-10 text-center text-sm text-zinc-500">
           <Server className="mx-auto mb-2 h-8 w-8 text-zinc-600" strokeWidth={1.25} />

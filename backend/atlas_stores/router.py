@@ -459,7 +459,7 @@ def get_store_detail(
 ) -> dict[str, Any]:
     settings = load_stores_settings()
     try:
-        root = _stores_repo_root(settings, user)
+        root = _stores_repo_root(settings, user, pull=False)
         store = load_store(root, folder_name)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

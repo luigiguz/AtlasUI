@@ -5,7 +5,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
-  Loader2,
   Pencil,
   PlusCircle,
   Search,
@@ -45,6 +44,7 @@ import {
 import type { AtlasRouteId } from "./atlasNav";
 import { AtlasConfirmDialog } from "./components/AtlasConfirmDialog";
 import { AuthLoginPanel } from "./components/AuthLoginPanel";
+import { AtlasLoadingSplash } from "./components/AtlasLoadingSplash";
 import { AtlasShell } from "./components/AtlasShell";
 import { PoweredByVerkkutech } from "./components/PoweredByVerkkutech";
 import {
@@ -639,11 +639,7 @@ export default function App() {
 
   if (sshPopoutSite) {
     if (authPhase === "loading") {
-      return (
-        <div className="flex min-h-screen items-center justify-center bg-[#070708] text-zinc-400">
-          <Loader2 className="h-10 w-10 animate-spin text-cf-orange" aria-hidden />
-        </div>
-      );
+      return <AtlasLoadingSplash fullscreen message="Iniciando Atlas…" />;
     }
     if (authPhase === "login") {
       return (
@@ -657,21 +653,13 @@ export default function App() {
       );
     }
     if (!me) {
-      return (
-        <div className="flex min-h-screen items-center justify-center bg-[#070708] text-zinc-400">
-          <Loader2 className="h-10 w-10 animate-spin text-cf-orange" aria-hidden />
-        </div>
-      );
+      return <AtlasLoadingSplash fullscreen message="Iniciando Atlas…" />;
     }
     return <SshWebPopoutApp site={sshPopoutSite} dockSessionId={sshPopoutDockSessionId} />;
   }
 
   if (authPhase === "loading") {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-cf-ink text-zinc-400">
-        <Loader2 className="h-10 w-10 animate-spin text-cf-orange" aria-hidden />
-      </div>
-    );
+    return <AtlasLoadingSplash fullscreen message="Iniciando Atlas…" />;
   }
   if (authPhase === "login") {
     return (
@@ -685,11 +673,7 @@ export default function App() {
     );
   }
   if (!me) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-cf-ink text-zinc-400">
-        <Loader2 className="h-10 w-10 animate-spin text-cf-orange" aria-hidden />
-      </div>
-    );
+    return <AtlasLoadingSplash fullscreen message="Iniciando Atlas…" />;
   }
 
   const canOperate = hasPermission(me, PERM_VPN_OPERATE);

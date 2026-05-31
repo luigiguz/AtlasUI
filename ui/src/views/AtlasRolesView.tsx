@@ -12,6 +12,7 @@ import {
 import { api } from "../apiClient";
 import { AtlasAlertDialog } from "../components/AtlasAlertDialog";
 import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
+import { AtlasLoadingSplash } from "../components/AtlasLoadingSplash";
 import { AtlasModalShell } from "../components/AtlasModalFrame";
 
 type RoleRow = {
@@ -265,10 +266,7 @@ export function AtlasRolesView({ me }: Props) {
 
       <div className="overflow-hidden rounded-2xl border border-cf-line bg-cf-card/90 ring-1 ring-white/[0.03]">
         {loading ? (
-          <div className="flex items-center justify-center gap-2 py-16 text-sm text-zinc-500">
-            <Loader2 className="h-5 w-5 animate-spin text-cf-orange" />
-            Cargando roles…
-          </div>
+          <AtlasLoadingSplash message="Cargando roles…" minHeight="min-h-[280px]" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[40rem] text-left text-sm">

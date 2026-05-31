@@ -1,7 +1,6 @@
 import {
   ChevronUp,
   Download,
-  Loader2,
   Pause,
   Play,
   ScrollText,
@@ -13,6 +12,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiUrl, bearerHeaders } from "../apiClient";
+import { AtlasLoadingSplash } from "./AtlasLoadingSplash";
 import { AtlasModalShell } from "./AtlasModalFrame";
 import type { RancherCustomCluster, RancherPod } from "../rancherTypes";
 
@@ -436,10 +436,7 @@ export function PodLogsPanel({ cluster, serviceName, pods, onClose }: Props) {
           }}
         >
           {loading && !logs ? (
-            <div className="flex items-center gap-2 text-sm text-zinc-500">
-              <Loader2 className="h-4 w-4 animate-spin text-cf-orange" />
-              Cargando logs…
-            </div>
+            <AtlasLoadingSplash compact message="Cargando logs…" className="min-h-full" minHeight="min-h-full" />
           ) : error ? (
             <p className="text-sm text-rose-300">{error}</p>
           ) : displayedLogs ? (

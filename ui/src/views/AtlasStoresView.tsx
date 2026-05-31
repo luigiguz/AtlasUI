@@ -1,11 +1,12 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, ChevronLeft, Clock, GitBranch, Loader2, Plus, RefreshCw, Save, Search, Server, Store, Trash2, Upload, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Clock, GitBranch, Loader2, Plus, RefreshCw, Save, Search, Server, Store, Trash2, Upload, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { api } from "../apiClient";
 import type { ClustersResponse, RancherCustomCluster } from "../rancherTypes";
 import { AtlasAlertDialog } from "../components/AtlasAlertDialog";
 import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
+import { AtlasLoadingSplash } from "../components/AtlasLoadingSplash";
 import { AtlasModalShell } from "../components/AtlasModalFrame";
 import { AtlasPromptDialog } from "../components/AtlasPromptDialog";
 import { STORE_IMAGE_PULL_POLICIES } from "../storeTypes";
@@ -108,6 +109,8 @@ function disableAllIerpWorkers(detail: StoreDetail): StoreDetail {
 const tagInputClass =
   "w-28 min-w-0 rounded border border-cf-line bg-black/50 px-1.5 py-0.5 text-[11px] text-zinc-200 outline-none focus:border-cf-orange/50";
 
+const CLUSTERS_CACHE_MS = 60_000;
+
 function gitChangeBadgeClass(status: string): string {
   if (status === "unmerged") return "bg-rose-950/60 text-rose-200 ring-rose-500/30";
   if (status === "deleted") return "bg-zinc-800 text-zinc-300 ring-zinc-600/40";
@@ -199,6 +202,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const [detail, setDetail] = useState<StoreDetail | null>(null);
   const [detailBaseline, setDetailBaseline] = useState<StoreDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [equipmentLoading, setEquipmentLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
@@ -249,6 +253,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const [approveConfirmId, setApproveConfirmId] = useState<number | null>(null);
   const [rejectRequestId, setRejectRequestId] = useState<number | null>(null);
   const [requestActionBusy, setRequestActionBusy] = useState(false);
+
+  const clustersCacheRef = useRef<{ clusters: RancherCustomCluster[]; at: number } | null>(null);
 
   const createTemplateHint = useMemo(() => {
     const stack = newDistro === "pam" ? "pam" : "horustech";
@@ -334,9 +340,36 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     }
   }, [loadGitStatus, loadChangeRequests]);
 
+  const resolveEquipmentForStore = useCallback(async (storeId: string) => {
+    setEquipmentLoading(true);
+    try {
+      const now = Date.now();
+      let clusters: RancherCustomCluster[] = clustersCacheRef.current?.clusters ?? [];
+      if (!clustersCacheRef.current || now - clustersCacheRef.current.at > CLUSTERS_CACHE_MS) {
+        const data = await api<ClustersResponse>("/api/atlas-rancher/custom-clusters");
+        clusters = data.clusters ?? [];
+        clustersCacheRef.current = { clusters, at: now };
+      }
+      const match = clusters.find((c) => (c.store || "").toLowerCase() === storeId.toLowerCase());
+      setEquipment(match ?? null);
+    } catch {
+      setEquipment(null);
+    } finally {
+      setEquipmentLoading(false);
+    }
+  }, []);
+
   const loadDetail = useCallback(async (folder: string) => {
     setDetailLoading(true);
+    setEquipmentLoading(true);
     setSaveMsg("");
+    setSelectedFolder(folder);
+    setViewMode("detail");
+    setDetail(null);
+    setDetailBaseline(null);
+    setEquipment(null);
+    setServiceFilter("");
+    setPublishConfirmOpen(false);
     try {
       const r = await api<{ ok: boolean; store: StoreDetail }>(
         `/api/atlas-stores/stores/${encodeURIComponent(folder)}`
@@ -344,27 +377,16 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       const loaded = cloneStoreDetail(r.store);
       setDetail(loaded);
       setDetailBaseline(cloneStoreDetail(loaded));
-      setSelectedFolder(folder);
-      setViewMode("detail");
-      setServiceFilter("");
-
-      try {
-        const clusters = await api<ClustersResponse>("/api/atlas-rancher/custom-clusters");
-        const match = (clusters.clusters ?? []).find(
-          (c) => (c.store || "").toLowerCase() === (r.store.id || "").toLowerCase()
-        );
-        setEquipment(match ?? null);
-      } catch {
-        setEquipment(null);
-      }
+      void resolveEquipmentForStore(r.store.id || folder);
     } catch (e) {
       setDetail(null);
+      setEquipmentLoading(false);
       setError(e instanceof Error ? e.message : "No se pudo cargar la tienda.");
       goBackToList();
     } finally {
       setDetailLoading(false);
     }
-  }, []);
+  }, [resolveEquipmentForStore]);
 
   useEffect(() => {
     void loadStores();
@@ -846,6 +868,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     setDetailBaseline(null);
     setServiceFilter("");
     setEquipment(null);
+    setEquipmentLoading(false);
     setPublishConfirmOpen(false);
   }
 
@@ -873,6 +896,9 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
           <p className="text-xs text-zinc-500">
             Configura qué software se despliega en cada tienda. Al publicar, se actualiza el repositorio y el
             despliegue automático lo aplica en el equipo.
+          </p>
+          <p className="mt-1 text-[11px] text-zinc-600">
+            Haz clic en una tienda para abrir su ficha y gestionar servicios, tags y despliegue.
           </p>
           {repoUrl ? <p className="mt-1 truncate text-[11px] text-zinc-600">{repoUrl}</p> : null}
         </div>
@@ -1281,10 +1307,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
 
       <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90">
           {loading ? (
-            <div className="flex items-center justify-center gap-2 p-10 text-sm text-zinc-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Cargando tiendas…
-            </div>
+            <AtlasLoadingSplash message="Cargando tiendas…" minHeight="min-h-[280px]" />
           ) : sortedStores.length === 0 ? (
             <div className="p-10 text-center text-sm text-zinc-500">
               <Store className="mx-auto mb-2 h-8 w-8 text-zinc-600" />
@@ -1297,6 +1320,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   <th className="px-4 py-3">Tienda</th>
                   <th className="px-4 py-3">Distribución</th>
                   <th className="px-4 py-3">Tag (versión)</th>
+                  <th className="hidden px-4 py-3 text-right sm:table-cell" aria-hidden />
                 </tr>
               </thead>
               <tbody>
@@ -1304,19 +1328,28 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   <tr
                     key={s.folderName}
                     onClick={() => openStore(s.folderName)}
-                    className="cursor-pointer border-b border-cf-line/30 hover:bg-white/[0.02]"
+                    className="group cursor-pointer border-b border-cf-line/30 transition-colors hover:bg-cf-orange/[0.04] hover:border-cf-orange/20"
                   >
-                    <td className="px-4 py-3 font-medium text-zinc-200">
+                    <td className="px-4 py-3 font-medium text-zinc-200 group-hover:text-zinc-100">
                       {s.id}
                       {pendingFolders.includes(s.folderName) ? (
                         <span className="ml-2 rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-normal text-sky-300 ring-1 ring-sky-500/25">
                           pendiente
                         </span>
                       ) : null}
+                      <span className="mt-0.5 block text-[10px] font-normal text-zinc-600 group-hover:text-zinc-500 sm:hidden">
+                        Toca para gestionar
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-zinc-400">{distroLabel(s.distro)}</td>
                     <td className="px-4 py-3 text-zinc-500" title="Resumen; cada servicio puede tener otro tag en la ficha">
                       {s.imageChannel || "—"}
+                    </td>
+                    <td className="hidden px-4 py-3 text-right sm:table-cell">
+                      <span className="inline-flex items-center gap-1 rounded-lg border border-transparent px-2 py-1 text-xs text-zinc-500 transition-colors group-hover:border-cf-orange/30 group-hover:bg-cf-orange/10 group-hover:text-cf-orange">
+                        Gestionar
+                        <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -1359,17 +1392,19 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
             ) : null}
           </div>
 
-          <div className="rounded-xl border border-cf-line/70 bg-[#111418]/90 p-4 sm:p-6">
+          <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90">
           {detailLoading || !detail ? (
-            <div className="flex items-center justify-center gap-2 py-16 text-sm text-zinc-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Cargando ficha…
-            </div>
+            <AtlasLoadingSplash message={`Cargando ficha de ${selectedFolder ?? "tienda"}…`} />
           ) : (
-            <div className="flex flex-col gap-5">
+            <div className="flex flex-col gap-5 p-4 sm:p-6">
               <section>
                 <h3 className="text-xs font-medium uppercase text-zinc-500">Equipo vinculado</h3>
-                {equipment ? (
+                {equipmentLoading ? (
+                  <p className="mt-1 inline-flex items-center gap-2 text-sm text-zinc-500">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                    Buscando equipo en Rancher…
+                  </p>
+                ) : equipment ? (
                   <p className="mt-1 text-sm text-zinc-300">
                     <Server className="mr-1 inline h-3.5 w-3.5" />
                     {equipment.displayName || equipment.name} —{" "}

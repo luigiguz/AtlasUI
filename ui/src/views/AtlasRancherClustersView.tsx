@@ -26,6 +26,7 @@ import {
 } from "react";
 
 import { api } from "../apiClient";
+import { AtlasLoadingSplash } from "../components/AtlasLoadingSplash";
 import { AtlasModalShell } from "../components/AtlasModalFrame";
 import {
   isPosliteApplication,
@@ -1013,10 +1014,7 @@ export function AtlasRancherClustersView({
           className="overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90 ring-1 ring-white/[0.03]"
         >
           {loading && clusters.length === 0 ? (
-            <div className="flex items-center justify-center gap-2 p-12 text-sm text-zinc-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Cargando clusters…
-            </div>
+            <AtlasLoadingSplash message="Cargando equipos…" minHeight="min-h-[320px]" />
           ) : clusters.length === 0 && !error ? (
             <motion.div layout className="p-10 text-center text-sm text-zinc-500">
               <Server className="mx-auto mb-2 h-8 w-8 text-zinc-600" strokeWidth={1.25} />
