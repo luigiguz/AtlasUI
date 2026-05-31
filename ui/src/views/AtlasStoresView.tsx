@@ -1,9 +1,10 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, CheckCircle2, ChevronLeft, Clock, GitBranch, Loader2, Plus, RefreshCw, Save, Search, Server, Store, Trash2, Upload, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
 import { api } from "../apiClient";
 import type { ClustersResponse, RancherCustomCluster } from "../rancherTypes";
+import { AtlasAlertDialog } from "../components/AtlasAlertDialog";
 import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
 import { AtlasModalShell } from "../components/AtlasModalFrame";
 import { AtlasPromptDialog } from "../components/AtlasPromptDialog";
@@ -115,6 +116,76 @@ function gitChangeBadgeClass(status: string): string {
   return "bg-sky-950/40 text-sky-200 ring-sky-500/30";
 }
 
+function cloneStoreDetail(d: StoreDetail): StoreDetail {
+  return JSON.parse(JSON.stringify(d)) as StoreDetail;
+}
+
+function computeStoreChangeLines(baseline: StoreDetail, current: StoreDetail): string[] {
+  const lines: string[] = [];
+  if (baseline.id !== current.id) {
+    lines.push(`Código tienda: ${baseline.id} → ${current.id}`);
+  }
+  if (Boolean(baseline.db?.pgadminEnabled) !== Boolean(current.db?.pgadminEnabled)) {
+    lines.push(`PgAdmin: ${current.db?.pgadminEnabled ? "activado" : "desactivado"}`);
+  }
+  const basePolicy = baseline.station?.pullPolicy ?? "IfNotPresent";
+  const curPolicy = current.station?.pullPolicy ?? "IfNotPresent";
+  if (basePolicy !== curPolicy) {
+    lines.push(`Pull policy: ${basePolicy} → ${curPolicy}`);
+  }
+  const baseConfig = (baseline.station?.config ?? {}) as Record<string, unknown>;
+  const curConfig = (current.station?.config ?? {}) as Record<string, unknown>;
+  for (const key of new Set([...Object.keys(baseConfig), ...Object.keys(curConfig)])) {
+    const b = String(baseConfig[key] ?? "");
+    const c = String(curConfig[key] ?? "");
+    if (b !== c) lines.push(`Config ${key}: ${b || "—"} → ${c || "—"}`);
+  }
+  const baseSvc = new Map((baseline.station?.services ?? []).map((s) => [s.key, s]));
+  for (const svc of current.station?.services ?? []) {
+    const prev = baseSvc.get(svc.key);
+    if (!prev) {
+      lines.push(`Servicio ${svc.key}: nuevo (${svc.enabled ? "on" : "off"}, tag ${svc.tag || "—"})`);
+      continue;
+    }
+    if (prev.enabled !== svc.enabled) {
+      lines.push(`Servicio ${svc.key}: ${svc.enabled ? "activado" : "desactivado"}`);
+    }
+    if (prev.tag !== svc.tag) {
+      lines.push(`Servicio ${svc.key} tag: ${prev.tag || "—"} → ${svc.tag || "—"}`);
+    }
+  }
+  const baseWrk = new Map(
+    flattenWorkerGroups(workerGroupsFromStation(baseline.station)).map((w) => [w.key, w])
+  );
+  for (const wrk of flattenWorkerGroups(workerGroupsFromStation(current.station))) {
+    const prev = baseWrk.get(wrk.key);
+    if (!prev) continue;
+    const label = wrk.key.startsWith("ierp.") ? wrk.key.slice(5) : wrk.key;
+    if (prev.enabled !== wrk.enabled) {
+      lines.push(`Proceso ${label}: ${wrk.enabled ? "activado" : "desactivado"}`);
+    }
+    if (prev.tag !== wrk.tag) {
+      lines.push(`Proceso ${label} tag: ${prev.tag || "—"} → ${wrk.tag || "—"}`);
+    }
+  }
+  return lines;
+}
+
+function PublishChangeSummary({ lines }: { lines: string[] }) {
+  return (
+    <div className="space-y-3">
+      <ul className="max-h-52 space-y-1.5 overflow-y-auto rounded-lg border border-cf-line/50 bg-black/25 px-3 py-2.5 text-xs text-zinc-300">
+        {lines.map((line) => (
+          <li key={line} className="leading-relaxed">
+            {line}
+          </li>
+        ))}
+      </ul>
+      <p className="text-[11px] text-zinc-500">{lines.length} cambio(s) respecto a la versión cargada.</p>
+    </div>
+  );
+}
+
 export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const [stores, setStores] = useState<StoreSummary[]>([]);
   const [configured, setConfigured] = useState(false);
@@ -126,9 +197,14 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const [viewMode, setViewMode] = useState<StoresViewMode>("list");
   const [serviceFilter, setServiceFilter] = useState("");
   const [detail, setDetail] = useState<StoreDetail | null>(null);
+  const [detailBaseline, setDetailBaseline] = useState<StoreDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
+  const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
+  const [publishResultAlert, setPublishResultAlert] = useState<{ title: string; message: ReactNode } | null>(
+    null
+  );
   const [equipment, setEquipment] = useState<RancherCustomCluster | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -192,6 +268,13 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     }
     return `Se copiará ${stationPath} y ${dbPath}, sustituyendo <id-tienda> y <tag-imagen> (${newChannel}).`;
   }, [newDistro, newChannel, storeTemplates]);
+
+  const publishChangeLines = useMemo(() => {
+    if (!detail || !detailBaseline) return [];
+    return computeStoreChangeLines(detailBaseline, detail);
+  }, [detail, detailBaseline]);
+
+  const detailHasChanges = publishChangeLines.length > 0;
 
   const loadGitStatus = useCallback(async () => {
     setGitStatusLoading(true);
@@ -259,6 +342,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         `/api/atlas-stores/stores/${encodeURIComponent(folder)}`
       );
       setDetail(r.store);
+      setDetailBaseline(cloneStoreDetail(r.store));
       setSelectedFolder(folder);
       setViewMode("detail");
       setServiceFilter("");
@@ -454,10 +538,9 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     };
   }, [discardConfirm, gitStatus?.branch]);
 
-  async function onSaveDetail() {
+  async function executePublishDetail() {
     if (!detail || !selectedFolder || !canEdit) return;
     setSaving(true);
-    setSaveMsg("");
     try {
       const r = await api<{
         publishMessage?: string;
@@ -480,20 +563,42 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
           commit_message: `Atlas: configuración tienda ${detail.id}`,
         }),
       });
+      setPublishConfirmOpen(false);
       if (r.pendingApproval) {
-        setSaveMsg(r.message ?? "Solicitud enviada para aprobación.");
+        setPublishResultAlert({
+          title: "Solicitud enviada",
+          message: r.message ?? "Un administrador debe aprobar los cambios antes de publicarlos en Git.",
+        });
         await loadChangeRequests();
         await loadStores();
+        if (r.store) {
+          setDetail(r.store);
+          setDetailBaseline(cloneStoreDetail(r.store));
+        }
         return;
       }
-      if (r.store) setDetail(r.store);
-      setSaveMsg(r.publishMessage ?? "Cambios publicados.");
+      const published = r.store ?? detail;
+      setDetail(published);
+      setDetailBaseline(cloneStoreDetail(published));
+      setPublishResultAlert({
+        title: "Cambios publicados",
+        message: r.publishMessage ?? "La configuración se publicó correctamente en el repositorio remoto.",
+      });
       await loadStores();
     } catch (e) {
-      setSaveMsg(e instanceof Error ? e.message : "Error al guardar.");
+      setPublishConfirmOpen(false);
+      setPublishResultAlert({
+        title: "No se pudo publicar",
+        message: e instanceof Error ? e.message : "Error al guardar la configuración.",
+      });
     } finally {
       setSaving(false);
     }
+  }
+
+  function cancelPublishConfirm() {
+    if (detailBaseline) setDetail(cloneStoreDetail(detailBaseline));
+    setPublishConfirmOpen(false);
   }
 
   async function onApproveRequest(requestId: number) {
@@ -737,8 +842,10 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     setViewMode("list");
     setSelectedFolder(null);
     setDetail(null);
+    setDetailBaseline(null);
     setServiceFilter("");
     setEquipment(null);
+    setPublishConfirmOpen(false);
   }
 
   function openStore(folder: string) {
@@ -1123,6 +1230,38 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         onCancel={() => setRejectRequestId(null)}
       />
 
+      <AtlasConfirmDialog
+        open={publishConfirmOpen}
+        title={canApprove ? "Publicar cambios" : "Enviar para aprobación"}
+        message={
+          <>
+            <p>
+              {canApprove
+                ? "Revisa el resumen antes de hacer commit y push al repositorio remoto."
+                : "Revisa el resumen antes de enviar la solicitud. Un administrador deberá aprobarla para publicar en Git."}
+            </p>
+            <div className="mt-3">
+              <PublishChangeSummary lines={publishChangeLines} />
+            </div>
+            <p className="mt-3 text-[11px] leading-relaxed text-zinc-500">
+              Cancelar descarta los cambios locales y restaura la configuración cargada del servidor.
+            </p>
+          </>
+        }
+        confirmLabel={canApprove ? "Confirmar y publicar" : "Enviar solicitud"}
+        cancelLabel="Cancelar y descartar"
+        busy={saving}
+        onConfirm={() => void executePublishDetail()}
+        onCancel={cancelPublishConfirm}
+      />
+
+      <AtlasAlertDialog
+        open={publishResultAlert !== null}
+        title={publishResultAlert?.title ?? ""}
+        message={publishResultAlert?.message ?? ""}
+        onClose={() => setPublishResultAlert(null)}
+      />
+
       {message && !configured ? (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">{message}</div>
       ) : null}
@@ -1198,17 +1337,16 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
             {canEdit ? (
               <button
                 type="button"
-                onClick={() => void onSaveDetail()}
-                disabled={saving || detailLoading || !detail}
+                onClick={() => setPublishConfirmOpen(true)}
+                disabled={saving || detailLoading || !detail || !detailHasChanges}
                 className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-cf-orange px-3 py-1.5 text-xs font-medium text-black disabled:opacity-50"
+                title={detailHasChanges ? undefined : "No hay cambios respecto a la versión cargada"}
               >
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                 {canApprove ? "Publicar cambios" : "Enviar para aprobación"}
               </button>
             ) : null}
           </div>
-
-          {saveMsg ? <p className="text-xs text-zinc-400">{saveMsg}</p> : null}
 
           <div className="rounded-xl border border-cf-line/70 bg-[#111418]/90 p-4 sm:p-6">
           {detailLoading || !detail ? (
