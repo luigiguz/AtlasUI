@@ -1,4 +1,4 @@
-import { HardDrive, RefreshCw, Terminal } from "lucide-react";
+import { FolderOpen, HardDrive, RefreshCw } from "lucide-react";
 import { motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -65,7 +65,7 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
   const sshReady = Boolean(sshInfo?.available && sshInfo.site);
 
   const sshHint = useMemo(() => {
-    if (sshReady) return "Túnel SSH activo — misma terminal que en Conexiones";
+    if (sshReady) return "Túnel SSH activo — abre el explorador del volumen";
     if (sshInfo?.message) return sshInfo.message;
     return "Espera a que el túnel SSH del equipo esté activo (atlas-tunnels).";
   }, [sshReady, sshInfo?.message]);
@@ -131,7 +131,7 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
 
       {!sshReady ? (
         <div className="mx-4 mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
-          <p className="font-medium">Terminal web no disponible aún</p>
+          <p className="font-medium">Explorador no disponible aún</p>
           <p className="mt-1 text-amber-200/80">{sshHint}</p>
         </div>
       ) : null}
@@ -186,7 +186,7 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
                         disabled={!canOpen}
                         title={
                           canOpen
-                            ? "Terminal web + explorador del volumen (como Conexiones)"
+                            ? "Explorador del PVC a pantalla completa"
                             : !pvc.hostPath
                               ? "Falta ruta hostPath del PVC"
                               : sshHint
@@ -198,8 +198,8 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
                             : "flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-zinc-800/80 px-3 py-2 text-xs font-medium text-zinc-500 ring-1 ring-zinc-700 sm:text-sm"
                         }
                       >
-                        <Terminal className="h-4 w-4" />
-                        Terminal web
+                        <FolderOpen className="h-4 w-4" />
+                        Abrir volumen
                       </motion.button>
                     ) : (
                       <p className="text-center text-xs text-zinc-500">Solo lectura</p>
@@ -214,8 +214,8 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
 
       {canEdit && sshReady ? (
         <p className="shrink-0 border-t border-cf-line/40 px-4 py-2 text-[10px] text-zinc-600">
-          Misma terminal que Conexiones: panel inferior con SSH interactivo y explorador del PVC (editar,
-          permisos, subir/bajar archivos).
+          El panel inferior abre el explorador SFTP del PVC a pantalla completa: editar archivos, permisos y
+          transferencias. No incluye shell SSH (eso sigue en Conexiones).
         </p>
       ) : null}
     </div>
