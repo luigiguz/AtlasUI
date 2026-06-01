@@ -65,6 +65,8 @@ export function sshSessionTabLabel(session: SshWebSession): string {
   return session.site;
 }
 
+export const PVC_VOLUME_EXPLORER_ROOT = "/atlas-platform";
+
 export type OpenPvcVolumeSessionOpts = {
   site: string;
   pvcName: string;
@@ -1756,13 +1758,17 @@ export function WebSshSessionsDock({
     return () => document.removeEventListener("keydown", onKey, true);
   }, [dockMaximized, allMinimized]);
 
+  const prevSessionIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const active = sessions.find((s) => s.id === activeId);
-    if (active?.volume && !allMinimized) {
-      setDockMaximized(true);
-      setSessions((prev) => prev.map((s) => (s.minimized ? { ...s, minimized: false } : s)));
+    const prevIds = prevSessionIdsRef.current;
+    for (const s of sessions) {
+      if (!prevIds.has(s.id) && s.volume) {
+        setDockMaximized(false);
+        break;
+      }
     }
-  }, [activeId, sessions, allMinimized, setSessions]);
+    prevSessionIdsRef.current = new Set(sessions.map((s) => s.id));
+  }, [sessions]);
 
   const closeSession = useCallback(
     (id: string) => {

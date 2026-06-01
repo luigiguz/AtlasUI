@@ -8,8 +8,6 @@ from typing import Any
 
 from atlas_core.paths import SCRIPTS_DIR
 from atlas_rancher.client import (
-    RancherApiError,
-    RancherConfigError,
     rancher_get,
     resolve_custom_cluster_context,
 )
@@ -27,28 +25,7 @@ def _pvc_list_path(mgmt_id: str, k8s_ns: str) -> str:
     return f"k8s/clusters/{mgmt_id}/v1/persistentvolumeclaims/{k8s_ns}?pagesize=500"
 
 
-def _pv_path(mgmt_id: str, pv_name: str) -> str:
-    return f"k8s/clusters/{mgmt_id}/v1/persistentvolumes/{pv_name}"
-
-
-def _pv_host_path(pv: dict[str, Any]) -> str | None:
-    spec = _as_dict(pv.get("spec"))
-    local = _as_dict(spec.get("local"))
-    path = str(local.get("path") or "").strip()
-    if path:
-        return path
-    host = _as_dict(spec.get("hostPath"))
-    path = str(host.get("path") or "").strip()
-    if path:
-        return path
-    csi = _as_dict(spec.get("csi"))
-    handle = str(csi.get("volumeHandle") or "").strip()
-    if handle.startswith("/"):
-        return handle
-    return None
-
-
-def _normalize_pvc(item: dict[str, Any], *, host_path: str | None, pv_name: str | None) -> dict[str, Any]:
+def _normalize_pvc(item: dict[str, Any], *, pv_name: str | None) -> dict[str, Any]:
     meta = _as_dict(item.get("metadata"))
     spec = _as_dict(item.get("spec"))
     status = _as_dict(item.get("status"))
@@ -62,7 +39,6 @@ def _normalize_pvc(item: dict[str, Any], *, host_path: str | None, pv_name: str 
         "phase": str(status.get("phase") or ""),
         "capacity": storage,
         "accessModes": [str(x) for x in (spec.get("accessModes") or []) if x],
-        "hostPath": host_path,
         "createdAt": meta.get("creationTimestamp"),
     }
 
@@ -205,22 +181,12 @@ def list_cluster_persistent_volume_claims(
         elif payload.get("type") and payload.get("metadata"):
             items = [payload]
 
-    pv_cache: dict[str, str | None] = {}
     out: list[dict[str, Any]] = []
     for item in items:
         meta = _as_dict(item.get("metadata"))
         spec = _as_dict(item.get("spec"))
         pv_name = str(spec.get("volumeName") or meta.get("name") or "").strip()
-        host_path: str | None = None
-        if pv_name:
-            if pv_name not in pv_cache:
-                try:
-                    pv = rancher_get(settings, _pv_path(mgmt_id, pv_name))
-                    pv_cache[pv_name] = _pv_host_path(pv) if isinstance(pv, dict) else None
-                except RancherApiError:
-                    pv_cache[pv_name] = None
-            host_path = pv_cache[pv_name]
-        out.append(_normalize_pvc(item, host_path=host_path, pv_name=pv_name or None))
+        out.append(_normalize_pvc(item, pv_name=pv_name or None))
 
     out.sort(key=lambda x: x.get("name") or "")
     site_key, ssh_err = resolve_cluster_vpn_site(

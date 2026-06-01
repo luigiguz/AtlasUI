@@ -1,10 +1,9 @@
 import { FolderOpen, HardDrive, RefreshCw } from "lucide-react";
-import { motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "../apiClient";
 import { AtlasLoadingSplash } from "./AtlasLoadingSplash";
-import type { OpenPvcVolumeSessionOpts } from "../WebSshSessionsDock";
+import { PVC_VOLUME_EXPLORER_ROOT, type OpenPvcVolumeSessionOpts } from "../WebSshSessionsDock";
 import type { PvcsResponse, RancherCustomCluster, RancherPersistentVolumeClaim } from "../rancherTypes";
 
 type Props = {
@@ -72,11 +71,11 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
 
   const openVolume = useCallback(
     (pvc: RancherPersistentVolumeClaim) => {
-      if (!canEdit || !onOpenVolumeTerminal || !sshInfo?.site || !pvc.hostPath) return;
+      if (!canEdit || !onOpenVolumeTerminal || !sshInfo?.site) return;
       onOpenVolumeTerminal({
         site: sshInfo.site,
         pvcName: pvc.name,
-        startPath: pvc.hostPath,
+        startPath: PVC_VOLUME_EXPLORER_ROOT,
         tunnelLabel: vpnTunnelLabel,
       });
     },
@@ -136,86 +135,76 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto p-3">
+      <div className="min-h-0 flex-1 overflow-auto">
         {pvcs.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-zinc-500">
             <HardDrive className="h-8 w-8 text-zinc-600" strokeWidth={1.25} />
             No hay PVC en el namespace de esta tienda.
           </div>
         ) : (
-          <div className="grid auto-rows-min gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {pvcs.map((pvc) => {
-              const canOpen = Boolean(canEdit && pvc.hostPath && sshReady && onOpenVolumeTerminal);
-              return (
-                <motion.div
-                  key={pvc.name}
-                  layout
-                  className="flex flex-col overflow-hidden rounded-2xl border border-cf-line bg-cf-card/90 ring-1 ring-transparent hover:border-zinc-600 hover:bg-cf-card"
-                >
-                  <div className="flex items-start gap-3 p-4">
-                    <div
-                      className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${
-                        sshReady ? "bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.65)]" : "bg-zinc-600"
-                      }`}
-                      aria-hidden
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold tracking-tight text-zinc-100">{pvc.name}</p>
-                      <p className={`mt-1 text-[11px] ${phaseTone(pvc.phase)}`}>{pvc.phase || "—"}</p>
-                      <p className="mt-1 text-[11px] text-zinc-500">
-                        {pvc.storageClassName || "—"} · {pvc.capacity || "—"}
-                      </p>
-                      {pvc.hostPath ? (
-                        <p
-                          className="mt-2 truncate font-mono text-[10px] text-zinc-600"
-                          title={pvc.hostPath}
-                        >
-                          {pvc.hostPath}
-                        </p>
-                      ) : (
-                        <p className="mt-2 text-[10px] text-amber-400/90">Sin ruta en nodo</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="border-t border-white/5 px-4 py-3">
-                    {canEdit ? (
-                      <motion.button
-                        type="button"
-                        whileHover={canOpen ? { scale: 1.02 } : undefined}
-                        whileTap={canOpen ? { scale: 0.98 } : undefined}
-                        disabled={!canOpen}
-                        title={
-                          canOpen
-                            ? "Explorador del PVC a pantalla completa"
-                            : !pvc.hostPath
-                              ? "Falta ruta hostPath del PVC"
-                              : sshHint
-                        }
-                        onClick={() => canOpen && openVolume(pvc)}
-                        className={
-                          canOpen
-                            ? "flex w-full items-center justify-center gap-2 rounded-lg bg-cf-orange px-3 py-2 text-xs font-semibold text-black shadow-md sm:text-sm"
-                            : "flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg bg-zinc-800/80 px-3 py-2 text-xs font-medium text-zinc-500 ring-1 ring-zinc-700 sm:text-sm"
-                        }
-                      >
-                        <FolderOpen className="h-4 w-4" />
-                        Abrir volumen
-                      </motion.button>
-                    ) : (
-                      <p className="text-center text-xs text-zinc-500">Solo lectura</p>
-                    )}
-                  </div>
-                </motion.div>
-              );
-            })}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-cf-line/60 text-xs uppercase tracking-wide text-zinc-500">
+                  <th className="px-4 py-3 font-medium">Nombre</th>
+                  <th className="px-4 py-3 font-medium">Estado</th>
+                  <th className="px-4 py-3 font-medium">Clase</th>
+                  <th className="px-4 py-3 font-medium">Capacidad</th>
+                  {canEdit ? (
+                    <th className="px-4 py-3 text-right font-medium">Acción</th>
+                  ) : null}
+                </tr>
+              </thead>
+              <tbody>
+                {pvcs.map((pvc) => {
+                  const canOpen = Boolean(canEdit && sshReady && onOpenVolumeTerminal);
+                  return (
+                    <tr
+                      key={pvc.name}
+                      className="border-b border-cf-line/40 hover:bg-white/[0.02]"
+                    >
+                      <td className="px-4 py-3">
+                        <span className="font-medium text-zinc-100">{pvc.name}</span>
+                      </td>
+                      <td className={`px-4 py-3 ${phaseTone(pvc.phase)}`}>{pvc.phase || "—"}</td>
+                      <td className="px-4 py-3 text-zinc-400">{pvc.storageClassName || "—"}</td>
+                      <td className="px-4 py-3 tabular-nums text-zinc-400">{pvc.capacity || "—"}</td>
+                      {canEdit ? (
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            disabled={!canOpen}
+                            title={
+                              canOpen
+                                ? `Abrir explorador en ${PVC_VOLUME_EXPLORER_ROOT}`
+                                : sshHint
+                            }
+                            onClick={() => canOpen && openVolume(pvc)}
+                            className={
+                              canOpen
+                                ? "inline-flex items-center gap-1.5 rounded-lg bg-cf-orange px-3 py-1.5 text-xs font-semibold text-black shadow-sm hover:bg-cf-orange/90"
+                                : "inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg bg-zinc-800/80 px-3 py-1.5 text-xs font-medium text-zinc-500 ring-1 ring-zinc-700"
+                            }
+                          >
+                            <FolderOpen className="h-3.5 w-3.5" aria-hidden />
+                            Abrir volumen
+                          </button>
+                        </td>
+                      ) : null}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
 
       {canEdit && sshReady ? (
         <p className="shrink-0 border-t border-cf-line/40 px-4 py-2 text-[10px] text-zinc-600">
-          El panel inferior pide la contraseña SSH en la terminal (como Conexiones) si hace falta; después abre
-          el explorador SFTP del PVC a pantalla completa.
+          El explorador abre en{" "}
+          <span className="font-mono text-zinc-500">{PVC_VOLUME_EXPLORER_ROOT}</span>. Arrastra el borde
+          superior del panel inferior para ajustar la altura (como en Conexiones).
         </p>
       ) : null}
     </div>

@@ -27,7 +27,7 @@ type Props = {
 
 type Phase = "checking" | "auth" | "explorer";
 
-/** Panel del dock para editar un PVC: auth por terminal, luego explorador SFTP a pantalla completa. */
+/** Panel del dock para editar un PVC: auth por terminal, luego explorador SFTP. */
 export function PvcVolumeSessionPane({
   site,
   visible,
@@ -89,7 +89,9 @@ export function PvcVolumeSessionPane({
         <HardDrive className="h-4 w-4 shrink-0 text-cf-orange" aria-hidden />
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-semibold text-zinc-100">{volumeContext.pvcName}</p>
-          <p className="truncate font-mono text-[10px] text-zinc-500">{volumeContext.startPath}</p>
+          {volumeContext.tunnelLabel ? (
+            <p className="truncate text-[10px] text-zinc-500">{volumeContext.tunnelLabel}</p>
+          ) : null}
         </div>
         <span className="hidden truncate font-mono text-[10px] text-emerald-400/90 sm:inline">{site}</span>
         <button
