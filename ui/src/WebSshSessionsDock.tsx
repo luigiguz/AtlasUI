@@ -883,7 +883,7 @@ function SshSessionPane({
 
   return (
     <div
-      className={`flex min-h-0 flex-1 flex-col overflow-hidden ${visible || relayPoppedOut ? "flex" : "hidden"}`}
+      className={`flex min-h-0 flex-1 flex-col overflow-hidden ${visible || relayPoppedOut ? "flex h-full" : "hidden"}`}
       aria-hidden={!visible && !relayPoppedOut}
     >
       {chrome !== "dock" ? (
@@ -1756,6 +1756,14 @@ export function WebSshSessionsDock({
     return () => document.removeEventListener("keydown", onKey, true);
   }, [dockMaximized, allMinimized]);
 
+  useEffect(() => {
+    const active = sessions.find((s) => s.id === activeId);
+    if (active?.volume && !allMinimized) {
+      setDockMaximized(true);
+      setSessions((prev) => prev.map((s) => (s.minimized ? { ...s, minimized: false } : s)));
+    }
+  }, [activeId, sessions, allMinimized, setSessions]);
+
   const closeSession = useCallback(
     (id: string) => {
       setSessions((prev) => {
@@ -2074,7 +2082,7 @@ export function WebSshSessionsDock({
               className={
                 holdWsOffscreen
                   ? "pointer-events-none fixed -left-[10000px] top-0 z-0 flex min-h-0 h-[480px] w-[min(960px,100vw)] flex-col overflow-hidden opacity-0"
-                  : `absolute inset-0 flex min-h-0 flex-col ${paneVisible ? "z-10" : "z-0"}`
+                  : `absolute inset-0 flex h-full min-h-0 w-full flex-col ${paneVisible ? "z-10" : "z-0"}`
               }
               style={{ display: holdWsOffscreen || paneVisible ? "flex" : "none" }}
             >

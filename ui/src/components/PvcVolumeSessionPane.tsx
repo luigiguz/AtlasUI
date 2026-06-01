@@ -1,4 +1,4 @@
-import { FolderOpen, HardDrive, Loader2, X } from "lucide-react";
+import { HardDrive, Loader2, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import { api } from "../apiClient";
@@ -79,11 +79,12 @@ export function PvcVolumeSessionPane({
     setPhase("explorer");
   };
 
+  if (!visible) {
+    return <div className="hidden" aria-hidden />;
+  }
+
   return (
-    <div
-      className={`min-h-0 flex-1 flex-col overflow-hidden ${visible ? "flex" : "hidden"}`}
-      aria-hidden={!visible}
-    >
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
       <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-900/80 px-3 py-2">
         <HardDrive className="h-4 w-4 shrink-0 text-cf-orange" aria-hidden />
         <div className="min-w-0 flex-1">
@@ -108,19 +109,15 @@ export function PvcVolumeSessionPane({
         </div>
       ) : null}
 
-      {phase === "auth"
-        ? renderAuthTerminal({ visible, onAuthenticated: handleAuthenticated })
-        : null}
+      {phase === "auth" ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {renderAuthTerminal({ visible, onAuthenticated: handleAuthenticated })}
+        </div>
+      ) : null}
 
       {phase === "explorer" ? (
-        <>
-          <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800/80 bg-zinc-950/50 px-3 py-1.5">
-            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-cf-orange" aria-hidden />
-            <span className="text-[11px] text-zinc-400">
-              Explorador del volumen · editar, permisos y transferencias
-            </span>
-          </div>
-          <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div className="absolute inset-0 flex flex-col">
             <SshFileTransferPanel
               key={`pvc-${explorerKeyRef.current}-${volumeContext.pvcName}`}
               ref={panelRef}
@@ -135,7 +132,7 @@ export function PvcVolumeSessionPane({
               onPermissions={(entry) => setPermTarget(entry)}
             />
           </div>
-        </>
+        </div>
       ) : null}
 
       {editTarget && sftpSessionId ? (

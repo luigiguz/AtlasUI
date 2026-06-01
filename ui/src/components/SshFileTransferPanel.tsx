@@ -636,7 +636,7 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
     return (
       <>
       <div
-        className={`relative flex min-h-0 flex-1 flex-col bg-[#0a0a0b] text-zinc-300 ${
+        className={`relative flex h-full min-h-0 w-full flex-1 flex-col bg-[#0a0a0b] text-zinc-300 ${
           variant === "sidebar" ? "p-3" : "items-center justify-center p-6"
         }`}
         onDragEnter={onFileDragEnter}
@@ -686,7 +686,7 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
   return (
     <>
     <div
-      className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0a0a0b] text-zinc-200"
+      className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#0a0a0b] text-zinc-200"
       onDragEnter={onFileDragEnter}
       onDragLeave={onFileDragLeave}
       onDragOver={onFileDragOver}
