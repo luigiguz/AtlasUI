@@ -2,7 +2,6 @@ import { FolderOpen, HardDrive, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "../apiClient";
-import { clusterPvcsApiPath } from "../pvcStoragePaths";
 import { AtlasLoadingSplash } from "./AtlasLoadingSplash";
 import type { OpenPvcVolumeSessionOpts } from "../WebSshSessionsDock";
 import type { PvcsResponse, RancherCustomCluster, RancherPersistentVolumeClaim } from "../rancherTypes";
@@ -13,13 +12,12 @@ type Props = {
   onOpenVolumeTerminal?: (opts: OpenPvcVolumeSessionOpts) => void;
 };
 
-function clusterRef(cluster: RancherCustomCluster): OpenPvcVolumeSessionOpts["cluster"] {
-  return {
-    namespace: cluster.namespace,
-    name: cluster.name,
-    steveCollection: cluster.steveCollection,
-    store: cluster.store || undefined,
-  };
+function clusterPvcsPath(cluster: RancherCustomCluster): string {
+  const ns = encodeURIComponent(cluster.namespace);
+  const nm = encodeURIComponent(cluster.name);
+  const steve = encodeURIComponent(cluster.steveCollection || "provisioning.cattle.io.customclusters");
+  const storeLabel = cluster.store ? `&store=${encodeURIComponent(cluster.store)}` : "";
+  return `/api/atlas-rancher/custom-clusters/${ns}/${nm}/pvcs?steve_collection=${steve}${storeLabel}`;
 }
 
 function phaseTone(phase: string): string {
@@ -43,7 +41,7 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
       else setLoading(true);
       setError("");
       try {
-        const res = await api<PvcsResponse>(clusterPvcsApiPath(cluster));
+        const res = await api<PvcsResponse>(clusterPvcsPath(cluster));
         setPvcs(res.pvcs ?? []);
         setSshInfo(res.ssh ?? null);
       } catch (e) {
@@ -73,15 +71,15 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
 
   const openVolume = useCallback(
     (pvc: RancherPersistentVolumeClaim) => {
-      if (!canEdit || !onOpenVolumeTerminal || !sshInfo?.site) return;
+      if (!canEdit || !onOpenVolumeTerminal || !sshInfo?.site || !pvc.hostPath) return;
       onOpenVolumeTerminal({
         site: sshInfo.site,
         pvcName: pvc.name,
+        startPath: pvc.hostPath,
         tunnelLabel: vpnTunnelLabel,
-        cluster: clusterRef(cluster),
       });
     },
-    [canEdit, cluster, onOpenVolumeTerminal, sshInfo?.site, vpnTunnelLabel],
+    [canEdit, onOpenVolumeTerminal, sshInfo?.site, vpnTunnelLabel],
   );
 
   if (loading) {
@@ -156,7 +154,9 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
               </thead>
               <tbody>
                 {pvcs.map((pvc) => {
-                  const canOpen = Boolean(canEdit && sshReady && onOpenVolumeTerminal);
+                  const canOpen = Boolean(
+                    canEdit && pvc.hostPath && sshReady && onOpenVolumeTerminal,
+                  );
                   return (
                     <tr
                       key={pvc.name}
@@ -173,7 +173,13 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
                           <button
                             type="button"
                             disabled={!canOpen}
-                            title={canOpen ? "Abrir explorador del volumen" : sshHint}
+                            title={
+                              canOpen
+                                ? "Abrir explorador del volumen"
+                                : !pvc.hostPath
+                                  ? "Sin ruta en el nodo"
+                                  : sshHint
+                            }
                             onClick={() => canOpen && openVolume(pvc)}
                             className={
                               canOpen

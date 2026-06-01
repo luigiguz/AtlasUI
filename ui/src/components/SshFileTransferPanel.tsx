@@ -55,9 +55,6 @@ type Props = {
   variant?: "sidebar" | "full";
   /** Ruta inicial en el nodo (p. ej. directorio del PVC local-path). */
   startPath?: string | null;
-  /** POST alternativo: resuelve la ruta del PVC en atlas-api (Contenedores → Volúmenes). */
-  storageSessionPath?: string | null;
-  storageSessionBody?: Record<string, string>;
   /** Contraseña SSH explícita (explorador de volúmenes sin terminal previa). */
   sessionPassword?: string;
   /** Botones de edición de texto y permisos (Contenedores → Volúmenes). */
@@ -151,8 +148,6 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
       connectWithoutReady = false,
       variant = "sidebar",
       startPath = null,
-      storageSessionPath = null,
-      storageSessionBody,
       sessionPassword = "",
       storageTools = false,
       onEditFile,
@@ -282,18 +277,15 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
     const ctrl = new AbortController();
     const timer = window.setTimeout(() => ctrl.abort(), 45_000);
     try {
-      const connectUrl =
-        storageSessionPath || `/api/sftp/${encodeURIComponent(site)}/session`;
       const res = await api<{
         session_id?: string;
         home?: string;
         listing?: ListResponse;
-      }>(connectUrl, {
+      }>(`/api/sftp/${encodeURIComponent(site)}/session`, {
         method: "POST",
         body: JSON.stringify({
           password: sessionPassword || "",
-          start_path: storageSessionPath ? "" : startPath || "",
-          ...storageSessionBody,
+          start_path: startPath || "",
         }),
         signal: ctrl.signal,
       });
@@ -319,7 +311,7 @@ export const SshFileTransferPanel = forwardRef<SshFileTransferPanelHandle, Props
       connectInFlightRef.current = false;
       setConnecting(false);
     }
-  }, [site, loadDir, applyListing, sessionPassword, startPath, storageSessionPath, storageSessionBody, onSessionReady]);
+  }, [site, loadDir, applyListing, sessionPassword, startPath, onSessionReady]);
 
   const mayConnect = sshReady || connectWithoutReady;
 

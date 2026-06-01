@@ -1,8 +1,7 @@
 import { HardDrive, Loader2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import { api } from "../apiClient";
-import { clusterStorageSessionPath } from "../pvcStoragePaths";
 import {
   SshPermissionsModal,
   SshTextEditorModal,
@@ -22,13 +21,11 @@ type Props = {
   visible: boolean;
   volumeContext: VolumeContext;
   onClose: () => void;
-  /** Terminal SSH para autenticación (misma UX que Conexiones). */
   renderAuthTerminal: (props: { visible: boolean; onAuthenticated: () => void }) => ReactNode;
 };
 
 type Phase = "checking" | "auth" | "explorer";
 
-/** Panel del dock para editar un PVC: auth por terminal, luego explorador SFTP. */
 export function PvcVolumeSessionPane({
   site,
   visible,
@@ -43,11 +40,6 @@ export function PvcVolumeSessionPane({
   const [editTarget, setEditTarget] = useState<SftpEntry | null>(null);
   const [permTarget, setPermTarget] = useState<SftpEntry | null>(null);
 
-  const storageSessionPath = useMemo(
-    () => clusterStorageSessionPath(volumeContext.cluster),
-    [volumeContext.cluster],
-  );
-
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
@@ -55,11 +47,11 @@ export function PvcVolumeSessionPane({
     (async () => {
       setPhase("checking");
       try {
-        const res = await api<{ session_id?: string }>(storageSessionPath, {
+        const res = await api<{ session_id?: string }>(`/api/sftp/${encodeURIComponent(site)}/session`, {
           method: "POST",
           body: JSON.stringify({
             password: "",
-            pvc_name: volumeContext.pvcName,
+            start_path: volumeContext.startPath,
           }),
         });
         const sid = res.session_id;
@@ -78,7 +70,7 @@ export function PvcVolumeSessionPane({
     return () => {
       cancelled = true;
     };
-  }, [visible, storageSessionPath, volumeContext.pvcName]);
+  }, [visible, site, volumeContext.startPath]);
 
   const handleAuthenticated = () => {
     explorerKeyRef.current += 1;
@@ -99,7 +91,6 @@ export function PvcVolumeSessionPane({
             <p className="truncate text-[10px] text-zinc-500">{volumeContext.tunnelLabel}</p>
           ) : null}
         </div>
-        <span className="hidden truncate font-mono text-[10px] text-emerald-400/90 sm:inline">{site}</span>
         <button
           type="button"
           title="Cerrar explorador del volumen"
@@ -133,8 +124,7 @@ export function PvcVolumeSessionPane({
               sshReady={false}
               connectWithoutReady
               variant="full"
-              storageSessionPath={storageSessionPath}
-              storageSessionBody={{ pvc_name: volumeContext.pvcName }}
+              startPath={volumeContext.startPath}
               storageTools
               onSessionReady={setSftpSessionId}
               onEditFile={(entry) => setEditTarget(entry)}

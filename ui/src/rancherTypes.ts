@@ -80,6 +80,8 @@ export type RancherPersistentVolumeClaim = {
   phase: string;
   capacity: string;
   accessModes: string[];
+  /** Ruta en el nodo; usar solo al abrir SFTP, no mostrar en UI. */
+  hostPath: string | null;
   createdAt?: string | null;
 };
 
