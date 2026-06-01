@@ -27,6 +27,7 @@ import {
 
 import { AtlasAlertDialog } from "./components/AtlasAlertDialog";
 import { PvcVolumeSessionPane } from "./components/PvcVolumeSessionPane";
+import type { PvcVolumeClusterRef } from "./pvcStoragePaths";
 import {
   SshFileTransferPanel,
   type SshFileTransferPanelHandle,
@@ -50,11 +51,11 @@ export type SshWebSession = {
   site: string;
   minimized: boolean;
   poppedOut?: boolean;
-  /** Volúmenes: terminal + SFTP en la ruta del PVC */
+  /** Volúmenes: explorador SFTP del PVC (ruta resuelta en servidor). */
   volume?: {
     pvcName: string;
-    startPath: string;
     tunnelLabel?: string;
+    cluster: PvcVolumeClusterRef;
   };
 };
 
@@ -65,13 +66,11 @@ export function sshSessionTabLabel(session: SshWebSession): string {
   return session.site;
 }
 
-export const PVC_VOLUME_EXPLORER_ROOT = "/atlas-platform";
-
 export type OpenPvcVolumeSessionOpts = {
   site: string;
   pvcName: string;
-  startPath: string;
   tunnelLabel?: string;
+  cluster: PvcVolumeClusterRef;
 };
 
 export type SshWebPopoutParams = { site: string; dockSessionId: string | null };

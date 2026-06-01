@@ -30,7 +30,11 @@ from atlas_rancher.client import (
     rollout_deployment_image_pull,
     update_custom_cluster_labels,
 )
-from atlas_rancher.pvc_storage import list_cluster_persistent_volume_claims, resolve_cluster_vpn_site
+from atlas_rancher.pvc_storage import (
+    list_cluster_persistent_volume_claims,
+    resolve_cluster_vpn_site,
+    resolve_pvc_host_path,
+)
 from atlas_rancher.settings_store import load_rancher_settings, save_rancher_settings
 
 router = APIRouter(prefix="/api/atlas-rancher", tags=["atlas-rancher"])
@@ -61,6 +65,7 @@ class DeploymentRolloutBody(BaseModel):
 class StorageSessionBody(BaseModel):
     password: str = Field(default="", max_length=512)
     start_path: str = Field(default="", max_length=4096)
+    pvc_name: str = Field(default="", max_length=253)
 
 
 @router.get("/health")
@@ -514,6 +519,28 @@ async def post_cluster_storage_session(
             or f"No hay túnel SSH para la tienda «{store or application}». Actívalo en Conexiones.",
         )
     start = (body.start_path or "").strip() or None
+    pvc_name = (body.pvc_name or "").strip()
+    if pvc_name:
+        try:
+            host = resolve_pvc_host_path(
+                settings,
+                namespace=namespace,
+                name=name,
+                steve_collection=steve_collection.strip(),
+                store_label=store.strip(),
+                pvc_name=pvc_name,
+            )
+        except RancherConfigError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except RancherApiError as e:
+            status = 503 if e.status is None or e.status >= 500 else 502
+            raise HTTPException(status_code=status, detail=str(e)) from e
+        if not host:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No se pudo resolver la ruta del volumen «{pvc_name}» en el nodo.",
+            )
+        start = host
     try:
         row = await sftp_open_session(
             str(site),

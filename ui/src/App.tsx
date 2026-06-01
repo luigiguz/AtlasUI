@@ -194,8 +194,8 @@ export default function App() {
           minimized: false,
           volume: {
             pvcName: opts.pvcName,
-            startPath: opts.startPath,
             tunnelLabel: opts.tunnelLabel,
+            cluster: opts.cluster,
           },
         },
       ];

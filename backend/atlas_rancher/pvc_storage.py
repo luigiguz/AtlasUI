@@ -8,6 +8,7 @@ from typing import Any
 
 from atlas_core.paths import SCRIPTS_DIR
 from atlas_rancher.client import (
+    RancherApiError,
     rancher_get,
     resolve_custom_cluster_context,
 )
@@ -23,6 +24,27 @@ def _as_dict(value: Any) -> dict[str, Any]:
 
 def _pvc_list_path(mgmt_id: str, k8s_ns: str) -> str:
     return f"k8s/clusters/{mgmt_id}/v1/persistentvolumeclaims/{k8s_ns}?pagesize=500"
+
+
+def _pv_path(mgmt_id: str, pv_name: str) -> str:
+    return f"k8s/clusters/{mgmt_id}/v1/persistentvolumes/{pv_name}"
+
+
+def _pv_host_path(pv: dict[str, Any]) -> str | None:
+    spec = _as_dict(pv.get("spec"))
+    local = _as_dict(spec.get("local"))
+    path = str(local.get("path") or "").strip()
+    if path:
+        return path
+    host = _as_dict(spec.get("hostPath"))
+    path = str(host.get("path") or "").strip()
+    if path:
+        return path
+    csi = _as_dict(spec.get("csi"))
+    handle = str(csi.get("volumeHandle") or "").strip()
+    if handle.startswith("/"):
+        return handle
+    return None
 
 
 def _normalize_pvc(item: dict[str, Any], *, pv_name: str | None) -> dict[str, Any]:
@@ -208,3 +230,48 @@ def list_cluster_persistent_volume_claims(
         "message": ssh_err,
     }
     return list_path, mgmt_id, k8s_ns, out, ssh_info
+
+
+def resolve_pvc_host_path(
+    settings: dict[str, str | bool],
+    *,
+    namespace: str,
+    name: str,
+    steve_collection: str,
+    store_label: str,
+    pvc_name: str,
+) -> str | None:
+    """Ruta en el nodo del PVC (solo servidor; no exponer al cliente)."""
+    target = pvc_name.strip()
+    if not target:
+        return None
+    mgmt_id, k8s_ns, _application = resolve_custom_cluster_context(
+        settings,
+        namespace=namespace,
+        name=name,
+        steve_collection=steve_collection,
+    )
+    payload = rancher_get(settings, _pvc_list_path(mgmt_id, k8s_ns))
+    items: list[dict[str, Any]] = []
+    if isinstance(payload, dict):
+        data = payload.get("data")
+        if isinstance(data, list):
+            items = [x for x in data if isinstance(x, dict)]
+        elif payload.get("type") and payload.get("metadata"):
+            items = [payload]
+
+    pv_name: str | None = None
+    for item in items:
+        meta = _as_dict(item.get("metadata"))
+        if str(meta.get("name") or "").strip() != target:
+            continue
+        spec = _as_dict(item.get("spec"))
+        pv_name = str(spec.get("volumeName") or "").strip() or None
+        break
+    if not pv_name:
+        return None
+    try:
+        pv = rancher_get(settings, _pv_path(mgmt_id, pv_name))
+    except RancherApiError:
+        return None
+    return _pv_host_path(pv) if isinstance(pv, dict) else None

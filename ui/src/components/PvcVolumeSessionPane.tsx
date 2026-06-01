@@ -1,7 +1,8 @@
 import { HardDrive, Loader2, X } from "lucide-react";
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import { api } from "../apiClient";
+import { clusterStorageSessionPath } from "../pvcStoragePaths";
 import {
   SshPermissionsModal,
   SshTextEditorModal,
@@ -42,6 +43,11 @@ export function PvcVolumeSessionPane({
   const [editTarget, setEditTarget] = useState<SftpEntry | null>(null);
   const [permTarget, setPermTarget] = useState<SftpEntry | null>(null);
 
+  const storageSessionPath = useMemo(
+    () => clusterStorageSessionPath(volumeContext.cluster),
+    [volumeContext.cluster],
+  );
+
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
@@ -49,11 +55,11 @@ export function PvcVolumeSessionPane({
     (async () => {
       setPhase("checking");
       try {
-        const res = await api<{ session_id?: string }>(`/api/sftp/${encodeURIComponent(site)}/session`, {
+        const res = await api<{ session_id?: string }>(storageSessionPath, {
           method: "POST",
           body: JSON.stringify({
             password: "",
-            start_path: volumeContext.startPath,
+            pvc_name: volumeContext.pvcName,
           }),
         });
         const sid = res.session_id;
@@ -72,7 +78,7 @@ export function PvcVolumeSessionPane({
     return () => {
       cancelled = true;
     };
-  }, [visible, site, volumeContext.startPath]);
+  }, [visible, storageSessionPath, volumeContext.pvcName]);
 
   const handleAuthenticated = () => {
     explorerKeyRef.current += 1;
@@ -127,7 +133,8 @@ export function PvcVolumeSessionPane({
               sshReady={false}
               connectWithoutReady
               variant="full"
-              startPath={volumeContext.startPath}
+              storageSessionPath={storageSessionPath}
+              storageSessionBody={{ pvc_name: volumeContext.pvcName }}
               storageTools
               onSessionReady={setSftpSessionId}
               onEditFile={(entry) => setEditTarget(entry)}

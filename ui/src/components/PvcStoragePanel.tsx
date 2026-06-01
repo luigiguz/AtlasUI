@@ -2,8 +2,9 @@ import { FolderOpen, HardDrive, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "../apiClient";
+import { clusterPvcsApiPath } from "../pvcStoragePaths";
 import { AtlasLoadingSplash } from "./AtlasLoadingSplash";
-import { PVC_VOLUME_EXPLORER_ROOT, type OpenPvcVolumeSessionOpts } from "../WebSshSessionsDock";
+import type { OpenPvcVolumeSessionOpts } from "../WebSshSessionsDock";
 import type { PvcsResponse, RancherCustomCluster, RancherPersistentVolumeClaim } from "../rancherTypes";
 
 type Props = {
@@ -12,12 +13,13 @@ type Props = {
   onOpenVolumeTerminal?: (opts: OpenPvcVolumeSessionOpts) => void;
 };
 
-function clusterPvcsPath(cluster: RancherCustomCluster): string {
-  const ns = encodeURIComponent(cluster.namespace);
-  const nm = encodeURIComponent(cluster.name);
-  const steve = encodeURIComponent(cluster.steveCollection || "provisioning.cattle.io.customclusters");
-  const storeLabel = cluster.store ? `&store=${encodeURIComponent(cluster.store)}` : "";
-  return `/api/atlas-rancher/custom-clusters/${ns}/${nm}/pvcs?steve_collection=${steve}${storeLabel}`;
+function clusterRef(cluster: RancherCustomCluster): OpenPvcVolumeSessionOpts["cluster"] {
+  return {
+    namespace: cluster.namespace,
+    name: cluster.name,
+    steveCollection: cluster.steveCollection,
+    store: cluster.store || undefined,
+  };
 }
 
 function phaseTone(phase: string): string {
@@ -41,7 +43,7 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
       else setLoading(true);
       setError("");
       try {
-        const res = await api<PvcsResponse>(clusterPvcsPath(cluster));
+        const res = await api<PvcsResponse>(clusterPvcsApiPath(cluster));
         setPvcs(res.pvcs ?? []);
         setSshInfo(res.ssh ?? null);
       } catch (e) {
@@ -75,11 +77,11 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
       onOpenVolumeTerminal({
         site: sshInfo.site,
         pvcName: pvc.name,
-        startPath: PVC_VOLUME_EXPLORER_ROOT,
         tunnelLabel: vpnTunnelLabel,
+        cluster: clusterRef(cluster),
       });
     },
-    [canEdit, onOpenVolumeTerminal, sshInfo?.site, vpnTunnelLabel],
+    [canEdit, cluster, onOpenVolumeTerminal, sshInfo?.site, vpnTunnelLabel],
   );
 
   if (loading) {
@@ -100,9 +102,6 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
           <p className="text-[11px] text-zinc-500">
             PVC local-path · túnel{" "}
             <span className="text-zinc-300">{vpnTunnelLabel}</span>
-            {sshInfo?.site && sshInfo.site !== vpnTunnelLabel ? (
-              <span className="font-mono text-[10px] text-zinc-600"> ({sshInfo.site})</span>
-            ) : null}
             {" · "}
             {sshReady ? (
               <span className="text-emerald-400">SSH disponible</span>
@@ -174,11 +173,7 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
                           <button
                             type="button"
                             disabled={!canOpen}
-                            title={
-                              canOpen
-                                ? `Abrir explorador en ${PVC_VOLUME_EXPLORER_ROOT}`
-                                : sshHint
-                            }
+                            title={canOpen ? "Abrir explorador del volumen" : sshHint}
                             onClick={() => canOpen && openVolume(pvc)}
                             className={
                               canOpen
@@ -199,14 +194,6 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
           </div>
         )}
       </div>
-
-      {canEdit && sshReady ? (
-        <p className="shrink-0 border-t border-cf-line/40 px-4 py-2 text-[10px] text-zinc-600">
-          El explorador abre en{" "}
-          <span className="font-mono text-zinc-500">{PVC_VOLUME_EXPLORER_ROOT}</span>. Arrastra el borde
-          superior del panel inferior para ajustar la altura (como en Conexiones).
-        </p>
-      ) : null}
     </div>
   );
 }
