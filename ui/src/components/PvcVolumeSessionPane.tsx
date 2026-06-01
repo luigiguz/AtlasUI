@@ -1,6 +1,7 @@
-import { FolderOpen, HardDrive, X } from "lucide-react";
-import { useRef, useState, type ReactElement } from "react";
+import { FolderOpen, HardDrive, Loader2, X } from "lucide-react";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 
+import { api } from "../apiClient";
 import {
   SshPermissionsModal,
   SshTextEditorModal,
@@ -16,23 +17,67 @@ type VolumeContext = NonNullable<SshWebSession["volume"]>;
 
 type Props = {
   site: string;
+  sessionId: string;
   visible: boolean;
   volumeContext: VolumeContext;
   onClose: () => void;
+  /** Terminal SSH para autenticación (misma UX que Conexiones). */
+  renderAuthTerminal: (props: { visible: boolean; onAuthenticated: () => void }) => ReactNode;
 };
 
-/** Panel del dock para editar un PVC: explorador SFTP a pantalla completa (sin terminal SSH). */
+type Phase = "checking" | "auth" | "explorer";
+
+/** Panel del dock para editar un PVC: auth por terminal, luego explorador SFTP a pantalla completa. */
 export function PvcVolumeSessionPane({
   site,
   visible,
   volumeContext,
   onClose,
+  renderAuthTerminal,
 }: Props): ReactElement {
   const panelRef = useRef<SshFileTransferPanelHandle | null>(null);
+  const explorerKeyRef = useRef(0);
+  const [phase, setPhase] = useState<Phase>("checking");
   const [sftpSessionId, setSftpSessionId] = useState<string | null>(null);
   const [editTarget, setEditTarget] = useState<SftpEntry | null>(null);
   const [permTarget, setPermTarget] = useState<SftpEntry | null>(null);
-  const [sshPassword, setSshPassword] = useState("");
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+
+    (async () => {
+      setPhase("checking");
+      try {
+        const res = await api<{ session_id?: string }>(`/api/sftp/${encodeURIComponent(site)}/session`, {
+          method: "POST",
+          body: JSON.stringify({
+            password: "",
+            start_path: volumeContext.startPath,
+          }),
+        });
+        const sid = res.session_id;
+        if (sid) {
+          await api(`/api/sftp/session/${encodeURIComponent(sid)}`, { method: "DELETE" }).catch(() => {});
+        }
+        if (!cancelled) {
+          explorerKeyRef.current += 1;
+          setPhase("explorer");
+        }
+      } catch {
+        if (!cancelled) setPhase("auth");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, site, volumeContext.startPath]);
+
+  const handleAuthenticated = () => {
+    explorerKeyRef.current += 1;
+    setPhase("explorer");
+  };
 
   return (
     <div
@@ -56,37 +101,42 @@ export function PvcVolumeSessionPane({
         </button>
       </header>
 
-      <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800/80 bg-zinc-950/50 px-3 py-1.5">
-        <FolderOpen className="h-3.5 w-3.5 shrink-0 text-cf-orange" aria-hidden />
-        <span className="text-[11px] text-zinc-400">Explorador del volumen · editar, permisos y transferencias</span>
-        <label className="ml-auto flex max-w-[14rem] min-w-0 items-center gap-2 text-[10px] text-zinc-500">
-          <span className="shrink-0">SSH</span>
-          <input
-            type="password"
-            value={sshPassword}
-            onChange={(e) => setSshPassword(e.target.value)}
-            placeholder="Contraseña si la pide"
-            autoComplete="current-password"
-            className="min-w-0 flex-1 rounded border border-zinc-700 bg-black/40 px-2 py-0.5 text-[11px] text-zinc-200 outline-none focus:border-cf-orange/40"
-          />
-        </label>
-      </div>
+      {phase === "checking" ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center gap-2 text-xs text-zinc-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Comprobando acceso SSH al volumen…
+        </div>
+      ) : null}
 
-      <div className="relative min-h-0 flex-1 overflow-hidden">
-        <SshFileTransferPanel
-          ref={panelRef}
-          site={site}
-          sshReady={false}
-          connectWithoutReady
-          variant="full"
-          startPath={volumeContext.startPath}
-          sessionPassword={sshPassword}
-          storageTools
-          onSessionReady={setSftpSessionId}
-          onEditFile={(entry) => setEditTarget(entry)}
-          onPermissions={(entry) => setPermTarget(entry)}
-        />
-      </div>
+      {phase === "auth"
+        ? renderAuthTerminal({ visible, onAuthenticated: handleAuthenticated })
+        : null}
+
+      {phase === "explorer" ? (
+        <>
+          <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800/80 bg-zinc-950/50 px-3 py-1.5">
+            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-cf-orange" aria-hidden />
+            <span className="text-[11px] text-zinc-400">
+              Explorador del volumen · editar, permisos y transferencias
+            </span>
+          </div>
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            <SshFileTransferPanel
+              key={`pvc-${explorerKeyRef.current}-${volumeContext.pvcName}`}
+              ref={panelRef}
+              site={site}
+              sshReady={false}
+              connectWithoutReady
+              variant="full"
+              startPath={volumeContext.startPath}
+              storageTools
+              onSessionReady={setSftpSessionId}
+              onEditFile={(entry) => setEditTarget(entry)}
+              onPermissions={(entry) => setPermTarget(entry)}
+            />
+          </div>
+        </>
+      ) : null}
 
       {editTarget && sftpSessionId ? (
         <SshTextEditorModal

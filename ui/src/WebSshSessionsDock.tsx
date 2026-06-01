@@ -305,6 +305,10 @@ type PaneProps = {
   relayPoppedOut?: boolean;
   /** El espejo en la ventana emergente se cerró sin reintegrar: vuelve a mostrar la pestaña en el dock. */
   onRelayMirrorClosed?: () => void;
+  /** Solo autenticación SSH (volúmenes PVC): terminal a pantalla completa, sin SFTP. */
+  authOnly?: boolean;
+  /** Tras `ready` en modo authOnly (p. ej. abrir explorador del volumen). */
+  onAuthSuccess?: () => void;
 };
 
 function SshSessionPane({
@@ -317,6 +321,8 @@ function SshSessionPane({
   onReattachToDock,
   relayPoppedOut = false,
   onRelayMirrorClosed,
+  authOnly = false,
+  onAuthSuccess,
 }: PaneProps): ReactElement {
   const wrapRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -334,9 +340,12 @@ function SshSessionPane({
   const [banner, setBanner] = useState<string | null>(null);
   const [hostStats, setHostStats] = useState<SshHostStatsPayload | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; canCopy: boolean } | null>(null);
-  const [sftpOpen, setSftpOpen] = useState(true);
+  const [sftpOpen, setSftpOpen] = useState(!authOnly);
   const [sshTerminalReady, setSshTerminalReady] = useState(false);
   const sshTerminalReadyRef = useRef(false);
+  const authSuccessSentRef = useRef(false);
+  const onAuthSuccessRef = useRef(onAuthSuccess);
+  onAuthSuccessRef.current = onAuthSuccess;
   const cmdRef = useRef<string | null>(null);
   const [sftpWidth, setSftpWidth] = useState(280);
 
@@ -637,6 +646,10 @@ function SshSessionPane({
             setCmd(j.command);
             setSshTerminalReady(true);
             setBanner(null);
+            if (authOnly && !authSuccessSentRef.current) {
+              authSuccessSentRef.current = true;
+              onAuthSuccessRef.current?.();
+            }
             try {
               relayBcRef.current?.postMessage({ t: "cmd", command: j.command });
               relayBcRef.current?.postMessage({ t: "ssh-ready", ready: true });
@@ -922,8 +935,13 @@ function SshSessionPane({
       ) : null}
       {banner && !fatal ? (
         <div className="shrink-0 border-b border-zinc-800 px-2 py-1 text-[11px] text-zinc-400">{banner}</div>
+      ) : authOnly && !fatal && !sshTerminalReady ? (
+        <div className="shrink-0 border-b border-zinc-800 px-2 py-1 text-[11px] text-zinc-400">
+          Autenticando SSH… Si el servidor pide contraseña, escríbela en la terminal y pulsa Enter (igual
+          que en Conexiones). Después se abrirá el explorador del volumen.
+        </div>
       ) : null}
-      {!fatal && !relayPoppedOut ? (
+      {!fatal && !relayPoppedOut && !authOnly ? (
         <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-900/50 px-2 py-1">
           <button
             type="button"
@@ -966,7 +984,7 @@ function SshSessionPane({
             </button>
           </div>
         ) : null}
-        {!fatal && sftpOpen && !relayPoppedOut ? (
+        {!fatal && sftpOpen && !relayPoppedOut && !authOnly ? (
           <>
             <div
               className="flex min-h-0 shrink-0 flex-col overflow-hidden border-r border-zinc-800"
@@ -999,7 +1017,7 @@ function SshSessionPane({
           {!fatal ? (
             <>
               <div ref={wrapRef} className="min-h-0 flex-1 overflow-hidden" />
-              <SshHostStatusBar stats={hostStats} siteFallback={site} />
+              {!authOnly ? <SshHostStatusBar stats={hostStats} siteFallback={site} /> : null}
             </>
           ) : null}
         </div>
@@ -2063,9 +2081,22 @@ export function WebSshSessionsDock({
               {s.volume ? (
                 <PvcVolumeSessionPane
                   site={s.site}
+                  sessionId={s.id}
                   visible={paneVisible}
                   volumeContext={s.volume}
                   onClose={() => closeSession(s.id)}
+                  renderAuthTerminal={({ visible: authVisible, onAuthenticated }) => (
+                    <SshSessionPane
+                      site={s.site}
+                      sessionId={s.id}
+                      visible={authVisible}
+                      authOnly
+                      chrome="dock"
+                      onAuthSuccess={onAuthenticated}
+                      onClose={() => closeSession(s.id)}
+                      onSshSessionEnd={() => closeSession(s.id)}
+                    />
+                  )}
                 />
               ) : (
                 <SshSessionPane

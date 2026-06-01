@@ -214,8 +214,8 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
 
       {canEdit && sshReady ? (
         <p className="shrink-0 border-t border-cf-line/40 px-4 py-2 text-[10px] text-zinc-600">
-          El panel inferior abre el explorador SFTP del PVC a pantalla completa: editar archivos, permisos y
-          transferencias. No incluye shell SSH (eso sigue en Conexiones).
+          El panel inferior pide la contraseña SSH en la terminal (como Conexiones) si hace falta; después abre
+          el explorador SFTP del PVC a pantalla completa.
         </p>
       ) : null}
     </div>
