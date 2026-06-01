@@ -7,7 +7,6 @@ import os
 import sys
 import threading
 import time
-from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
@@ -24,7 +23,6 @@ logger = logging.getLogger("atlas.tunnels")
 app = FastAPI(title="Atlas Tunnels", version="1.0.0")
 
 _config_path = tm.default_config_path()
-_config_mtime: float = 0.0
 _lock = threading.Lock()
 
 
@@ -35,7 +33,7 @@ def _keeper_interval() -> float:
         return 15.0
 
 
-def _config_mtime() -> float:
+def _read_config_mtime() -> float:
     try:
         return _config_path.stat().st_mtime
     except OSError:
@@ -43,9 +41,7 @@ def _config_mtime() -> float:
 
 
 def reconcile_once() -> dict[str, Any]:
-    global _config_mtime
     with _lock:
-        _config_mtime = _config_mtime()
         result = tm.ensure_all_sites(_config_path)
         if result.get("lines"):
             for line in result["lines"]:
@@ -61,7 +57,6 @@ def reconcile_once() -> dict[str, Any]:
 
 
 def _keeper_loop() -> None:
-    global _config_mtime
     last_mtime = 0.0
     interval = _keeper_interval()
     logger.info(
@@ -72,7 +67,7 @@ def _keeper_loop() -> None:
     )
     while True:
         try:
-            mtime = _config_mtime()
+            mtime = _read_config_mtime()
             if mtime != last_mtime:
                 if last_mtime > 0:
                     logger.info("tunnels.json cambió; reconciliando…")
