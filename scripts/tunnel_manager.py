@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -133,14 +134,20 @@ def _label_alive(state: dict, site: str, label: str) -> bool:
     row = _proc_for_site_label(state, site, label)
     if not row:
         return False
-    return pid_alive(int(row["pid"]))
+    if pid_alive(int(row["pid"])):
+        return True
+    return tunnel_listener_alive(row, host=tunnel_bind_host())
 
 
 def prune_dead_processes() -> int:
-    """Elimina del state los PIDs que ya no están vivos."""
+    """Elimina del state los procesos cuyo PID murió y el puerto ya no escucha."""
     state = read_state()
     procs: list[dict] = list(state.get("processes", []))
-    alive = [row for row in procs if pid_alive(int(row["pid"]))]
+    alive: list[dict] = []
+    for row in procs:
+        pid = int(row["pid"])
+        if pid_alive(pid) or tunnel_listener_alive(row, host=tunnel_bind_host()):
+            alive.append(row)
     removed = len(procs) - len(alive)
     if removed:
         write_state({"processes": alive})
@@ -342,10 +349,10 @@ def cmd_status(_args: argparse.Namespace) -> None:
         return
     for row in procs:
         pid = int(row["pid"])
-        alive = pid_alive(pid)
+        alive = pid_alive(pid) or tunnel_listener_alive(row, host=tunnel_bind_host())
         print(
             f"{'vivo' if alive else 'muerto':4} pid={pid} site={row.get('site')} "
-            f"{row.get('label')} {row.get('hostname')} -> localhost:{row.get('local_port')}"
+            f"{row.get('label')} {row.get('hostname')} -> {tunnel_bind_host()}:{row.get('local_port')}"
         )
 
 
@@ -362,6 +369,50 @@ def pid_alive(pid: int) -> bool:
     except OSError:
         return False
     return True
+
+
+def tunnel_port_open(port: int, host: str | None = None, timeout: float = 0.35) -> bool:
+    """Comprueba si hay un listener TCP en el host del túnel (funciona entre contenedores)."""
+    if port < 1 or port > 65535:
+        return False
+    h = (host or tunnel_connect_host()).strip() or "127.0.0.1"
+    try:
+        with socket.create_connection((h, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def tunnel_listener_alive(row: dict | None, host: str | None = None) -> bool:
+    """True si el puerto local del túnel acepta conexiones."""
+    if not row:
+        return False
+    try:
+        port = int(row["local_port"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return tunnel_port_open(port, host=host)
+
+
+def tunnel_row_status(row: dict | None, spec: dict | None = None) -> str:
+    """
+    idle | active | dead
+    Con atlas-tunnels en otro contenedor el PID no es visible; se usa probe TCP.
+    """
+    if not spec and not row:
+        return "idle"
+    if tunnel_listener_alive(row):
+        return "active"
+    if isinstance(spec, dict):
+        try:
+            port = int(spec.get("local_port"))
+        except (TypeError, ValueError):
+            port = 0
+        if port > 0 and tunnel_port_open(port):
+            return "active"
+    if row:
+        return "dead"
+    return "idle"
 
 
 def cmd_list_sites(args: argparse.Namespace) -> None:

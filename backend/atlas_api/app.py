@@ -314,11 +314,8 @@ def _proc_for_site_label(state: dict, site: str, label: str) -> dict | None:
     return None
 
 
-def _state_label(row: dict | None) -> str:
-    if not row:
-        return "idle"
-    pid = int(row["pid"])
-    return "active" if tm.pid_alive(pid) else "dead"
+def _state_label(row: dict | None, spec: dict | None = None) -> str:
+    return tm.tunnel_row_status(row, spec)
 
 
 def _sites_payload(config_path: Path) -> dict[str, Any]:
@@ -357,8 +354,8 @@ def _sites_payload(config_path: Path) -> dict[str, Any]:
                 "displayName": display,
                 "ssh": ssh,
                 "db": db,
-                "sshStatus": _state_label(pr_ssh),
-                "dbStatus": _state_label(pr_db),
+                "sshStatus": _state_label(pr_ssh, ssh),
+                "dbStatus": _state_label(pr_db, db),
                 "posliteUrls": portal_links,
             }
         )
