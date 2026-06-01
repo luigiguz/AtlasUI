@@ -49,6 +49,7 @@ import {
   SshWebPopoutApp,
   SSH_WEB_REATTACH_MESSAGE_TYPE,
   WebSshSessionsDock,
+  type OpenPvcVolumeSessionOpts,
   type SshWebSession,
 } from "./WebSshSessionsDock";
 import { rememberTiendaForContainers } from "./rancherContainersNav";
@@ -170,6 +171,35 @@ export default function App() {
     const id = crypto.randomUUID();
     setSshWebSessions((prev) => [...prev, { id, site, minimized: false }]);
     setActiveSshWebId(id);
+  }, []);
+
+  const openPvcVolumeSession = useCallback((opts: OpenPvcVolumeSessionOpts) => {
+    setSshWebSessions((prev) => {
+      const existing = prev.find(
+        (s) => s.site === opts.site && s.volume?.pvcName === opts.pvcName,
+      );
+      if (existing) {
+        queueMicrotask(() => setActiveSshWebId(existing.id));
+        return prev.map((s) =>
+          s.id === existing.id ? { ...s, minimized: false, poppedOut: false } : s,
+        );
+      }
+      const id = crypto.randomUUID();
+      queueMicrotask(() => setActiveSshWebId(id));
+      return [
+        ...prev,
+        {
+          id,
+          site: opts.site,
+          minimized: false,
+          volume: {
+            pvcName: opts.pvcName,
+            startPath: opts.startPath,
+            tunnelLabel: opts.tunnelLabel,
+          },
+        },
+      ];
+    });
   }, []);
 
   useEffect(() => {
@@ -595,6 +625,7 @@ export default function App() {
             canEdit={canRancherWrite}
             focusTiendaId={containersFocusId}
             onFocusTiendaConsumed={() => setContainersFocusId(null)}
+            onOpenVolumeTerminal={openPvcVolumeSession}
           />
         )}
 

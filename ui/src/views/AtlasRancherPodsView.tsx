@@ -25,6 +25,7 @@ import { AtlasLoadingSplash } from "../components/AtlasLoadingSplash";
 import { AtlasModalShell } from "../components/AtlasModalFrame";
 import { PvcStoragePanel } from "../components/PvcStoragePanel";
 import { PodLogsPanel } from "../components/PodLogsPanel";
+import type { OpenPvcVolumeSessionOpts } from "../WebSshSessionsDock";
 import { normalizeApplication, normalizeDistro, normalizeState } from "../rancherLabels";
 import {
   rememberTiendaForContainers,
@@ -98,6 +99,8 @@ type Props = {
   /** Al venir desde Equipos: preseleccionar esta tienda. */
   focusTiendaId?: string | null;
   onFocusTiendaConsumed?: () => void;
+  /** Abre la terminal web del dock (modo volúmenes / PVC). */
+  onOpenVolumeTerminal?: (opts: OpenPvcVolumeSessionOpts) => void;
 };
 
 type ContainerRow = {
@@ -781,9 +784,11 @@ function ClusterDetailTabs({
 function ClusterDetailPanel({
   cluster,
   canEdit,
+  onOpenVolumeTerminal,
 }: {
   cluster: RancherCustomCluster;
   canEdit: boolean;
+  onOpenVolumeTerminal?: (opts: OpenPvcVolumeSessionOpts) => void;
 }) {
   const [tab, setTab] = useState<ClusterDetailTab>("services");
 
@@ -793,7 +798,11 @@ function ClusterDetailPanel({
       {tab === "services" ? (
         <ClusterContainersPanel cluster={cluster} canEdit={canEdit} />
       ) : (
-        <PvcStoragePanel cluster={cluster} canEdit={canEdit} />
+        <PvcStoragePanel
+          cluster={cluster}
+          canEdit={canEdit}
+          onOpenVolumeTerminal={onOpenVolumeTerminal}
+        />
       )}
     </div>
   );
@@ -1241,6 +1250,7 @@ export function AtlasRancherPodsView({
   canEdit,
   focusTiendaId = null,
   onFocusTiendaConsumed,
+  onOpenVolumeTerminal,
 }: Props) {
   const [clusters, setClusters] = useState<RancherCustomCluster[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1364,7 +1374,12 @@ export function AtlasRancherPodsView({
                   pueden listar contenedores.
                 </p>
               ) : (
-                <ClusterDetailPanel key={selectedCluster.id} cluster={selectedCluster} canEdit={canEdit} />
+                <ClusterDetailPanel
+                  key={selectedCluster.id}
+                  cluster={selectedCluster}
+                  canEdit={canEdit}
+                  onOpenVolumeTerminal={onOpenVolumeTerminal}
+                />
               )
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 p-10 text-center text-zinc-500">

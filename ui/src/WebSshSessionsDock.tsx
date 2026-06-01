@@ -27,7 +27,12 @@ import {
 
 import { AtlasAlertDialog } from "./components/AtlasAlertDialog";
 import {
+  SshPermissionsModal,
+  SshTextEditorModal,
+} from "./components/SshStorageModals";
+import {
   SshFileTransferPanel,
+  type SftpEntry,
   type SshFileTransferPanelHandle,
 } from "./components/SshFileTransferPanel";
 import {
@@ -44,7 +49,32 @@ import {
 
 import { getAccessToken, wsUrl } from "./apiClient";
 
-export type SshWebSession = { id: string; site: string; minimized: boolean; poppedOut?: boolean };
+export type SshWebSession = {
+  id: string;
+  site: string;
+  minimized: boolean;
+  poppedOut?: boolean;
+  /** Volúmenes: terminal + SFTP en la ruta del PVC */
+  volume?: {
+    pvcName: string;
+    startPath: string;
+    tunnelLabel?: string;
+  };
+};
+
+export function sshSessionTabLabel(session: SshWebSession): string {
+  if (session.volume) {
+    return `${session.volume.pvcName}`;
+  }
+  return session.site;
+}
+
+export type OpenPvcVolumeSessionOpts = {
+  site: string;
+  pvcName: string;
+  startPath: string;
+  tunnelLabel?: string;
+};
 
 export type SshWebPopoutParams = { site: string; dockSessionId: string | null };
 
@@ -279,6 +309,8 @@ type PaneProps = {
   relayPoppedOut?: boolean;
   /** El espejo en la ventana emergente se cerró sin reintegrar: vuelve a mostrar la pestaña en el dock. */
   onRelayMirrorClosed?: () => void;
+  /** Modo volúmenes: SFTP en ruta del PVC con edición y permisos. */
+  volumeContext?: SshWebSession["volume"];
 };
 
 function SshSessionPane({
@@ -291,6 +323,7 @@ function SshSessionPane({
   onReattachToDock,
   relayPoppedOut = false,
   onRelayMirrorClosed,
+  volumeContext,
 }: PaneProps): ReactElement {
   const wrapRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -312,7 +345,11 @@ function SshSessionPane({
   const [sshTerminalReady, setSshTerminalReady] = useState(false);
   const sshTerminalReadyRef = useRef(false);
   const cmdRef = useRef<string | null>(null);
-  const [sftpWidth, setSftpWidth] = useState(280);
+  const [sftpWidth, setSftpWidth] = useState(volumeContext ? 320 : 280);
+  const [sftpSessionId, setSftpSessionId] = useState<string | null>(null);
+  const [editTarget, setEditTarget] = useState<SftpEntry | null>(null);
+  const [permTarget, setPermTarget] = useState<SftpEntry | null>(null);
+  const storageTools = Boolean(volumeContext);
 
   useEffect(() => {
     sshTerminalReadyRef.current = sshTerminalReady;
@@ -852,6 +889,11 @@ function SshSessionPane({
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <TerminalIcon className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
             <span className="truncate font-mono text-xs text-emerald-300">{site}</span>
+            {volumeContext ? (
+              <span className="hidden min-w-0 truncate text-[10px] text-zinc-500 sm:inline">
+                · {volumeContext.pvcName}
+              </span>
+            ) : null}
             {chrome === "popout" ? (
               <span
                 className="hidden shrink-0 text-[10px] text-zinc-500 sm:inline"
@@ -902,7 +944,15 @@ function SshSessionPane({
           <button
             type="button"
             onClick={() => setSftpOpen((v) => !v)}
-            title={sftpOpen ? "Ocultar explorador SFTP" : "Mostrar explorador SFTP (estilo MobaXterm)"}
+            title={
+              volumeContext
+                ? sftpOpen
+                  ? "Ocultar explorador del volumen"
+                  : "Mostrar explorador del volumen (PVC)"
+                : sftpOpen
+                  ? "Ocultar explorador SFTP"
+                  : "Mostrar explorador SFTP (estilo MobaXterm)"
+            }
             className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] ring-1 ${
               sftpOpen
                 ? "bg-cf-orange/15 text-cf-orange ring-cf-orange/40"
@@ -910,8 +960,16 @@ function SshSessionPane({
             }`}
           >
             <FolderOpen className="h-3.5 w-3.5" />
-            SFTP
+            {volumeContext ? "Volumen" : "SFTP"}
           </button>
+          {volumeContext ? (
+            <span
+              className="min-w-0 flex-1 truncate font-mono text-[10px] text-zinc-500"
+              title={volumeContext.startPath}
+            >
+              {volumeContext.startPath}
+            </span>
+          ) : null}
         </div>
       ) : null}
       <div
@@ -951,6 +1009,11 @@ function SshSessionPane({
                 site={site}
                 sshReady={sshTerminalReady}
                 variant="sidebar"
+                startPath={volumeContext?.startPath ?? null}
+                storageTools={storageTools}
+                onSessionReady={setSftpSessionId}
+                onEditFile={storageTools ? (entry) => setEditTarget(entry) : undefined}
+                onPermissions={storageTools ? (entry) => setPermTarget(entry) : undefined}
               />
             </div>
             <div
@@ -1036,6 +1099,22 @@ function SshSessionPane({
             document.body,
           )
         : null}
+      {editTarget && sftpSessionId ? (
+        <SshTextEditorModal
+          path={editTarget.path}
+          sessionId={sftpSessionId}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => setEditTarget(null)}
+        />
+      ) : null}
+      {permTarget && sftpSessionId ? (
+        <SshPermissionsModal
+          entry={permTarget}
+          sessionId={sftpSessionId}
+          onClose={() => setPermTarget(null)}
+          onSaved={() => setPermTarget(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1908,8 +1987,9 @@ export function WebSshSessionsDock({
                       active ? "text-cf-orange" : "text-zinc-300"
                     } ${s.poppedOut ? "opacity-60" : ""}`}
                   >
-                    {s.site}
+                    {sshSessionTabLabel(s)}
                     {s.poppedOut ? " · ↗" : s.minimized ? " · ○" : ""}
+                    {s.volume ? " · PVC" : ""}
                   </button>
                   <button
                     type="button"
@@ -1966,7 +2046,7 @@ export function WebSshSessionsDock({
                   className="inline-flex max-w-[12rem] items-center gap-1 rounded-full bg-cf-orange/15 px-2.5 py-1 text-xs font-medium text-cf-orange ring-1 ring-cf-orange/45 hover:bg-cf-orange/25"
                 >
                   <ChevronsUp className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  <span className="truncate">{s.site}</span>
+                  <span className="truncate">{sshSessionTabLabel(s)}</span>
                 </button>
               ))}
             </div>
@@ -1993,7 +2073,7 @@ export function WebSshSessionsDock({
                 className="inline-flex max-w-[10rem] items-center gap-1 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-100 ring-1 ring-zinc-600 hover:bg-zinc-700 hover:ring-cf-orange/50"
               >
                 <ChevronsUp className="h-3.5 w-3.5 shrink-0 text-cf-orange" aria-hidden />
-                <span className="truncate">{s.site}</span>
+                <span className="truncate">{sshSessionTabLabel(s)}</span>
               </button>
             ))}
             <button
@@ -2032,6 +2112,7 @@ export function WebSshSessionsDock({
                 sessionId={s.id}
                 visible={paneVisible || holdWsOffscreen}
                 relayPoppedOut={holdWsOffscreen}
+                volumeContext={s.volume}
                 onRelayMirrorClosed={() => {
                   setSessions((prev) => prev.map((x) => (x.id === s.id ? { ...x, poppedOut: false } : x)));
                 }}
