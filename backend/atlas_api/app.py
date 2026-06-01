@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -22,7 +23,9 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import Response
 
 from atlas_vpn.cf_sync import CfSyncError, sync_to_tunnels_json
 from atlas_vpn.constants import resolve_ssh_username
@@ -119,8 +122,57 @@ def _cors_origins() -> list[str]:
 
 def _cors_origin_regex() -> str | None:
     """Subdominios Verkku en producción (p. ej. atlas-ui, api-atlas-vpn)."""
-    raw = atlas_env("CORS_ORIGIN_REGEX", r"https://([a-z0-9-]+\.)*verkku\.com")
+    raw = atlas_env("CORS_ORIGIN_REGEX", r"^https://([a-z0-9-]+\.)*verkku\.com$")
     return raw.strip() or None
+
+
+def _origin_allowed(origin: str | None) -> bool:
+    if not origin or not origin.strip():
+        return False
+    o = origin.strip()
+    if o in _cors_origins():
+        return True
+    pat = _cors_origin_regex()
+    if pat:
+        try:
+            return re.fullmatch(pat, o) is not None
+        except re.error:
+            _log.warning("CORS_ORIGIN_REGEX inválido: %s", pat)
+    return False
+
+
+def _cors_headers(origin: str) -> dict[str, str]:
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Origin, X-Requested-With",
+        "Access-Control-Expose-Headers": "*",
+        "Access-Control-Max-Age": "600",
+        "Vary": "Origin",
+    }
+
+
+def _apply_cors_headers(response: Response, origin: str | None) -> None:
+    if not origin or not _origin_allowed(origin):
+        return
+    for key, value in _cors_headers(origin).items():
+        if key.lower() not in (h.lower() for h in response.headers):
+            response.headers[key] = value
+
+
+class AtlasCorsMiddleware(BaseHTTPMiddleware):
+    """Asegura CORS en todas las respuestas (incl. 4xx/5xx) si el proxy no reenvía bien CORSMiddleware."""
+
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin")
+        if request.method == "OPTIONS":
+            if _origin_allowed(origin):
+                return Response(status_code=204, headers=_cors_headers(origin or ""))
+            return Response(status_code=400)
+        response = await call_next(request)
+        _apply_cors_headers(response, origin)
+        return response
 
 
 def _wait_tcp(host: str, port: int, timeout: float = 20.0) -> None:
@@ -365,17 +417,20 @@ def create_app() -> FastAPI:
     app.include_router(atlas_rancher_router)
     app.include_router(atlas_stores_router)
     app.include_router(notifications_router)
-    # CORS primero en el stack (último add_middleware) para que también cubra errores 4xx/5xx.
+
+    # Orden: Session (más interno) → CORSMiddleware → AtlasCors (más externo, último add).
+    app.add_middleware(SessionMiddleware, **session_middleware_config())
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
         allow_origin_regex=_cors_origin_regex(),
-        allow_credentials=False,
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["*"],
+        max_age=600,
     )
-    app.add_middleware(SessionMiddleware, **session_middleware_config())
+    app.add_middleware(AtlasCorsMiddleware)
 
     @app.exception_handler(Exception)
     async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -383,9 +438,12 @@ def create_app() -> FastAPI:
             detail = exc.detail
             if not isinstance(detail, (str, dict, list)):
                 detail = str(detail)
-            return JSONResponse(status_code=exc.status_code, content={"detail": detail})
-        _log.exception("Unhandled %s %s", request.method, request.url.path, exc_info=exc)
-        return JSONResponse(status_code=500, content={"detail": "Error interno del servidor."})
+            resp = JSONResponse(status_code=exc.status_code, content={"detail": detail})
+        else:
+            _log.exception("Unhandled %s %s", request.method, request.url.path, exc_info=exc)
+            resp = JSONResponse(status_code=500, content={"detail": "Error interno del servidor."})
+        _apply_cors_headers(resp, request.headers.get("origin"))
+        return resp
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
