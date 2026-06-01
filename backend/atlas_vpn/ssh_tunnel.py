@@ -14,6 +14,10 @@ if str(SCRIPTS_DIR) not in sys.path:
 import tunnel_manager as tm  # noqa: E402
 
 
+def tunnel_ssh_host() -> str:
+    return tm.tunnel_connect_host()
+
+
 class SshTunnelError(ValueError):
     """Configuración o sitio inválido para SSH."""
 

@@ -48,6 +48,33 @@ services:
     networks:
       - atlas_net
 
+  atlas-tunnels:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        CLOUDFLARED_VERSION: "2026.5.0"
+    image: ${ATLAS_API_IMAGE:-atlas-api}:${ATLAS_TAG:-latest}
+    container_name: atlas-tunnels
+    restart: unless-stopped
+    command: ["python", "-m", "atlas_vpn.tunnel_keeper"]
+    environment:
+      TZ: America/Panama
+      ATLAS_TUNNEL_BIND: "0.0.0.0"
+      ATLAS_TUNNEL_KEEPER_INTERVAL: "15"
+      ATLAS_TUNNEL_KEEPER_PORT: "8766"
+    volumes:
+      - atlas_cloudflared:/app/.cloudflared-tunnels
+      - ./scripts/tunnels.json:/app/scripts/tunnels.json:rw
+    networks:
+      - atlas_net
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8766/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+
   atlas-api:
     build:
       context: .
@@ -59,6 +86,8 @@ services:
     restart: unless-stopped
     depends_on:
       atlas-postgres:
+        condition: service_healthy
+      atlas-tunnels:
         condition: service_healthy
     ports:
       - "8765:8765"
@@ -76,6 +105,8 @@ services:
       ATLAS_CORS_ORIGINS: "https://atlas-ui.verkku.com,https://atlas-vpn.verkku.com,http://127.0.0.1:5173,http://localhost:5173"
       ATLAS_CORS_ORIGIN_REGEX: "^https://([a-z0-9-]+\\.)*verkku\\.com$"
       ATLAS_DATABASE_URL: postgresql+psycopg://atlas:Atlas_Pg_Dev_2026@atlas-postgres:5432/atlas
+      ATLAS_TUNNEL_HOST: atlas-tunnels
+      ATLAS_TUNNELS_URL: http://atlas-tunnels:8766
       # Notificaciones por correo (opcional):
       # ATLAS_SMTP_HOST: smtp.example.com
       # ATLAS_SMTP_PORT: "587"

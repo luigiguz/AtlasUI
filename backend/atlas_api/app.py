@@ -31,6 +31,7 @@ from atlas_vpn.cf_sync import CfSyncError, sync_to_tunnels_json
 from atlas_vpn.constants import resolve_ssh_username
 from atlas_vpn.pgadmin_launch import launch_pgadmin
 from atlas_vpn.poslite_urls import poslite_links_for_site
+from atlas_vpn.tunnel_client import request_tunnel_reconcile
 from atlas_core.env import atlas_env, atlas_env_flag
 from atlas_core.paths import PROJECT_ROOT, STATIC_WEB, resolve_logo_path
 from atlas_vpn.settings_store import load_settings, save_settings
@@ -704,25 +705,20 @@ def create_app() -> FastAPI:
         body: StartBody,
         _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE)),
     ) -> dict[str, Any]:
-        ok, lines = tm.start_site_services(
-            body.site, body.services, tm.default_config_path()
+        raise HTTPException(
+            status_code=410,
+            detail="Los túneles se gestionan automáticamente (servicio atlas-tunnels).",
         )
-        return {"ok": ok, "lines": lines}
 
     @app.post("/api/stop")
     def post_stop(
         body: StopBody,
         _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE)),
     ) -> dict[str, Any]:
-        if body.label and body.site is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Para detener solo SSH o BD indica también el sitio (site).",
-            )
-        if body.label is not None and body.label not in ("ssh", "db"):
-            raise HTTPException(status_code=400, detail='label debe ser "ssh" o "db".')
-        lines = tm.stop_tunnels(body.site, body.label)
-        return {"ok": True, "lines": lines}
+        raise HTTPException(
+            status_code=410,
+            detail="Los túneles se gestionan automáticamente (servicio atlas-tunnels).",
+        )
 
     @app.post("/api/sync")
     def post_sync(
@@ -738,7 +734,11 @@ def create_app() -> FastAPI:
                 zone_id=body.zone_id.strip(),
             )
             record_cf_sync_result(ok=True, message=msg)
-            return {"ok": True, "sitesCount": n, "message": msg}
+            reconcile = request_tunnel_reconcile()
+            out: dict[str, Any] = {"ok": True, "sitesCount": n, "message": msg}
+            if reconcile is not None:
+                out["tunnelsReconcile"] = reconcile
+            return out
         except CfSyncError as e:
             err = str(e)
             record_cf_sync_result(ok=False, message=err)

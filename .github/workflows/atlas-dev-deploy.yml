@@ -87,9 +87,9 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ inputs.no_cache }}" == "true" ]]; then
-            docker compose -f docker-compose.yml build --no-cache --pull atlas-api atlas-ui
+            docker compose -f docker-compose.yml build --no-cache --pull atlas-api atlas-tunnels atlas-ui
           else
-            docker compose -f docker-compose.yml build --pull atlas-api atlas-ui
+            docker compose -f docker-compose.yml build --pull atlas-api atlas-tunnels atlas-ui
           fi
           docker image inspect "${ATLAS_API_IMAGE}:${ATLAS_TAG}" >/dev/null
           docker image inspect "${ATLAS_UI_IMAGE}:${ATLAS_TAG}" >/dev/null
@@ -240,4 +240,4 @@ jobs:
       - name: Logs del servicio (solo si falló antes)
         if: failure()
         shell: bash
-        run: docker compose -f docker-compose.yml logs --no-color --tail=80 atlas-api atlas-ui || true
+        run: docker compose -f docker-compose.yml logs --no-color --tail=80 atlas-api atlas-tunnels atlas-ui || true

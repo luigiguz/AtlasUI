@@ -16,7 +16,7 @@ import asyncssh
 from asyncssh.sftp import FILEXFER_TYPE_DIRECTORY, SFTPClient, SFTPName
 
 from atlas_vpn.ssh_shared import get_cached_ssh_password
-from atlas_vpn.ssh_tunnel import SshTunnelError, resolve_site_ssh
+from atlas_vpn.ssh_tunnel import SshTunnelError, resolve_site_ssh, tunnel_ssh_host
 
 log = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ async def open_session(
     conn: asyncssh.SSHClientConnection | None = None
     try:
         conn = await asyncssh.connect(
-            host="127.0.0.1",
+            host=tunnel_ssh_host(),
             port=port,
             username=ssh_user,
             password=pw,

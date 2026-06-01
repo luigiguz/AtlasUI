@@ -48,8 +48,18 @@ def cloudflared_bin() -> str:
     return os.environ.get("CLOUDFLARED", "cloudflared")
 
 
+def tunnel_bind_host() -> str:
+    """Interfaz donde cloudflared escucha (0.0.0.0 en contenedor atlas-tunnels)."""
+    return (os.environ.get("ATLAS_TUNNEL_BIND") or "127.0.0.1").strip() or "127.0.0.1"
+
+
+def tunnel_connect_host() -> str:
+    """Host al que se conecta la API/SSH (atlas-tunnels en Docker, 127.0.0.1 en local)."""
+    return (os.environ.get("ATLAS_TUNNEL_HOST") or "127.0.0.1").strip() or "127.0.0.1"
+
+
 def start_tunnel(hostname: str, local_port: int) -> subprocess.Popen:
-    url = f"localhost:{local_port}"
+    url = f"{tunnel_bind_host()}:{local_port}"
     cmd = [
         cloudflared_bin(),
         "access",
@@ -110,6 +120,92 @@ def init_config_from_example() -> tuple[bool, str]:
 def cmd_init_example() -> None:
     _ok, msg = init_config_from_example()
     print(msg)
+
+
+def _proc_for_site_label(state: dict, site: str, label: str) -> dict | None:
+    for row in state.get("processes", []):
+        if row.get("site") == site and row.get("label") == label:
+            return row
+    return None
+
+
+def _label_alive(state: dict, site: str, label: str) -> bool:
+    row = _proc_for_site_label(state, site, label)
+    if not row:
+        return False
+    return pid_alive(int(row["pid"]))
+
+
+def prune_dead_processes() -> int:
+    """Elimina del state los PIDs que ya no están vivos."""
+    state = read_state()
+    procs: list[dict] = list(state.get("processes", []))
+    alive = [row for row in procs if pid_alive(int(row["pid"]))]
+    removed = len(procs) - len(alive)
+    if removed:
+        write_state({"processes": alive})
+    return removed
+
+
+def ensure_site_tunnels(
+    site: str, config_path: Path, services: str = "both"
+) -> tuple[bool, list[str]]:
+    """Levanta túneles faltantes para un sitio (no duplica los ya activos)."""
+    state = read_state()
+    want_ssh = services in ("ssh", "both")
+    want_db = services in ("db", "both")
+    if want_ssh and _label_alive(state, site, "ssh"):
+        want_ssh = False
+    if want_db and _label_alive(state, site, "db"):
+        want_db = False
+    if not want_ssh and not want_db:
+        return True, [f"[skip] {site}: túneles ya activos"]
+    if want_ssh and want_db:
+        svc = "both"
+    elif want_ssh:
+        svc = "ssh"
+    else:
+        svc = "db"
+    return start_site_services(site, svc, config_path)
+
+
+def ensure_all_sites(config_path: Path) -> dict:
+    """Reconcilia todos los sitios: poda muertos y levanta túneles faltantes."""
+    removed = prune_dead_processes()
+    cfg = load_config_optional(config_path)
+    lines: list[str] = []
+    if cfg is None:
+        return {
+            "ok": False,
+            "removedDead": removed,
+            "siteCount": 0,
+            "lines": [f"No existe la configuración: {config_path}"],
+        }
+    sites: dict = cfg.get("sites") or {}
+    ok = True
+    for name in sorted(sites.keys()):
+        entry = sites[name]
+        if not isinstance(entry, dict):
+            continue
+        has_ssh = isinstance(entry.get("ssh"), dict)
+        has_db = isinstance(entry.get("db"), dict)
+        if has_ssh and has_db:
+            svc = "both"
+        elif has_ssh:
+            svc = "ssh"
+        elif has_db:
+            svc = "db"
+        else:
+            continue
+        site_ok, site_lines = ensure_site_tunnels(name, config_path, svc)
+        lines.extend(site_lines)
+        ok = ok and site_ok
+    return {
+        "ok": ok,
+        "removedDead": removed,
+        "siteCount": len(sites),
+        "lines": lines,
+    }
 
 
 def start_site_services(site: str, services: str, config_path: Path) -> tuple[bool, list[str]]:
@@ -303,8 +399,23 @@ def main() -> None:
     p_stat = sub.add_parser("status", help="Muestra estado de PIDs guardados")
     p_stat.set_defaults(func=cmd_status)
 
+    p_ensure = sub.add_parser("ensure-all", help="Levanta túneles faltantes para todos los sitios")
+    p_ensure.add_argument("--config", default=str(default_config_path()))
+    p_ensure.set_defaults(
+        func=lambda args: _cmd_ensure_all(args),
+    )
+
     ns = parser.parse_args()
     ns.func(ns)
+
+
+def _cmd_ensure_all(args: argparse.Namespace) -> None:
+    result = ensure_all_sites(Path(args.config))
+    out = sys.stdout if result.get("ok") else sys.stderr
+    for line in result.get("lines") or []:
+        print(line, file=out)
+    if not result.get("ok"):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

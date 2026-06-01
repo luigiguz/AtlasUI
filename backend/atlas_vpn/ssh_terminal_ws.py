@@ -1,4 +1,4 @@
-"""WebSocket → proxy SSH interactivo hacia 127.0.0.1 (puerto del túnel en este host)."""
+"""WebSocket → proxy SSH interactivo hacia el host del túnel (local o atlas-tunnels)."""
 
 from __future__ import annotations
 
@@ -205,6 +205,7 @@ def _user_from_token(token: str | None) -> dict[str, Any] | None:
 
 
 def _ssh_connect_error_message(exc: BaseException, ssh_user: str) -> str:
+    host = tm.tunnel_connect_host()
     s = str(exc).lower()
     if "permission denied" in s or "authentication failed" in s or "auth fail" in s:
         return (
@@ -213,8 +214,8 @@ def _ssh_connect_error_message(exc: BaseException, ssh_user: str) -> str:
             '"ssh_user" (o "user") si el usuario no es «admin».'
         )
     return (
-        "No se pudo conectar por SSH a 127.0.0.1 en el puerto del túnel. "
-        "¿Está iniciado el túnel SSH para este sitio?"
+        f"No se pudo conectar por SSH a {host} en el puerto del túnel. "
+        "El servicio de túneles puede estar arrancando; espera unos segundos e inténtalo de nuevo."
     )
 
 
@@ -277,6 +278,7 @@ async def run_ssh_terminal_ws(websocket: WebSocket) -> None:
         return
 
     user = resolve_ssh_username(ssh)
+    ssh_host = tm.tunnel_connect_host()
     atlas_username = str(user_ctx.get("username") or "")
     cols, rows = 120, 34
     auth_reader = _WsAuthLineReader(websocket)
@@ -295,7 +297,7 @@ async def run_ssh_terminal_ws(websocket: WebSocket) -> None:
             pass
 
         async with asyncssh.connect(
-            "127.0.0.1",
+            ssh_host,
             port=port,
             username=user,
             known_hosts=None,

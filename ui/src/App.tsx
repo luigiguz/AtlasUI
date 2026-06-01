@@ -1,8 +1,6 @@
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   CheckCircle2,
-  ChevronDown,
-  Database,
   Pencil,
   PlusCircle,
   Terminal,
@@ -76,21 +74,22 @@ type AuthStatusResponse = {
   };
 };
 
-/** Resumen por sitio: prioriza caídos, luego activos, luego reposo. */
+/** Resumen por sitio para Conexiones (túnel SSH / terminal web). */
 function siteTunnelSummary(s: SiteRow): {
   tone: "up" | "down" | "idle";
   label: string;
   hint: string;
 } {
-  const dead = (s.sshStatus === "dead" ? 1 : 0) + (s.dbStatus === "dead" ? 1 : 0);
-  const active = (s.sshStatus === "active" ? 1 : 0) + (s.dbStatus === "active" ? 1 : 0);
-  if (dead > 0) {
-    return { tone: "down", label: "DOWN", hint: "SSH o BD caído en este sitio" };
+  if (!s.ssh) {
+    return { tone: "idle", label: "—", hint: "Sitio sin SSH configurado" };
   }
-  if (active > 0) {
-    return { tone: "up", label: "UP", hint: "Al menos un túnel (SSH o BD) activo" };
+  if (s.sshStatus === "active") {
+    return { tone: "up", label: "UP", hint: "Túnel SSH activo — Terminal web disponible" };
   }
-  return { tone: "idle", label: "—", hint: "Sin túneles activos" };
+  if (s.sshStatus === "dead") {
+    return { tone: "down", label: "DOWN", hint: "Túnel SSH caído — se recuperará automáticamente" };
+  }
+  return { tone: "idle", label: "…", hint: "Túnel SSH arrancando" };
 }
 
 function siteTunnelRailClass(tone: "up" | "down" | "idle"): string {
@@ -148,8 +147,6 @@ export default function App() {
   const [containersFocusId, setContainersFocusId] = useState<string | null>(null);
   const [sites, setSites] = useState<SiteRow[]>([]);
   const [sitesDomainSuffix, setSitesDomainSuffix] = useState<string | undefined>();
-  /** Sitio con panel de acciones desplegado (acordeón). */
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [connSiteQuery, setConnSiteQuery] = useState("");
   const [connListPage, setConnListPage] = useState(0);
   const [logOpen, setLogOpen] = useState(true);
@@ -399,51 +396,6 @@ export default function App() {
     if (me && me.role !== "admin" && (tab === "cf" || tab === "users")) setTab("home");
   }, [me, tab]);
 
-  const doStart = async (site: string, services: "ssh" | "db" | "both") => {
-    try {
-      const r = await api<{ ok: boolean; lines: string[] }>("/api/start", {
-        method: "POST",
-        body: JSON.stringify({ site, services }),
-      });
-      appendLog(r.lines);
-      await loadSites();
-    } catch (e) {
-      appendLog([String(e)]);
-    }
-  };
-
-  const doStop = async (site: string | null, label?: "ssh" | "db") => {
-    try {
-      const payload: { site: string | null; label?: string } = { site };
-      if (label) payload.label = label;
-      const r = await api<{ lines: string[] }>("/api/stop", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      appendLog(r.lines);
-      await loadSites();
-    } catch (e) {
-      appendLog([String(e)]);
-    }
-  };
-
-  const doOpenPgadmin = async (site: string) => {
-    try {
-      const r = await api<{ ok: boolean; executable: string; hint?: string | null }>(
-        "/api/open-pgadmin",
-        {
-          method: "POST",
-          body: JSON.stringify({ site }),
-        }
-      );
-      const lines = [`PgAdmin: ${r.executable}`];
-      if (r.hint) lines.push(r.hint);
-      appendLog(lines);
-    } catch (e) {
-      appendLog([String(e)]);
-    }
-  };
-
   const doSaveSettings = async () => {
     try {
       await api("/api/settings", {
@@ -684,18 +636,14 @@ export default function App() {
                   </div>
                 )}
                 {connPageSlice.map((s) => {
-                  const open = expandedId === s.id;
                   const tun = siteTunnelSummary(s);
+                  const sshReady = Boolean(s.ssh && s.sshStatus === "active");
                   return (
                     <motion.div
                       key={s.id}
                       variants={siteRowVariants}
                       layout
-                      className={
-                        open
-                          ? "group flex flex-row overflow-hidden rounded-2xl border border-cf-orange bg-cf-orange/10 shadow-lg shadow-cf-orange/10 ring-1 ring-cf-orange/40"
-                          : "group flex flex-row overflow-hidden rounded-2xl border border-cf-line bg-cf-card/90 ring-1 ring-transparent hover:border-zinc-600 hover:bg-cf-card"
-                      }
+                      className="group flex flex-row overflow-hidden rounded-2xl border border-cf-line bg-cf-card/90 ring-1 ring-transparent hover:border-zinc-600 hover:bg-cf-card"
                       aria-label={`${siteDisplayName(s)}: ${tun.hint}`}
                     >
                       <div
@@ -703,13 +651,8 @@ export default function App() {
                         title={tun.hint}
                         aria-hidden
                       />
-                      <div className="flex min-w-0 flex-1 flex-col">
-                      <button
-                        type="button"
-                        className="flex w-full items-start justify-between gap-2 p-4 text-left"
-                        onClick={() => setExpandedId(open ? null : s.id)}
-                      >
-                        <div className="flex min-w-0 flex-1 items-start gap-3">
+                      <div className="flex min-w-0 flex-1 flex-col p-4">
+                        <div className="flex items-start gap-3">
                           <div
                             className="flex shrink-0 flex-col items-center gap-1 border-r border-white/10 pr-3 pt-0.5"
                             title={tun.hint}
@@ -731,165 +674,50 @@ export default function App() {
                             </span>
                           </div>
                           <div className="min-w-0 flex-1">
-                          <span className="font-semibold tracking-tight">{siteDisplayName(s)}</span>
-                          {s.tunnelName && s.tunnelName !== s.name ? (
-                            <span className="mt-0.5 block truncate font-mono text-[10px] text-zinc-600">
-                              {s.name}
-                            </span>
-                          ) : null}
-                          <p className="mt-1 text-[11px] text-zinc-500">
-                            Pulsa para {open ? "ocultar" : "mostrar"} acciones
-                          </p>
+                            <span className="font-semibold tracking-tight">{siteDisplayName(s)}</span>
+                            {s.tunnelName && s.tunnelName !== s.name ? (
+                              <span className="mt-0.5 block truncate font-mono text-[10px] text-zinc-600">
+                                {s.name}
+                              </span>
+                            ) : null}
+                            <p className="mt-1 text-[11px] text-zinc-500">{tun.hint}</p>
+                            {s.ssh ? (
+                              <div className="mt-2">
+                                <StatusPill kind={s.sshStatus} />
+                              </div>
+                            ) : null}
                           </div>
                         </div>
-                        <ChevronDown
-                          className={`h-5 w-5 shrink-0 text-zinc-400 transition-transform duration-200 ${
-                            open ? "rotate-180 text-cf-orange" : ""
-                          }`}
-                        />
-                      </button>
-                      <div className="border-t border-white/5 px-4 pb-3 pt-0">
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div>
-                            <div className="text-zinc-500">SSH</div>
-                            <StatusPill kind={s.sshStatus} />
-                          </div>
-                          <div>
-                            <div className="text-zinc-500">BD</div>
-                            <StatusPill kind={s.dbStatus} />
-                          </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {s.ssh && canOperate ? (
+                            <motion.button
+                              type="button"
+                              whileHover={sshReady ? { scale: 1.02 } : undefined}
+                              whileTap={sshReady ? { scale: 0.98 } : undefined}
+                              disabled={!sshReady}
+                              title={
+                                sshReady
+                                  ? "Abrir terminal web SSH"
+                                  : "Espera a que el túnel SSH esté activo"
+                              }
+                              onClick={() => sshReady && openSshWebSession(s.id)}
+                              className={
+                                sshReady
+                                  ? "flex items-center gap-2 rounded-lg bg-cf-orange px-3 py-2 text-xs font-semibold text-black shadow-md sm:text-sm"
+                                  : "flex cursor-not-allowed items-center gap-2 rounded-lg bg-zinc-800/80 px-3 py-2 text-xs font-medium text-zinc-500 ring-1 ring-zinc-700 sm:text-sm"
+                              }
+                            >
+                              <Terminal className="h-4 w-4" />
+                              Terminal web
+                            </motion.button>
+                          ) : s.ssh ? (
+                            <p className="text-xs text-zinc-500">
+                              Tu rol no permite abrir la terminal web.
+                            </p>
+                          ) : (
+                            <p className="text-xs text-zinc-500">Sin SSH en este sitio.</p>
+                          )}
                         </div>
-                      </div>
-                      <AnimatePresence initial={false}>
-                        {open ? (
-                          <motion.div
-                            key={`panel-${s.id}`}
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            transition={{ duration: 0.2, ease: "easeOut" }}
-                            className="overflow-hidden border-t border-cf-line/80 bg-black/25"
-                          >
-                            <div className="flex flex-col gap-2 p-3">
-                              {canOperate ? (
-                                <>
-                              <div className="flex flex-wrap gap-2">
-                                {s.ssh ? (
-                                  s.sshStatus === "active" ? (
-                                    <motion.button
-                                      type="button"
-                                      whileHover={{ scale: 1.02 }}
-                                      whileTap={{ scale: 0.98 }}
-                                      onClick={() => void doStop(s.id, "ssh")}
-                                      className="rounded-lg bg-rose-950/80 px-3 py-2 text-xs font-semibold text-rose-100 ring-1 ring-rose-500/50 hover:bg-rose-900/90 sm:text-sm"
-                                    >
-                                      Detener SSH
-                                    </motion.button>
-                                  ) : (
-                                    <motion.button
-                                      type="button"
-                                      whileHover={{ scale: 1.02 }}
-                                      whileTap={{ scale: 0.98 }}
-                                      onClick={() => void doStart(s.id, "ssh")}
-                                      className="rounded-lg bg-cf-panel px-3 py-2 text-xs font-medium text-zinc-200 ring-1 ring-cf-line hover:bg-zinc-800 sm:text-sm"
-                                    >
-                                      Iniciar SSH
-                                    </motion.button>
-                                  )
-                                ) : null}
-                                {s.db ? (
-                                  s.dbStatus === "active" ? (
-                                    <motion.button
-                                      type="button"
-                                      whileHover={{ scale: 1.02 }}
-                                      whileTap={{ scale: 0.98 }}
-                                      onClick={() => void doStop(s.id, "db")}
-                                      className="rounded-lg bg-rose-950/80 px-3 py-2 text-xs font-semibold text-rose-100 ring-1 ring-rose-500/50 hover:bg-rose-900/90 sm:text-sm"
-                                    >
-                                      Detener BD
-                                    </motion.button>
-                                  ) : (
-                                    <motion.button
-                                      type="button"
-                                      whileHover={{ scale: 1.02 }}
-                                      whileTap={{ scale: 0.98 }}
-                                      onClick={() => void doStart(s.id, "db")}
-                                      className="rounded-lg bg-cf-panel px-3 py-2 text-xs font-medium text-zinc-200 ring-1 ring-cf-line hover:bg-zinc-800 sm:text-sm"
-                                    >
-                                      Iniciar BD
-                                    </motion.button>
-                                  )
-                                ) : null}
-                                {s.ssh && s.db ? (
-                                  s.sshStatus === "active" && s.dbStatus === "active" ? (
-                                    <motion.button
-                                      type="button"
-                                      whileHover={{ scale: 1.02 }}
-                                      whileTap={{ scale: 0.98 }}
-                                      onClick={() => void doStop(s.id)}
-                                      className="rounded-lg bg-rose-950/80 px-3 py-2 text-xs font-semibold text-rose-100 ring-1 ring-rose-500/50 hover:bg-rose-900/90 sm:text-sm"
-                                    >
-                                      Detener ambos
-                                    </motion.button>
-                                  ) : s.sshStatus === "active" || s.dbStatus === "active" ? (
-                                    <motion.button
-                                      type="button"
-                                      whileHover={{ scale: 1.02 }}
-                                      whileTap={{ scale: 0.98 }}
-                                      onClick={() => void doStop(s.id)}
-                                      className="rounded-lg bg-rose-950/80 px-3 py-2 text-xs font-semibold text-rose-100 ring-1 ring-rose-500/50 hover:bg-rose-900/90 sm:text-sm"
-                                    >
-                                      Detener túneles activos
-                                    </motion.button>
-                                  ) : (
-                                    <motion.button
-                                      type="button"
-                                      whileHover={{ scale: 1.02 }}
-                                      whileTap={{ scale: 0.98 }}
-                                      onClick={() => void doStart(s.id, "both")}
-                                      className="rounded-lg bg-cf-panel px-3 py-2 text-xs font-medium text-zinc-200 ring-1 ring-cf-line hover:bg-zinc-800 sm:text-sm"
-                                    >
-                                      Iniciar ambos
-                                    </motion.button>
-                                  )
-                                ) : null}
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {s.ssh && s.sshStatus === "active" ? (
-                                  <motion.button
-                                    type="button"
-                                    whileHover={{ scale: 1.02 }}
-                                    whileTap={{ scale: 0.98 }}
-                                    onClick={() => openSshWebSession(s.id)}
-                                    className="flex items-center gap-2 rounded-lg bg-cf-orange px-3 py-2 text-xs font-semibold text-black shadow-md sm:text-sm"
-                                  >
-                                    <Terminal className="h-4 w-4" />
-                                    Terminal web
-                                  </motion.button>
-                                ) : null}
-                                {s.db ? (
-                                  <motion.button
-                                    type="button"
-                                    whileHover={{ scale: 1.02 }}
-                                    whileTap={{ scale: 0.98 }}
-                                    onClick={() => void doOpenPgadmin(s.id)}
-                                    className="flex items-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white shadow-md ring-1 ring-sky-400/40 sm:text-sm"
-                                  >
-                                    <Database className="h-4 w-4" />
-                                    PgAdmin
-                                  </motion.button>
-                                ) : null}
-                              </div>
-                                </>
-                              ) : (
-                                <p className="text-center text-xs text-zinc-500">
-                                  Solo lectura: tu rol no permite iniciar o detener túneles.
-                                </p>
-                              )}
-                            </div>
-                          </motion.div>
-                        ) : null}
-                      </AnimatePresence>
                       </div>
                     </motion.div>
                   );
@@ -907,36 +735,16 @@ export default function App() {
 
               <div className="shrink-0 rounded-xl border border-cf-line bg-cf-panel/95 shadow-[0_-8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cf-line/60 px-3 py-2">
-                  <span className="text-xs font-medium text-zinc-400">Barra rápida</span>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setLogOpen((v) => !v)}
-                      className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 ring-1 ring-zinc-600 hover:bg-zinc-700"
-                    >
-                      {logOpen ? "Ocultar registro" : "Mostrar registro"}
-                    </button>
-                    {canOperate ? (
-                    <motion.button
-                      type="button"
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() =>
-                        setPendingConfirm({
-                          title: "Detener todos los túneles",
-                          message:
-                            "Se detendrán todos los túneles SSH activos en este equipo. Las sesiones de terminal web también se cerrarán.",
-                          confirmLabel: "Detener todo",
-                          variant: "danger",
-                          onConfirm: () => void doStop(null),
-                        })
-                      }
-                      className="rounded-lg bg-rose-600/90 px-3 py-1.5 text-xs font-semibold text-white"
-                    >
-                      Detener todo
-                    </motion.button>
-                    ) : null}
-                  </div>
+                  <span className="text-xs font-medium text-zinc-400">
+                    Túneles gestionados automáticamente por atlas-tunnels
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setLogOpen((v) => !v)}
+                    className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 ring-1 ring-zinc-600 hover:bg-zinc-700"
+                  >
+                    {logOpen ? "Ocultar registro" : "Mostrar registro"}
+                  </button>
                 </div>
                 {logOpen ? (
                   <div
