@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from atlas_rancher.client import RancherApiError, RancherConfigError, list_custom_clusters
-from atlas_rancher.labels import normalize_distro
+from atlas_rancher.labels import normalize_application, normalize_distro
 from atlas_rancher.settings_store import load_rancher_settings
 
 
@@ -21,11 +21,13 @@ def find_equipment_for_store(
     store_id: str,
     *,
     distro: str,
+    application: str = "poslite",
+    require_application_match: bool = True,
     require_distro_match: bool = True,
 ) -> dict[str, Any]:
     """
     Busca un equipo (custom cluster) con label store = store_id.
-    Opcionalmente exige que distro coincida con Horustech/PAM.
+    Opcionalmente exige match por application y distro.
     """
     settings = load_rancher_settings()
     if not settings.get("url") or not settings.get("token"):
@@ -45,6 +47,7 @@ def find_equipment_for_store(
         raise EquipmentNotFoundError("El código de tienda es obligatorio.")
 
     want_distro = normalize_distro(distro).lower()
+    want_app = normalize_application(application).lower()
     candidates: list[dict[str, Any]] = []
 
     for cluster in clusters:
@@ -58,6 +61,23 @@ def find_equipment_for_store(
             f"No existe ningún equipo en Rancher con tienda «{store_id}». "
             "Registra el equipo y asigna la etiqueta store antes de crear la configuración en Git."
         )
+
+    if require_application_match and want_app:
+        app_matches: list[dict[str, Any]] = []
+        for cluster in candidates:
+            c_app = normalize_application(str(cluster.get("application") or "")).lower()
+            if c_app == want_app:
+                app_matches.append(cluster)
+        if not app_matches:
+            names = ", ".join(
+                normalize_application(str(c.get("application") or "")) or "sin aplicación"
+                for c in candidates
+            )
+            raise EquipmentNotFoundError(
+                f"Hay equipo para la tienda «{store_id}», pero ninguno con aplicación "
+                f"«{normalize_application(application)}» (encontrado: {names}). Ajusta las etiquetas en Equipos."
+            )
+        candidates = app_matches
 
     if require_distro_match and want_distro:
         for cluster in candidates:

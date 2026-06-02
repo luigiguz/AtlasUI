@@ -65,9 +65,10 @@ def _summarize_update(folder_name: str, patch: dict[str, Any]) -> str:
 
 def _summarize_create(body: dict[str, Any]) -> str:
     store_id = str(body.get("store_id") or body.get("folder_name") or "").strip()
+    application = str(body.get("application") or "Poslite").strip()
     distro = str(body.get("distro") or "").strip().lower()
     folder = str(body.get("folder_name") or store_id).strip()
-    return f"Nueva tienda {store_id} ({distro or '?'}) en {folder}"
+    return f"Nueva tienda {store_id} ({application}/{distro or '?'}) en {folder}"
 
 
 def _flatten_workers(station: dict[str, Any]) -> list[dict[str, Any]]:
@@ -92,6 +93,8 @@ def _merge_store_with_patch(current: dict[str, Any], patch: dict[str, Any]) -> d
     proposed = {**current}
     if patch.get("id"):
         proposed["id"] = patch["id"]
+    if patch.get("application"):
+        proposed["application"] = patch["application"]
     if patch.get("distro"):
         proposed["distro"] = patch["distro"]
     if isinstance(patch.get("db"), dict):
@@ -114,6 +117,8 @@ def _compare_store_snapshots(baseline: dict[str, Any], proposed: dict[str, Any])
     lines: list[str] = []
     if baseline.get("id") != proposed.get("id"):
         lines.append(f"Código tienda: {baseline.get('id')} → {proposed.get('id')}")
+    if baseline.get("application") != proposed.get("application"):
+        lines.append(f"Aplicación: {baseline.get('application') or '—'} → {proposed.get('application') or '—'}")
     base_db = baseline.get("db") or {}
     cur_db = proposed.get("db") or {}
     if bool(base_db.get("pgadminEnabled")) != bool(cur_db.get("pgadminEnabled")):
@@ -167,11 +172,13 @@ def _compare_store_snapshots(baseline: dict[str, Any], proposed: dict[str, Any])
 
 def _create_request_lines(payload: dict[str, Any], store_id: str) -> list[str]:
     folder = str(payload.get("folder_name") or store_id).strip()
+    application = str(payload.get("application") or "Poslite").strip() or "Poslite"
     distro = str(payload.get("distro") or "—").strip().lower() or "—"
     channel = str(payload.get("image_channel") or payload.get("imageChannel") or "stable").strip()
     return [
         f"Nueva tienda: {store_id}",
         f"Carpeta en repo: {folder}",
+        f"Aplicación: {application}",
         f"Distribución: {distro}",
         f"Tag imágenes: {channel}",
     ]
@@ -394,12 +401,14 @@ def _apply_and_publish(
 
     if kind == KIND_CREATE:
         sid = str(payload.get("store_id") or store_id).strip()
+        application = str(payload.get("application") or "Poslite").strip() or "Poslite"
         distro = str(payload.get("distro") or "").strip().lower()
-        find_equipment_for_store(sid, distro=distro)
+        find_equipment_for_store(sid, application=application, distro=distro)
         store = create_store(
             root,
             folder_name=str(payload.get("folder_name") or folder_name).strip(),
             store_id=sid,
+            application=application,
             distro=distro,
             image_channel=str(payload.get("image_channel") or "stable").strip() or "stable",
         )

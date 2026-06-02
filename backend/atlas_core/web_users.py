@@ -295,6 +295,7 @@ def update_user(
                 row.last_name = ln
             if email_notifications is not None:
                 row.email_notifications_enabled = bool(email_notifications)
+            if password is not None:
                 if len(password) < 12:
                     raise ValueError("La contraseña debe tener al menos 12 caracteres.")
                 row.password_hash = _ph.hash(password)

@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Trash2,
   X,
@@ -38,6 +39,43 @@ type RoleOption = {
 
 const inputClass =
   "mt-1 w-full rounded-lg border border-cf-line bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50 focus:ring-2 focus:ring-cf-orange/20";
+
+function randomInt(maxExclusive: number): number {
+  if (maxExclusive <= 0) return 0;
+  const c = globalThis.crypto;
+  if (c?.getRandomValues) {
+    const arr = new Uint32Array(1);
+    c.getRandomValues(arr);
+    return arr[0] % maxExclusive;
+  }
+  return Math.floor(Math.random() * maxExclusive);
+}
+
+function generateRandomPassword(length = 16): string {
+  const lowers = "abcdefghijkmnopqrstuvwxyz";
+  const uppers = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const digits = "23456789";
+  const symbols = "!@#$%^&*-_+=";
+  const all = `${lowers}${uppers}${digits}${symbols}`;
+  const required = [
+    lowers[randomInt(lowers.length)],
+    uppers[randomInt(uppers.length)],
+    digits[randomInt(digits.length)],
+    symbols[randomInt(symbols.length)],
+  ];
+  const out = [...required];
+  const targetLen = Math.max(12, length);
+  while (out.length < targetLen) {
+    out.push(all[randomInt(all.length)]);
+  }
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    const tmp = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
+  }
+  return out.join("");
+}
 
 function fmtDate(ts: number) {
   return new Date(ts * 1000).toLocaleString("es", {
@@ -486,7 +524,23 @@ export function AtlasUsersView({ me }: Props) {
                   <input className={`${inputClass} font-mono`} value={cuName} onChange={(e) => setCuName(e.target.value)} required />
                 </Field>
                 <Field label="Contraseña (≥ 12)">
-                  <input type="password" className={inputClass} value={cuPw} onChange={(e) => setCuPw(e.target.value)} required />
+                  <div className="mt-1 flex items-center gap-2">
+                    <input
+                      type="password"
+                      className={`${inputClass} mt-0 flex-1`}
+                      value={cuPw}
+                      onChange={(e) => setCuPw(e.target.value)}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setCuPw(generateRandomPassword())}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-cf-line px-2.5 py-2 text-xs text-zinc-300 hover:bg-white/5"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      Generar
+                    </button>
+                  </div>
                 </Field>
               </div>
               <Field label="Roles">
@@ -541,7 +595,22 @@ export function AtlasUsersView({ me }: Props) {
                 </span>
               </label>
               <Field label="Nueva contraseña (opcional)">
-                <input type="password" className={inputClass} value={editPw} onChange={(e) => setEditPw(e.target.value)} />
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    type="password"
+                    className={`${inputClass} mt-0 flex-1`}
+                    value={editPw}
+                    onChange={(e) => setEditPw(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setEditPw(generateRandomPassword())}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-cf-line px-2.5 py-2 text-xs text-zinc-300 hover:bg-white/5"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Generar
+                  </button>
+                </div>
               </Field>
               <div className="flex justify-end gap-2 border-t border-cf-line/60 pt-4">
                 <button type="button" onClick={() => setEditUser(null)} className="rounded-lg px-4 py-2 text-sm ring-1 ring-cf-line">

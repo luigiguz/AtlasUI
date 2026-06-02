@@ -59,7 +59,7 @@ def _placeholder_map(*, store_id: str, distro: str, image_channel: str) -> dict[
     }
 
 
-def _ensure_cluster_labels(doc: dict[str, Any], *, store_id: str, distro: str) -> None:
+def _ensure_cluster_labels(doc: dict[str, Any], *, store_id: str, distro: str, application: str) -> None:
     """Asegura matchLabels tras sustituir placeholders."""
     for cust in doc.get("targetCustomizations") or []:
         if not isinstance(cust, dict):
@@ -73,7 +73,7 @@ def _ensure_cluster_labels(doc: dict[str, Any], *, store_id: str, distro: str) -
             sel["matchLabels"] = ml
         ml["atlas"] = "true"
         ml["store"] = store_id
-        ml["application"] = "poslite"
+        ml["application"] = application
         if distro:
             ml["distro"] = distro
 
@@ -83,13 +83,14 @@ def _apply_template(
     *,
     store_id: str,
     distro: str,
+    application: str,
     image_channel: str,
 ) -> dict[str, Any]:
     cloned = deepcopy(doc)
     mapped = _replace_placeholders(cloned, _placeholder_map(store_id=store_id, distro=distro, image_channel=image_channel))
     if not isinstance(mapped, dict):
         raise StoreTemplateError("La plantilla no produjo un documento YAML válido.")
-    _ensure_cluster_labels(mapped, store_id=store_id, distro=distro)
+    _ensure_cluster_labels(mapped, store_id=store_id, distro=distro, application=application)
     return mapped
 
 
@@ -138,17 +139,30 @@ def _load_db_fleet(
     root: Path,
     *,
     store_id: str,
+    application: str,
     image_channel: str,
 ) -> dict[str, Any]:
     tpl = root / TEMPLATE_DB
     if tpl.is_file():
-        return _apply_template(_load_yaml_file(tpl), store_id=store_id, distro="", image_channel=image_channel)
+        return _apply_template(
+            _load_yaml_file(tpl),
+            store_id=store_id,
+            distro="",
+            application=application,
+            image_channel=image_channel,
+        )
     ref = root / DB_REFERENCE
     if ref.is_file():
-        doc = _apply_template(_load_yaml_file(ref), store_id=store_id, distro="", image_channel=image_channel)
-        _ensure_cluster_labels(doc, store_id=store_id, distro="")
+        doc = _apply_template(
+            _load_yaml_file(ref),
+            store_id=store_id,
+            distro="",
+            application=application,
+            image_channel=image_channel,
+        )
+        _ensure_cluster_labels(doc, store_id=store_id, distro="", application=application)
         return doc
-    return _fallback_db_fleet(store_id)
+    return _fallback_db_fleet(store_id, application=application)
 
 
 def list_store_templates(repo_root: Path) -> list[dict[str, Any]]:
@@ -188,6 +202,7 @@ def new_store_files_from_repo(
     *,
     store_id: str,
     distro: str,
+    application: str = "poslite",
     image_channel: str = "stable",
 ) -> dict[str, Any]:
     """
@@ -205,17 +220,24 @@ def new_store_files_from_repo(
         raise ValueError("El código de tienda es obligatorio.")
 
     files: dict[str, Any] = {}
-    files["db/fleet.yaml"] = _load_db_fleet(root, store_id=sid, image_channel=image_channel)
+    app = (application or "poslite").strip()
+    files["db/fleet.yaml"] = _load_db_fleet(root, store_id=sid, application=app, image_channel=image_channel)
 
     stack_dir, template_rel = DISTRO_STACK[distro_l]
     template_path = root / template_rel
-    station_doc = _apply_template(_load_yaml_file(template_path), store_id=sid, distro=distro_l, image_channel=image_channel)
+    station_doc = _apply_template(
+        _load_yaml_file(template_path),
+        store_id=sid,
+        distro=distro_l,
+        application=app,
+        image_channel=image_channel,
+    )
     files[f"{stack_dir}/fleet.yaml"] = station_doc
 
     return files
 
 
-def _fallback_db_fleet(store_id: str) -> dict[str, Any]:
+def _fallback_db_fleet(store_id: str, *, application: str) -> dict[str, Any]:
     """Si no existe referencia aspdemos/db en el repo."""
     return {
         "defaultNamespace": "poslite",
@@ -226,7 +248,7 @@ def _fallback_db_fleet(store_id: str) -> dict[str, Any]:
                     "matchLabels": {
                         "atlas": "true",
                         "store": store_id,
-                        "application": "poslite",
+                        "application": application,
                     }
                 },
                 "helm": {

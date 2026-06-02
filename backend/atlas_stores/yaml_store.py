@@ -371,7 +371,7 @@ def _summarize_workers(values: dict[str, Any]) -> dict[str, Any]:
     groups: list[dict[str, Any]] = []
     if general:
         general.sort(key=lambda x: x["key"])
-        groups.append({"id": "general", "label": "Procesos generales", "workers": general})
+        groups.append({"id": "general", "label": "Servicio de Estación", "workers": general})
     if ierp_items:
         ierp_items.sort(key=lambda x: x["key"])
         groups.append({"id": "ierp", "label": "iERP", "workers": ierp_items})
@@ -406,13 +406,14 @@ def save_store(
     folder = stores_poslite_dir(repo_root) / folder_name
 
     store_id = str(patch.get("id") or current["id"]).strip()
+    application = str(patch.get("application") or current.get("application") or "poslite").strip()
     distro = str(patch.get("distro") or current["distro"]).strip().lower()
     image_channel = str(patch.get("imageChannel") or current.get("imageChannel") or "stable").strip()
 
     raw_stacks: dict[str, Any] = current.get("_rawStacks") or {}
 
-    if patch.get("db") and STACK_DB in raw_stacks:
-        _apply_db_patch(raw_stacks[STACK_DB], patch["db"], store_id)
+    if STACK_DB in raw_stacks:
+        _apply_db_patch(raw_stacks[STACK_DB], patch.get("db") or {}, store_id, application=application)
 
     station_patch = patch.get("station") or {}
     station_stack = str(station_patch.get("stack") or current.get("station", {}).get("stack") or "")
@@ -421,6 +422,7 @@ def save_store(
             raw_stacks[station_stack],
             station_patch,
             store_id=store_id,
+            application=application,
             distro=distro,
             image_channel=image_channel,
         )
@@ -432,12 +434,18 @@ def save_store(
     return load_store(repo_root, folder_name)
 
 
-def _apply_db_patch(doc: dict[str, Any], db_patch: dict[str, Any], store_id: str) -> None:
+def _apply_db_patch(
+    doc: dict[str, Any],
+    db_patch: dict[str, Any],
+    store_id: str,
+    *,
+    application: str,
+) -> None:
     cust = _first_customization(doc)
     ml = _match_labels(doc)
     ml["atlas"] = "true"
     ml["store"] = store_id
-    ml["application"] = ml.get("application") or "poslite"
+    ml["application"] = application or ml.get("application") or "poslite"
     if "clusterSelector" not in cust:
         cust["clusterSelector"] = {}
     cust["clusterSelector"]["matchLabels"] = ml
@@ -465,6 +473,7 @@ def _apply_station_patch(
     station_patch: dict[str, Any],
     *,
     store_id: str,
+    application: str,
     distro: str,
     image_channel: str,
 ) -> None:
@@ -472,7 +481,7 @@ def _apply_station_patch(
     ml = _match_labels(doc)
     ml["atlas"] = "true"
     ml["store"] = store_id
-    ml["application"] = ml.get("application") or "poslite"
+    ml["application"] = application or ml.get("application") or "poslite"
     if distro:
         ml["distro"] = distro
     cust["clusterSelector"] = {"matchLabels": ml}
@@ -652,6 +661,7 @@ def preview_create_store(
     folder_name: str,
     store_id: str,
     distro: str,
+    application: str = "poslite",
     image_channel: str = "stable",
 ) -> dict[str, Any]:
     """Genera resumen de lo que se publicará sin escribir en disco."""
@@ -671,6 +681,7 @@ def preview_create_store(
         repo_root,
         store_id=sid,
         distro=distro_l,
+        application=application,
         image_channel=image_channel,
     )
     sources = create_template_sources(repo_root, distro_l)
@@ -732,6 +743,7 @@ def preview_create_store(
     return {
         "storeId": sid,
         "folderName": folder,
+        "application": application,
         "distro": distro_l,
         "imageChannel": image_channel.strip() or "stable",
         "namespace": str((station_stack or db_stack or {}).get("namespace") or "poslite"),
@@ -762,6 +774,7 @@ def create_store(
     folder_name: str,
     store_id: str,
     distro: str,
+    application: str = "poslite",
     image_channel: str = "stable",
 ) -> dict[str, Any]:
     distro_l = distro.strip().lower()
@@ -776,6 +789,7 @@ def create_store(
         repo_root,
         store_id=store_id,
         distro=distro_l,
+        application=application,
         image_channel=image_channel,
     )
     for rel, content in files.items():

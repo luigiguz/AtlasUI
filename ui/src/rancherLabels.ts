@@ -11,6 +11,7 @@ const DISTRO_CANONICAL: Record<string, string> = {
 
 const APPLICATION_CANONICAL: Record<string, string> = {
   poslite: "Poslite",
+  ierp: "IERP",
 };
 
 export function normalizeDistro(raw: string): string {
@@ -20,9 +21,10 @@ export function normalizeDistro(raw: string): string {
 }
 
 export function normalizeApplication(raw: string): string {
-  const low = raw.trim().toLowerCase();
+  const trimmed = raw.trim();
+  const low = trimmed.toLowerCase();
   if (!low) return "";
-  return APPLICATION_CANONICAL[low] ?? low.charAt(0).toUpperCase() + low.slice(1);
+  return APPLICATION_CANONICAL[low] ?? trimmed;
 }
 
 export function isPosliteApplication(app: string): boolean {

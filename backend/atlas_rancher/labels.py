@@ -9,6 +9,7 @@ DISTRO_CANONICAL: dict[str, str] = {
 
 APPLICATION_CANONICAL: dict[str, str] = {
     "poslite": "Poslite",
+    "ierp": "IERP",
 }
 
 # Distribuciones válidas cuando application=Poslite
@@ -23,10 +24,11 @@ def normalize_distro(raw: str) -> str:
 
 
 def normalize_application(raw: str) -> str:
-    low = str(raw or "").strip().lower()
+    text = str(raw or "").strip()
+    low = text.lower()
     if not low:
         return ""
-    return APPLICATION_CANONICAL.get(low, low[:1].upper() + low[1:])
+    return APPLICATION_CANONICAL.get(low, text)
 
 
 def is_poslite_application(app: str) -> bool:

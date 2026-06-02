@@ -55,6 +55,15 @@ function distroLabel(d: string): string {
   return d || "—";
 }
 
+function applicationLabel(app: string): string {
+  const trimmed = (app || "").trim();
+  if (!trimmed) return "—";
+  const low = trimmed.toLowerCase();
+  if (low === "poslite") return "Poslite";
+  if (low === "ierp") return "IERP";
+  return trimmed;
+}
+
 function workerGroupsFromStation(station: StoreDetail["station"]): StoreWorkerGroup[] {
   const grouped = station.workerGroups?.groups;
   if (grouped?.length) return grouped;
@@ -66,7 +75,7 @@ function workerGroupsFromStation(station: StoreDetail["station"]): StoreWorkerGr
     else general.push(w);
   }
   const out: StoreWorkerGroup[] = [];
-  if (general.length) out.push({ id: "general", label: "Procesos generales", workers: general });
+  if (general.length) out.push({ id: "general", label: "Servicio de Estación", workers: general });
   if (ierp.length) out.push({ id: "ierp", label: "iERP", workers: ierp });
   return out;
 }
@@ -210,6 +219,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
 
   const [newFolder, setNewFolder] = useState("");
   const [newStoreId, setNewStoreId] = useState("");
+  const [newApplication, setNewApplication] = useState("Poslite");
   const [newDistro, setNewDistro] = useState<"horustech" | "pam">("horustech");
   const [newChannel, setNewChannel] = useState("stable");
   const [createError, setCreateError] = useState("");
@@ -522,6 +532,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         method: "PUT",
         body: JSON.stringify({
           id: detail.id,
+          application: (detail.application || "").trim() || "Poslite",
           distro: detail.distro,
           db: detail.db,
           station: {
@@ -581,9 +592,15 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
 
   const checkEquipmentForNewStore = useCallback(async (): Promise<RancherCustomCluster | null> => {
     const sid = resolveNewStoreId();
+    const app = newApplication.trim();
     if (!sid) {
       setEquipmentCheck(null);
       setCreateError("");
+      return null;
+    }
+    if (!app) {
+      setEquipmentCheck(null);
+      setCreateError("Indica la aplicación.");
       return null;
     }
     setEquipmentChecking(true);
@@ -591,8 +608,10 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     try {
       const clusters = await api<ClustersResponse>("/api/atlas-rancher/custom-clusters");
       const want = newDistro.toLowerCase();
+      const wantApp = app.toLowerCase();
       const match = (clusters.clusters ?? []).find((c) => {
         if ((c.store || "").trim().toLowerCase() !== sid.toLowerCase()) return false;
+        if ((c.application || "").trim().toLowerCase() !== wantApp) return false;
         const d = (c.distro || "").trim().toLowerCase();
         return d === want;
       });
@@ -600,10 +619,17 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         const anyStore = (clusters.clusters ?? []).some(
           (c) => (c.store || "").trim().toLowerCase() === sid.toLowerCase()
         );
+        const anyStoreApp = (clusters.clusters ?? []).some(
+          (c) =>
+            (c.store || "").trim().toLowerCase() === sid.toLowerCase() &&
+            (c.application || "").trim().toLowerCase() === wantApp
+        );
         setEquipmentCheck(null);
         setCreateError(
-          anyStore
+          anyStoreApp
             ? `Hay un equipo para «${sid}», pero con otra distribución. Ajusta etiquetas en Equipos o cambia la distribución aquí.`
+            : anyStore
+            ? `Hay equipo para «${sid}», pero bajo otra aplicación. Ajusta etiqueta application en Equipos o cambia la aplicación aquí.`
             : `No hay equipo en Rancher con tienda «${sid}». Créalo primero en Equipos con etiqueta store.`
         );
         return null;
@@ -618,7 +644,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     } finally {
       setEquipmentChecking(false);
     }
-  }, [resolveNewStoreId, newDistro]);
+  }, [resolveNewStoreId, newApplication, newDistro]);
 
   useEffect(() => {
     if (!createOpen) return;
@@ -651,8 +677,13 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     e.preventDefault();
     if (!canEdit) return;
     const sid = resolveNewStoreId();
+    const app = newApplication.trim();
     if (!sid) {
       setCreateError("Indica el código de tienda.");
+      return;
+    }
+    if (!app) {
+      setCreateError("Indica la aplicación.");
       return;
     }
     const eq = equipmentCheck ?? (await checkEquipmentForNewStore());
@@ -665,6 +696,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         body: JSON.stringify({
           folder_name: newFolder.trim() || sid,
           store_id: sid,
+          application: app,
           distro: newDistro,
           image_channel: newChannel,
         }),
@@ -696,6 +728,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
         body: JSON.stringify({
           folder_name: createPreview.folderName,
           store_id: sid,
+          application: (createPreview.application || newApplication || "").trim() || "Poslite",
           distro: newDistro,
           image_channel: newChannel,
         }),
@@ -723,6 +756,18 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     () => [...stores].sort((a, b) => a.id.localeCompare(b.id, "es")),
     [stores]
   );
+  const knownApplications = useMemo(() => {
+    const apps = new Set<string>();
+    apps.add("Poslite");
+    apps.add("IERP");
+    for (const s of stores) {
+      const app = (s.application || "").trim();
+      if (app) apps.add(app);
+    }
+    if (detail?.application?.trim()) apps.add(detail.application.trim());
+    if (newApplication.trim()) apps.add(newApplication.trim());
+    return Array.from(apps).sort((a, b) => a.localeCompare(b, "es"));
+  }, [stores, detail?.application, newApplication]);
 
   const workerGroups = useMemo(
     () => (detail?.station ? workerGroupsFromStation(detail.station) : []),
@@ -1063,6 +1108,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               <thead>
                 <tr className="border-b border-cf-line/50 text-xs uppercase text-zinc-500">
                   <th className="px-4 py-3">Tienda</th>
+                  <th className="px-4 py-3">Aplicación</th>
                   <th className="px-4 py-3">Distribución</th>
                   <th className="px-4 py-3">Tag (versión)</th>
                   <th className="hidden px-4 py-3 text-right sm:table-cell" aria-hidden />
@@ -1086,6 +1132,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                         Toca para gestionar
                       </span>
                     </td>
+                    <td className="px-4 py-3 text-zinc-400">{applicationLabel(s.application)}</td>
                     <td className="px-4 py-3 text-zinc-400">{distroLabel(s.distro)}</td>
                     <td className="px-4 py-3 text-zinc-500" title="Resumen; cada servicio puede tener otro tag en la ficha">
                       {s.imageChannel || "—"}
@@ -1119,7 +1166,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 <h1 className="truncate text-lg font-semibold text-zinc-100">{detail?.id ?? selectedFolder}</h1>
                 {detail ? (
                   <p className="truncate text-xs text-zinc-500">
-                    {detail.folderName} · {distroLabel(detail.distro)} · {detail.stacks.join(", ")}
+                    {detail.folderName} · {applicationLabel(detail.application)} · {distroLabel(detail.distro)} · {detail.stacks.join(", ")}
                   </p>
                 ) : null}
               </div>
@@ -1163,7 +1210,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   </p>
                 )}
                 <p className="mt-1 text-[11px] text-zinc-600">
-                  Etiquetas requeridas: atlas=true, store={detail.id}, application=poslite
+                  Etiquetas requeridas: atlas=true, store={detail.id}, application={detail.application || "Poslite"}
                   {detail.distro ? `, distro=${detail.distro}` : ""}
                 </p>
               </section>
@@ -1177,6 +1224,17 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       value={detail.id}
                       onChange={(e) => setDetail({ ...detail, id: e.target.value })}
                       className={inputClass}
+                      disabled={!canEdit}
+                    />
+                  </label>
+                  <label className="text-xs text-zinc-500">
+                    Aplicación
+                    <input
+                      value={detail.application || ""}
+                      onChange={(e) => setDetail({ ...detail, application: e.target.value })}
+                      className={inputClass}
+                      list="atlas-store-applications"
+                      placeholder="Ej. Poslite, IERP, ..."
                       disabled={!canEdit}
                     />
                   </label>
@@ -1242,7 +1300,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       <div>
                         <h3 className="text-xs font-medium uppercase text-zinc-500">Software desplegado</h3>
                         <p className="mt-0.5 text-[11px] text-zinc-600">
-                          Busca en servicios de estación, iERP y procesos generales.
+                          Busca en procesos generales, iERP y servicio de estación.
                         </p>
                       </div>
                       <label className="relative block w-full sm:max-w-xs">
@@ -1271,7 +1329,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   {detail.station?.services?.length &&
                   (!filterQ || filteredServices.length > 0) ? (
                     <section>
-                      <h3 className="text-xs font-medium uppercase text-zinc-500">Servicios de estación</h3>
+                      <h3 className="text-xs font-medium uppercase text-zinc-500">Procesos generales</h3>
                       <div className="mt-2 max-h-72 overflow-y-auto rounded border border-cf-line/40">
                         <table className="w-full text-left text-xs">
                           <thead className="sticky top-0 bg-[#111418] text-[10px] uppercase text-zinc-600">
@@ -1439,6 +1497,11 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
           </div>
         </div>
       )}
+      <datalist id="atlas-store-applications">
+        {knownApplications.map((app) => (
+          <option key={app} value={app} />
+        ))}
+      </datalist>
 
       <AtlasConfirmDialog
         open={publishConfirmOpen}
@@ -1533,6 +1596,16 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     </select>
                   </label>
                   <label className="text-xs text-zinc-500">
+                    Aplicación
+                    <input
+                      value={newApplication}
+                      onChange={(e) => setNewApplication(e.target.value)}
+                      className={inputClass}
+                      list="atlas-store-applications"
+                      placeholder="Ej. Poslite, IERP, ..."
+                    />
+                  </label>
+                  <label className="text-xs text-zinc-500">
                     Tag (versión)
                     <select value={newChannel} onChange={(e) => setNewChannel(e.target.value)} className={inputClass}>
                       <option value="stable">stable</option>
@@ -1577,6 +1650,10 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                     <div>
                       <dt className="text-zinc-500">Distribución</dt>
                       <dd className="text-zinc-200">{distroLabel(createPreview.distro)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-zinc-500">Aplicación</dt>
+                      <dd className="text-zinc-200">{applicationLabel(createPreview.application || newApplication)}</dd>
                     </div>
                     <div>
                       <dt className="text-zinc-500">Tag imágenes</dt>

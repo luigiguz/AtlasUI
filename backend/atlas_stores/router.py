@@ -102,12 +102,14 @@ class StoresSettingsBody(BaseModel):
 class CreateStoreBody(BaseModel):
     folder_name: str
     store_id: str = ""
+    application: str = "Poslite"
     distro: str = Field(description="horustech o pam")
     image_channel: str = "stable"
 
 
 class SaveStoreBody(BaseModel):
     id: str | None = None
+    application: str | None = None
     distro: str | None = None
     image_channel: str | None = None
     db: dict[str, Any] | None = None
@@ -329,15 +331,17 @@ def post_store_create_preview(
     store_id = (body.store_id or body.folder_name).strip()
     if not store_id:
         raise HTTPException(400, "El código de tienda es obligatorio.")
+    application = (body.application or "Poslite").strip() or "Poslite"
     distro = body.distro.strip().lower()
     try:
-        equipment = find_equipment_for_store(store_id, distro=distro)
+        equipment = find_equipment_for_store(store_id, application=application, distro=distro)
         root = _stores_repo_root(settings, user)
         preview = preview_create_store(
             root,
             folder_name=body.folder_name.strip() or store_id,
             store_id=store_id,
             distro=distro,
+            application=application,
             image_channel=body.image_channel.strip() or "stable",
         )
     except RancherNotConfiguredError as e:
@@ -555,11 +559,12 @@ def post_create_store(
     store_id = (body.store_id or body.folder_name).strip()
     if not store_id:
         raise HTTPException(400, "El código de tienda es obligatorio.")
+    application = (body.application or "Poslite").strip() or "Poslite"
     distro = body.distro.strip().lower()
     folder = body.folder_name.strip() or store_id
 
     try:
-        equipment = find_equipment_for_store(store_id, distro=distro)
+        equipment = find_equipment_for_store(store_id, application=application, distro=distro)
     except RancherNotConfiguredError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except EquipmentNotFoundError as e:
@@ -574,6 +579,7 @@ def post_create_store(
                 body={
                     "folder_name": folder,
                     "store_id": store_id,
+                    "application": application,
                     "distro": distro,
                     "image_channel": body.image_channel.strip() or "stable",
                 },
@@ -600,6 +606,7 @@ def post_create_store(
             root,
             folder_name=folder,
             store_id=store_id,
+            application=application,
             distro=distro,
             image_channel=body.image_channel.strip() or "stable",
         )

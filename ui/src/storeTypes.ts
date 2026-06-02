@@ -129,6 +129,7 @@ export type StorePreviewWarning = {
 export type StoreCreatePreview = {
   storeId: string;
   folderName: string;
+  application: string;
   distro: string;
   imageChannel: string;
   namespace: string;
