@@ -176,7 +176,7 @@ function RolloutConfirmModal({
         if (!busy) onCancel();
       }}
       zIndexClass="z-[60]"
-      panelClassName="w-full max-w-md overflow-hidden rounded-xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.08]"
+      panelClassName="w-full max-w-md overflow-hidden rounded-xl border border-cf-line bg-cf-panel shadow-2xl ring-1 ring-white/[0.08]"
     >
       <div role="dialog" aria-modal="true" aria-labelledby="rollout-confirm-title">
         <div className="border-b border-cf-line/60 bg-gradient-to-r from-cf-orange/10 via-transparent to-transparent px-5 py-4">
@@ -196,7 +196,7 @@ function RolloutConfirmModal({
               type="button"
               disabled={busy}
               onClick={onCancel}
-              className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/10 disabled:opacity-40"
+              className="rounded-lg p-1.5 text-zinc-500 hover:bg-cf-card disabled:opacity-40"
               aria-label="Cerrar"
             >
               <X className="h-4 w-4" />
@@ -216,7 +216,7 @@ function RolloutConfirmModal({
                 Se actualizará la imagen de{" "}
                 <span className="font-medium text-zinc-100">{count} servicios</span>.
               </p>
-              <ul className="mt-3 max-h-36 space-y-1 overflow-y-auto rounded-lg border border-cf-line/50 bg-black/20 px-3 py-2 text-xs text-zinc-400">
+              <ul className="mt-3 max-h-36 space-y-1 overflow-y-auto rounded-lg border border-cf-line/50 bg-cf-card/70 px-3 py-2 text-xs text-zinc-400">
                 {deployments.map((d) => (
                   <li key={d.name} className="truncate">
                     {d.name}
@@ -227,7 +227,7 @@ function RolloutConfirmModal({
           )}
         </div>
 
-        <div className="flex gap-2 border-t border-cf-line/60 bg-black/20 px-5 py-4">
+        <div className="flex gap-2 border-t border-cf-line/60 bg-cf-card/70 px-5 py-4">
           <button
             type="button"
             disabled={busy}
@@ -339,7 +339,7 @@ function SpecTile({
         ? "text-emerald-400"
         : "text-zinc-200";
   return (
-    <div className="rounded-lg border border-cf-line/35 bg-white/[0.03] px-2.5 py-2 ring-1 ring-white/[0.03]">
+    <div className="rounded-lg border border-cf-line/35 bg-white/[0.03] px-2.5 py-2 ring-1 ring-cf-line/30">
       <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600">
         <Icon className="h-3 w-3 shrink-0 text-zinc-500" aria-hidden />
         {label}
@@ -389,7 +389,7 @@ function ServiceExpandedDetails({
     >
       <div className="space-y-2.5 px-3 py-3 pl-11">
         {imageFull ? (
-          <div className="rounded-lg border border-cf-line/40 bg-black/30 px-3 py-2.5 ring-1 ring-white/[0.04]">
+          <div className="rounded-lg border border-cf-line/40 bg-cf-card/90 px-3 py-2.5 ring-1 ring-white/[0.04]">
             <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600">
               <Box className="h-3 w-3 text-zinc-500" aria-hidden />
               Imagen
@@ -423,7 +423,7 @@ function ServiceExpandedDetails({
         </div>
 
         {showPods ? (
-          <div className="rounded-lg border border-cf-line/35 bg-black/20 px-2.5 py-2">
+          <div className="rounded-lg border border-cf-line/35 bg-cf-card/70 px-2.5 py-2">
             <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600">
               Instancias ({pods.length})
             </p>
@@ -467,7 +467,7 @@ function TiendaPickerOption({
   return (
     <li role="option" aria-selected={active}>
       <div className={active ? "flex items-stretch bg-cf-orange/10" : "flex items-stretch"}>
-        <button type="button" onClick={onPick} className="flex min-w-0 flex-1 flex-col px-3 py-2 text-left hover:bg-white/[0.04]">
+        <button type="button" onClick={onPick} className="flex min-w-0 flex-1 flex-col px-3 py-2 text-left hover:bg-cf-card">
           <span className="truncate text-sm text-zinc-200">{clusterDisplayName(tienda)}</span>
           <span className="mt-0.5 truncate text-[11px] text-zinc-600">
             {tienda.application || "—"} ·{" "}
@@ -579,11 +579,11 @@ function TiendaPicker({
   return (
     <div ref={rootRef} className="relative shrink-0 border-b border-cf-line/50 p-3">
       {!open && selected ? (
-        <div className="flex items-center gap-1 rounded-lg border border-cf-line/60 bg-black/30 pr-1">
+        <div className="flex items-center gap-1 rounded-lg border border-cf-line/60 bg-cf-card/90 pr-1">
           <button
             type="button"
             onClick={openPicker}
-            className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left hover:bg-black/20"
+            className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left hover:bg-cf-card/70"
           >
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cf-orange/10 ring-1 ring-cf-orange/25">
               <Store className="h-4 w-4 text-cf-orange" aria-hidden />
@@ -600,7 +600,7 @@ function TiendaPicker({
           <button
             type="button"
             onClick={() => toggleFavorite(selected.id)}
-            className="shrink-0 rounded-lg p-2.5 text-zinc-600 hover:bg-white/5 hover:text-amber-400"
+            className="shrink-0 rounded-lg p-2.5 text-zinc-600 hover:bg-cf-card hover:text-amber-400"
             aria-label={selectedIsFavorite ? "Quitar de favoritos" : "Añadir a favoritos"}
             title={selectedIsFavorite ? "Quitar de favoritos" : "Añadir a favoritos"}
           >
@@ -623,7 +623,7 @@ function TiendaPicker({
             onFocus={() => setOpen(true)}
             placeholder="Buscar tienda…"
             autoFocus={open}
-            className="w-full rounded-lg border border-cf-line bg-black/40 py-2.5 pl-9 pr-8 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50"
+            className="w-full rounded-lg border border-cf-line bg-cf-card py-2.5 pl-9 pr-8 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50"
           />
           {(query || open) && (
             <button
@@ -653,7 +653,7 @@ function TiendaPicker({
                 className={
                   t.id === selectedId
                     ? "inline-flex max-w-full items-center gap-1 rounded-full border border-amber-500/50 bg-amber-500/15 px-2.5 py-1 text-xs text-zinc-100"
-                    : "inline-flex max-w-full items-center gap-1 rounded-full border border-cf-line/60 bg-black/30 px-2.5 py-1 text-xs text-zinc-300 hover:border-amber-500/35 hover:bg-amber-500/10"
+                    : "inline-flex max-w-full items-center gap-1 rounded-full border border-cf-line/60 bg-cf-card/90 px-2.5 py-1 text-xs text-zinc-300 hover:border-amber-500/35 hover:bg-amber-500/10"
                 }
               >
                 <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-400" aria-hidden />
@@ -666,7 +666,7 @@ function TiendaPicker({
 
       {showDropdown ? (
         <ul
-          className="absolute left-3 right-3 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-lg border border-cf-line/80 bg-[#151a21] py-1 shadow-xl shadow-black/50 ring-1 ring-white/[0.06]"
+          className="absolute left-3 right-3 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-lg border border-cf-line/80 bg-[#151a21] py-1 shadow-xl shadow-black/50 ring-1 ring-cf-line/40"
           role="listbox"
         >
           {isSearching ? (
@@ -770,7 +770,7 @@ function ClusterDetailTabs({
           className={`inline-flex items-center gap-1.5 rounded-t-lg px-3 py-2 text-xs font-medium transition-colors ${
             tab === id
               ? "bg-[#151a21] text-cf-orange ring-1 ring-cf-line/60 ring-b-transparent"
-              : "text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-300"
+              : "text-zinc-500 hover:bg-cf-card hover:text-zinc-300"
           }`}
         >
           <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -1002,7 +1002,7 @@ function ClusterContainersPanel({
             value={filterQuery}
             onChange={(e) => setFilterQuery(e.target.value)}
             placeholder="Buscar servicio…"
-            className="w-full rounded-lg border border-cf-line/60 bg-black/30 py-1.5 pl-8 pr-7 text-xs text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-cf-orange/40"
+            className="w-full rounded-lg border border-cf-line/60 bg-cf-card/90 py-1.5 pl-8 pr-7 text-xs text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-cf-orange/40"
           />
           {filterQuery ? (
             <button
@@ -1022,7 +1022,7 @@ function ClusterContainersPanel({
           type="button"
           onClick={() => void loadAll({ silent: true })}
           disabled={refreshing}
-          className="shrink-0 rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-cf-orange disabled:opacity-50"
+          className="shrink-0 rounded-lg p-1.5 text-zinc-500 hover:bg-cf-card hover:text-cf-orange disabled:opacity-50"
           aria-label="Actualizar lista"
           title="Actualizar"
         >
@@ -1040,7 +1040,7 @@ function ClusterContainersPanel({
             }}
             disabled={rolling}
             onChange={toggleSelectAll}
-            className="h-3.5 w-3.5 rounded border-cf-line bg-black/40 accent-cf-orange"
+            className="h-3.5 w-3.5 rounded border-cf-line bg-cf-card accent-cf-orange"
             aria-label="Seleccionar todos"
           />
           <button
@@ -1091,7 +1091,7 @@ function ClusterContainersPanel({
                             checked={isSelected}
                             disabled={rolling}
                             onChange={() => toggleRow(row.serviceName)}
-                            className="h-3.5 w-3.5 rounded border-cf-line bg-black/40 accent-cf-orange"
+                            className="h-3.5 w-3.5 rounded border-cf-line bg-cf-card accent-cf-orange"
                             aria-label={`Seleccionar ${row.serviceName}`}
                           />
                         ) : null}
@@ -1102,7 +1102,7 @@ function ClusterContainersPanel({
                       onClick={() =>
                         setExpandedService((prev) => (prev === row.serviceName ? null : row.serviceName))
                       }
-                      className="shrink-0 rounded p-0.5 text-zinc-600 hover:bg-white/5 hover:text-zinc-400"
+                      className="shrink-0 rounded p-0.5 text-zinc-600 hover:bg-cf-card hover:text-zinc-400"
                       aria-expanded={expanded}
                       aria-label={expanded ? "Ocultar detalles" : "Ver detalles"}
                     >
@@ -1135,7 +1135,7 @@ function ClusterContainersPanel({
                         onClick={() =>
                           setLogsTarget({ serviceName: row.serviceName, pods: row.pods })
                         }
-                        className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-zinc-400 ring-1 ring-cf-line transition hover:bg-white/5 hover:text-zinc-200"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-zinc-400 ring-1 ring-cf-line transition hover:bg-cf-card hover:text-zinc-200"
                         title="Ver logs en vivo"
                         aria-label={`Ver logs de ${row.serviceName}`}
                       >
@@ -1202,7 +1202,7 @@ function ClusterContainersPanel({
             exit={{ opacity: 0, y: 12 }}
             className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-3"
           >
-            <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-cf-line/80 bg-[#1a1f26]/95 px-4 py-2 shadow-xl shadow-black/40 ring-1 ring-white/[0.06] backdrop-blur-md">
+            <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-cf-line/80 bg-[#1a1f26]/95 px-4 py-2 shadow-xl shadow-black/40 ring-1 ring-cf-line/40 backdrop-blur-md">
               <span className="text-xs text-zinc-400">
                 {selected.size} seleccionado{selected.size !== 1 ? "s" : ""}
               </span>
@@ -1348,16 +1348,16 @@ export function AtlasRancherPodsView({
       {loading && clusters.length === 0 ? (
         <AtlasLoadingSplash message="Cargando tiendas…" minHeight="min-h-[320px]" />
       ) : !rancherConfigured ? (
-        <div className="rounded-xl border border-cf-line/70 bg-[#111418]/90 p-10 text-center text-sm text-zinc-500">
+        <div className="rounded-xl border border-cf-line/70 bg-cf-panel p-10 text-center text-sm text-zinc-500">
           <Server className="mx-auto mb-2 h-8 w-8 text-zinc-600" strokeWidth={1.25} />
           Configura la conexión a Rancher en Custom clusters.
         </div>
       ) : clusters.length === 0 ? (
-        <div className="rounded-xl border border-cf-line/70 bg-[#111418]/90 p-10 text-center text-sm text-zinc-500">
+        <div className="rounded-xl border border-cf-line/70 bg-cf-panel p-10 text-center text-sm text-zinc-500">
           No hay tiendas disponibles.
         </div>
       ) : (
-        <div className="flex min-h-[min(70vh,40rem)] flex-col overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90 ring-1 ring-white/[0.03]">
+        <div className="flex min-h-[min(70vh,40rem)] flex-col overflow-hidden rounded-xl border border-cf-line/70 bg-cf-panel ring-1 ring-cf-line/30">
           <TiendaPicker
             tiendas={clusters}
             selectedId={selectedId}

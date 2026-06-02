@@ -71,7 +71,7 @@ export function SitePaginationBar({
   const start = totalItems === 0 ? 0 : safePage * pageSize + 1;
   const end = Math.min(totalItems, (safePage + 1) * pageSize);
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-cf-line/60 bg-black/15 px-2 py-2 sm:px-3">
+    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-cf-line/60 bg-cf-card/60 px-2 py-2 sm:px-3">
       <p className="text-[11px] tabular-nums text-zinc-500">
         {totalItems === 0 ? "Sin resultados" : `${start}–${end} de ${totalItems}`}
       </p>

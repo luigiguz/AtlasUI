@@ -59,7 +59,7 @@ export function formatRequestWhen(iso: string | null | undefined): string {
 export function PublishChangeSummary({ lines }: { lines: string[] }) {
   return (
     <div className="space-y-3">
-      <ul className="max-h-52 space-y-1.5 overflow-y-auto rounded-lg border border-cf-line/50 bg-black/25 px-3 py-2.5 text-xs text-zinc-300">
+      <ul className="max-h-52 space-y-1.5 overflow-y-auto rounded-lg border border-cf-line/50 bg-cf-card/80 px-3 py-2.5 text-xs text-zinc-300">
         {lines.map((line) => (
           <li key={line} className="leading-relaxed">
             {line}

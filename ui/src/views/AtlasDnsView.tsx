@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronRight, MoreHorizontal } from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { AtlasFilterSearchInput } from "../components/AtlasFieldFilters";
@@ -105,8 +105,7 @@ export function AtlasDnsView({ sites, domainSuffix }: Props) {
               </p>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col gap-4 xl:flex-row">
-              <div className="flex min-w-0 flex-1 flex-col gap-3">
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
             <div className="flex flex-col gap-3 lg:flex-row">
               <div className="min-w-0 flex-1">
                 <AtlasFilterSearchInput
@@ -142,7 +141,7 @@ export function AtlasDnsView({ sites, domainSuffix }: Props) {
                       <th className="w-12 px-4 py-3" aria-label="Acciones" />
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/[0.04]">
+                  <tbody className="divide-y divide-cf-line/50">
                     {tunnels.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="px-4 py-14 text-center text-sm text-zinc-500">
@@ -177,25 +176,6 @@ export function AtlasDnsView({ sites, domainSuffix }: Props) {
                 />
               ) : null}
             </div>
-              </div>
-
-            <aside className="shrink-0 rounded-xl border border-cf-line/70 bg-cf-panel/40 p-4 xl:w-72">
-              <h3 className="text-sm font-medium text-zinc-200">Casos de uso comunes</h3>
-              <ul className="mt-3 space-y-2">
-                <UseCaseCard
-                  title="Publicar aplicaciones web"
-                  description="Consulta hostnames Poslite expuestos vía Cloudflare Access."
-                />
-                <UseCaseCard
-                  title="Revisar rutas por tienda"
-                  description="Abre un túnel para ver el mapa hostname → aplicación → túnel."
-                />
-                <UseCaseCard
-                  title="Diagnosticar conectividad"
-                  description="Comprueba estado SSH y rutas DNS tras la sincronización."
-                />
-              </ul>
-            </aside>
             </div>
           </motion.div>
         )}
@@ -252,22 +232,5 @@ function TunnelListRow({ tunnel, onOpen }: { tunnel: DnsTunnelGroup; onOpen: () 
         </button>
       </td>
     </tr>
-  );
-}
-
-function UseCaseCard({ title, description }: { title: string; description: string }) {
-  return (
-    <li>
-      <button
-        type="button"
-        className="flex w-full items-start gap-2 rounded-lg border border-cf-line/60 bg-cf-card/40 px-3 py-2.5 text-left transition hover:border-cf-orange/30 hover:bg-cf-card/70"
-      >
-        <span className="min-w-0 flex-1">
-          <span className="block text-xs font-medium text-zinc-200">{title}</span>
-          <span className="mt-0.5 block text-[11px] leading-relaxed text-zinc-500">{description}</span>
-        </span>
-        <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-zinc-600" aria-hidden />
-      </button>
-    </li>
   );
 }

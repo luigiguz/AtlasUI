@@ -31,7 +31,7 @@ type PermGroup = {
 };
 
 const inputClass =
-  "mt-1 w-full rounded-lg border border-cf-line bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50 focus:ring-2 focus:ring-cf-orange/20";
+  "mt-1 w-full rounded-lg border border-cf-line bg-cf-card px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50 focus:ring-2 focus:ring-cf-orange/20";
 
 function Modal({
   title,
@@ -46,14 +46,14 @@ function Modal({
     <AtlasModalShell
       onBackdropClick={onClose}
       zIndexClass="z-50"
-      panelClassName="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.06]"
+      panelClassName="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-cf-line bg-cf-panel shadow-2xl ring-1 ring-cf-line/40"
     >
-      <div className="sticky top-0 flex items-center justify-between border-b border-cf-line/80 bg-[#111418] px-5 py-4">
+      <div className="sticky top-0 flex items-center justify-between border-b border-cf-line/80 bg-cf-panel px-5 py-4">
         <h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
+          className="rounded-lg p-1.5 text-zinc-500 hover:bg-cf-card hover:text-zinc-200"
           aria-label="Cerrar"
         >
           <X className="h-4 w-4" />
@@ -197,7 +197,7 @@ export function AtlasRolesView({ me }: Props) {
   const permMatrix = useMemo(
     () =>
       groups.map((g) => (
-        <div key={g.id} className="rounded-xl border border-cf-line/70 bg-black/20 p-3">
+        <div key={g.id} className="rounded-xl border border-cf-line/70 bg-cf-card/70 p-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{g.label}</p>
           <ul className="mt-2 space-y-1.5">
             {g.permissions.map((p) => (
@@ -205,7 +205,7 @@ export function AtlasRolesView({ me }: Props) {
                 <label className="flex cursor-pointer items-start gap-2 text-sm text-zinc-300">
                   <input
                     type="checkbox"
-                    className="mt-0.5 rounded border-cf-line bg-black/40 text-cf-orange focus:ring-cf-orange/30"
+                    className="mt-0.5 rounded border-cf-line bg-cf-card text-cf-orange focus:ring-cf-orange/30"
                     checked={selected.has(p.id)}
                     disabled={editorReadOnly || !canManage}
                     onChange={() => {
@@ -264,7 +264,7 @@ export function AtlasRolesView({ me }: Props) {
         </p>
       ) : null}
 
-      <div className="overflow-hidden rounded-2xl border border-cf-line bg-cf-card/90 ring-1 ring-white/[0.03]">
+      <div className="overflow-hidden rounded-2xl border border-cf-line bg-cf-card/90 ring-1 ring-cf-line/30">
         {loading ? (
           <AtlasLoadingSplash message="Cargando roles…" minHeight="min-h-[280px]" />
         ) : (
@@ -279,7 +279,7 @@ export function AtlasRolesView({ me }: Props) {
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.id} className="border-b border-cf-line/30 hover:bg-white/[0.02]">
+                  <tr key={r.id} className="border-b border-cf-line/30 hover:bg-cf-card/80">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <Shield className="h-4 w-4 text-cf-orange/80" />
@@ -305,7 +305,7 @@ export function AtlasRolesView({ me }: Props) {
                             <button
                               type="button"
                               onClick={() => openEdit(r, { readOnly: true })}
-                              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs ring-1 ring-cf-line hover:bg-white/5"
+                              className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs ring-1 ring-cf-line hover:bg-cf-card"
                             >
                               Ver
                             </button>
@@ -314,7 +314,7 @@ export function AtlasRolesView({ me }: Props) {
                           <button
                             type="button"
                             onClick={() => openEdit(r)}
-                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs ring-1 ring-cf-line hover:bg-white/5"
+                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs ring-1 ring-cf-line hover:bg-cf-card"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                             Editar
@@ -323,7 +323,7 @@ export function AtlasRolesView({ me }: Props) {
                           <button
                             type="button"
                             onClick={() => openEdit(r, { readOnly: true })}
-                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs ring-1 ring-cf-line hover:bg-white/5"
+                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs ring-1 ring-cf-line hover:bg-cf-card"
                           >
                             Ver
                           </button>
@@ -362,12 +362,12 @@ export function AtlasRolesView({ me }: Props) {
           >
             <form className="space-y-4" onSubmit={(e) => void submit(e)}>
               {editor !== "new" && editor.is_system ? (
-                <p className="rounded-lg border border-cf-line/80 bg-black/30 px-3 py-2 text-xs text-zinc-400">
+                <p className="rounded-lg border border-cf-line/80 bg-cf-card/90 px-3 py-2 text-xs text-zinc-400">
                   Rol de sistema: no se puede modificar. Crea un rol nuevo si necesitas permisos
                   personalizados.
                 </p>
               ) : editorReadOnly || (!canManage && editor !== "new") ? (
-                <p className="rounded-lg border border-cf-line/80 bg-black/30 px-3 py-2 text-xs text-zinc-400">
+                <p className="rounded-lg border border-cf-line/80 bg-cf-card/90 px-3 py-2 text-xs text-zinc-400">
                   Solo lectura. Para modificar permisos asigna{" "}
                   <span className="font-mono text-zinc-300">atlas:roles:Manage</span> a tu usuario.
                 </p>
@@ -414,7 +414,7 @@ export function AtlasRolesView({ me }: Props) {
                 <button
                   type="button"
                   onClick={() => setEditor(null)}
-                  className="rounded-lg px-4 py-2 text-sm ring-1 ring-cf-line hover:bg-white/5"
+                  className="rounded-lg px-4 py-2 text-sm ring-1 ring-cf-line hover:bg-cf-card"
                 >
                   {canManage && !editorReadOnly ? "Cancelar" : "Cerrar"}
                 </button>

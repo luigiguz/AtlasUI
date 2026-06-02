@@ -239,9 +239,9 @@ export function AtlasNotifications({ onNavigate, buttonClassName }: Props): Reac
         exit={{ opacity: 0, y: -6, scale: 0.98 }}
         transition={{ duration: 0.15 }}
         style={{ top: panelStyle.top, right: panelStyle.right }}
-        className="fixed z-[200] w-[min(22rem,calc(100vw-1rem))] overflow-hidden rounded-xl border border-white/10 bg-[#161a21] text-zinc-100 shadow-2xl shadow-black/50"
+        className="fixed z-[200] w-[min(22rem,calc(100vw-1rem))] overflow-hidden rounded-xl border border-cf-line/70 bg-cf-panel text-zinc-100 shadow-2xl"
       >
-        <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-3">
+        <div className="flex items-center justify-between border-b border-cf-line/60 px-4 py-3">
           <p className="text-sm font-semibold text-zinc-50">Notificaciones</p>
           <div className="flex items-center gap-2">
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-zinc-400" aria-hidden /> : null}
@@ -249,7 +249,7 @@ export function AtlasNotifications({ onNavigate, buttonClassName }: Props): Reac
               <button
                 type="button"
                 onClick={() => void markAllRead()}
-                className="rounded-md px-2 py-1 text-[11px] font-medium text-zinc-300 hover:bg-white/5 hover:text-zinc-100"
+                className="rounded-md px-2 py-1 text-[11px] font-medium text-zinc-300 hover:bg-cf-card hover:text-zinc-100"
               >
                 Marcar todo leído
               </button>
@@ -261,7 +261,7 @@ export function AtlasNotifications({ onNavigate, buttonClassName }: Props): Reac
           {items.length === 0 ? (
             <p className="px-4 py-10 text-center text-sm text-zinc-400">Sin notificaciones</p>
           ) : (
-            <ul className="divide-y divide-white/[0.06]">
+            <ul className="divide-y divide-cf-line/50">
               {items.map((item) => (
                 <li
                   key={item.id}
@@ -272,7 +272,7 @@ export function AtlasNotifications({ onNavigate, buttonClassName }: Props): Reac
                   <button
                     type="button"
                     onClick={() => onPick(item)}
-                    className="flex min-w-0 flex-1 gap-3 px-3 py-3 text-left text-zinc-100 transition hover:bg-white/[0.04]"
+                    className="flex min-w-0 flex-1 gap-3 px-3 py-3 text-left text-zinc-100 transition hover:bg-cf-card"
                   >
                     <span
                       className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 ${severityIconBg(item.severity)}`}
@@ -298,7 +298,7 @@ export function AtlasNotifications({ onNavigate, buttonClassName }: Props): Reac
                     <button
                       type="button"
                       onClick={() => void dismiss(item.id)}
-                      className="shrink-0 self-start px-2 py-3 text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                      className="shrink-0 self-start px-2 py-3 text-zinc-400 hover:bg-cf-card hover:text-zinc-200"
                       title="Descartar alerta"
                       aria-label="Descartar alerta"
                     >
@@ -315,11 +315,11 @@ export function AtlasNotifications({ onNavigate, buttonClassName }: Props): Reac
 
   const bellButtonClass =
     buttonClassName != null
-      ? `${buttonClassName}${open ? " bg-white/[0.06] text-zinc-100" : ""}`
+      ? `${buttonClassName}${open ? " bg-cf-card text-zinc-100" : ""}`
       : `relative inline-flex h-10 w-10 items-center justify-center rounded-lg ring-1 transition ${
           open
-            ? "bg-white/10 text-zinc-100 ring-white/20"
-            : "text-zinc-300 ring-white/10 hover:bg-white/5 hover:text-zinc-100"
+            ? "bg-cf-card text-zinc-100 ring-white/20"
+            : "text-zinc-300 ring-cf-line/40 hover:bg-cf-card hover:text-zinc-100"
         }`;
 
   return (

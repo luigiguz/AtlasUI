@@ -47,7 +47,7 @@ type SettingsResponse = {
 };
 
 const inputClass =
-  "mt-1 w-full rounded-lg border border-cf-line bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cf-orange/50";
+  "mt-1 w-full rounded-lg border border-cf-line bg-cf-card px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cf-orange/50";
 
 function distroLabel(d: string): string {
   if (d === "horustech") return "Horustech";
@@ -115,7 +115,7 @@ function disableAllIerpWorkers(detail: StoreDetail): StoreDetail {
 }
 
 const tagInputClass =
-  "w-28 min-w-0 rounded border border-cf-line bg-black/50 px-1.5 py-0.5 text-[11px] text-zinc-200 outline-none focus:border-cf-orange/50";
+  "w-28 min-w-0 rounded border border-cf-line bg-cf-card px-1.5 py-0.5 text-[11px] text-zinc-200 outline-none focus:border-cf-orange/50";
 
 const CLUSTERS_CACHE_MS = 60_000;
 
@@ -1060,7 +1060,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               Leyendo estado Git…
             </div>
           ) : gitStatus?.changes?.length ? (
-            <ul className="mt-3 max-h-44 space-y-1 overflow-y-auto rounded-lg border border-white/[0.06] bg-black/25 p-2">
+            <ul className="mt-3 max-h-44 space-y-1 overflow-y-auto rounded-lg border border-cf-line/50 bg-cf-card/80 p-2">
               {gitStatus.changes.map((c) => (
                 <li key={`${c.status}:${c.path}`} className="flex items-center gap-2 text-[11px]">
                   <span
@@ -1095,7 +1095,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       ) : null}
       {saveMsg ? <p className="text-xs text-zinc-400">{saveMsg}</p> : null}
 
-      <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90">
+      <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-cf-panel">
           {loading ? (
             <AtlasLoadingSplash message="Cargando tiendas…" minHeight="min-h-[280px]" />
           ) : sortedStores.length === 0 ? (
@@ -1157,7 +1157,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               <button
                 type="button"
                 onClick={goBackToList}
-                className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.04]"
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-300 hover:bg-cf-card"
               >
                 <ChevronLeft className="h-4 w-4" />
                 Tiendas
@@ -1184,7 +1184,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
             ) : null}
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90">
+          <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-cf-panel">
           {detailLoading || !detail ? (
             <AtlasLoadingSplash message={`Cargando ficha de ${selectedFolder ?? "tienda"}…`} />
           ) : (
@@ -1310,12 +1310,12 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                           value={serviceFilter}
                           onChange={(e) => setServiceFilter(e.target.value)}
                           placeholder="Buscar servicio o proceso…"
-                          className="w-full rounded-lg border border-cf-line bg-black/40 py-1.5 pl-8 pr-3 text-xs text-zinc-100 outline-none focus:border-cf-orange/50"
+                          className="w-full rounded-lg border border-cf-line bg-cf-card py-1.5 pl-8 pr-3 text-xs text-zinc-100 outline-none focus:border-cf-orange/50"
                         />
                       </label>
                     </div>
                     {filterQ && filteredSoftwareCount === 0 ? (
-                      <p className="mt-3 rounded-lg border border-cf-line/40 bg-black/20 px-3 py-4 text-center text-xs text-zinc-500">
+                      <p className="mt-3 rounded-lg border border-cf-line/40 bg-cf-card/70 px-3 py-4 text-center text-xs text-zinc-500">
                         Ningún servicio o proceso coincide con «{serviceFilter.trim()}».
                       </p>
                     ) : null}
@@ -1332,7 +1332,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       <h3 className="text-xs font-medium uppercase text-zinc-500">Procesos generales</h3>
                       <div className="mt-2 max-h-72 overflow-y-auto rounded border border-cf-line/40">
                         <table className="w-full text-left text-xs">
-                          <thead className="sticky top-0 bg-[#111418] text-[10px] uppercase text-zinc-600">
+                          <thead className="sticky top-0 bg-cf-panel text-[10px] uppercase text-zinc-600">
                             <tr>
                               <th className="w-8 px-2 py-1.5" />
                               <th className="px-2 py-1.5">Servicio</th>
@@ -1397,7 +1397,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       </div>
                       <div className="mt-2 max-h-44 overflow-y-auto rounded border border-cf-line/40">
                         <table className="w-full text-left text-xs">
-                          <thead className="sticky top-0 bg-[#111418] text-[10px] uppercase text-zinc-600">
+                          <thead className="sticky top-0 bg-cf-panel text-[10px] uppercase text-zinc-600">
                             <tr>
                               <th className="w-8 px-2 py-1.5" />
                               <th className="px-2 py-1.5">Proceso</th>
@@ -1551,7 +1551,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
           <AtlasModalShell
             onBackdropClick={() => resetCreateModal()}
             zIndexClass="z-50"
-            panelClassName={`w-full rounded-xl border border-cf-line bg-[#111418] p-5 shadow-2xl ring-1 ring-white/[0.06] ${createStep === "review" ? "max-w-2xl max-h-[90vh] overflow-y-auto" : "max-w-md"}`}
+            panelClassName={`w-full rounded-xl border border-cf-line bg-cf-panel p-5 shadow-2xl ring-1 ring-cf-line/40 ${createStep === "review" ? "max-w-2xl max-h-[90vh] overflow-y-auto" : "max-w-md"}`}
           >
             <div className="mb-4 flex justify-between">
               <h2 className="text-sm font-semibold text-zinc-100">
@@ -1636,7 +1636,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
               </form>
             ) : createPreview ? (
               <div className="space-y-4 text-xs">
-                <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
+                <section className="rounded-lg border border-cf-line/60 bg-cf-card/90 p-3">
                   <p className="font-medium text-zinc-300">Identidad y Git</p>
                   <dl className="mt-2 grid gap-1 text-zinc-400 sm:grid-cols-2">
                     <div>
@@ -1672,7 +1672,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   </dl>
                 </section>
 
-                <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
+                <section className="rounded-lg border border-cf-line/60 bg-cf-card/90 p-3">
                   <p className="font-medium text-zinc-300">Etiquetas del cluster (Fleet)</p>
                   <ul className="mt-2 flex flex-wrap gap-2">
                     {Object.entries(createPreview.clusterLabels).map(([k, v]) => (
@@ -1683,11 +1683,11 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   </ul>
                 </section>
 
-                <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
+                <section className="rounded-lg border border-cf-line/60 bg-cf-card/90 p-3">
                   <p className="font-medium text-zinc-300">Archivos que se subirán al repositorio</p>
                   <ul className="mt-2 space-y-2">
                     {createPreview.files.map((f) => (
-                      <li key={f.path} className="rounded border border-cf-line/40 bg-black/20 px-2 py-1.5">
+                      <li key={f.path} className="rounded border border-cf-line/40 bg-cf-card/70 px-2 py-1.5">
                         <p className="font-mono text-[11px] text-zinc-200">{f.path}</p>
                         <p className="text-zinc-500">
                           Plantilla: {f.sourceTemplate} · chart {f.chart} {f.chartVersion}
@@ -1697,7 +1697,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   </ul>
                 </section>
 
-                <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
+                <section className="rounded-lg border border-cf-line/60 bg-cf-card/90 p-3">
                   <p className="font-medium text-zinc-300">Base de datos</p>
                   <p className="mt-1 text-zinc-400">
                     DB {createPreview.db.database || "poslite"} ·{" "}
@@ -1705,7 +1705,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                   </p>
                 </section>
 
-                <section className="rounded-lg border border-cf-line/60 bg-black/30 p-3">
+                <section className="rounded-lg border border-cf-line/60 bg-cf-card/90 p-3">
                   <p className="font-medium text-zinc-300">Estación ({distroLabel(createPreview.distro)})</p>
                   <p className="mt-1 text-zinc-400">
                     Servicios activos:{" "}
@@ -1763,7 +1763,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       setCreatePreview(null);
                       setCreateError("");
                     }}
-                    className="flex-1 rounded-lg border border-cf-line py-2 text-xs text-zinc-300 hover:bg-white/5"
+                    className="flex-1 rounded-lg border border-cf-line py-2 text-xs text-zinc-300 hover:bg-cf-card"
                   >
                     Volver
                   </button>

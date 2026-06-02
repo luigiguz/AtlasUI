@@ -103,7 +103,7 @@ export function AuthLoginPanel({ onDone }: Props) {
 
         <form
           onSubmit={(e) => void submit(e)}
-          className="space-y-4 rounded-2xl border border-cf-line/80 bg-cf-panel/95 p-6 shadow-2xl shadow-black/10 ring-1 ring-white/[0.06] backdrop-blur-sm sm:p-8"
+          className="space-y-4 rounded-2xl border border-cf-line/80 bg-cf-panel/95 p-6 shadow-2xl shadow-black/10 ring-1 ring-cf-line/40 backdrop-blur-sm sm:p-8"
         >
           <div className="border-b border-cf-line/50 pb-4">
             <h1 className="text-lg font-semibold text-zinc-100">Iniciar sesión</h1>

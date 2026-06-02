@@ -309,7 +309,7 @@ function ClusterSearchInput({
         <button
           type="button"
           onClick={() => onChange("")}
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-500 hover:bg-white/10 hover:text-zinc-300"
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-500 hover:bg-cf-card hover:text-zinc-300"
           aria-label="Borrar búsqueda"
         >
           <X className="h-3.5 w-3.5" />
@@ -320,7 +320,7 @@ function ClusterSearchInput({
 }
 
 const selectClass =
-  "w-full min-w-0 rounded-lg border border-cf-line bg-black/40 px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-cf-orange/50";
+  "w-full min-w-0 rounded-lg border border-cf-line bg-cf-card px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-cf-orange/50";
 
 function ClusterFiltersPanel({
   rules,
@@ -353,7 +353,7 @@ function ClusterFiltersPanel({
     <div
       role="dialog"
       aria-label="Filtros de clusters"
-      className="absolute left-0 right-0 top-full z-30 mt-2 w-full max-w-xl rounded-xl border border-cf-line bg-[#111418] p-4 shadow-2xl ring-1 ring-white/10 sm:left-auto sm:right-0 sm:w-[min(36rem,calc(100vw-2rem))]"
+      className="absolute left-0 right-0 top-full z-30 mt-2 w-full max-w-xl rounded-xl border border-cf-line bg-cf-panel p-4 shadow-2xl ring-1 ring-cf-line/40 sm:left-auto sm:right-0 sm:w-[min(36rem,calc(100vw-2rem))]"
       onKeyDown={onKeyDown}
     >
       <div className="mb-3 flex items-center justify-between">
@@ -361,7 +361,7 @@ function ClusterFiltersPanel({
         <button
           type="button"
           onClick={onClose}
-          className="rounded p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-300"
+          className="rounded p-1 text-zinc-500 hover:bg-cf-card hover:text-zinc-300"
           aria-label="Cerrar filtros"
         >
           <X className="h-4 w-4" />
@@ -404,13 +404,13 @@ function ClusterFiltersPanel({
               value={rule.value}
               onChange={(e) => updateRule(rule.id, { value: e.target.value })}
               placeholder={fieldPlaceholder(rule.field)}
-              className="min-w-0 flex-1 rounded-lg border border-cf-line bg-black/40 px-2.5 py-1.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50"
+              className="min-w-0 flex-1 rounded-lg border border-cf-line bg-cf-card px-2.5 py-1.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50"
               aria-label="Valor del filtro"
             />
             <button
               type="button"
               onClick={() => removeRule(rule.id)}
-              className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-white/10 hover:text-zinc-300"
+              className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-cf-card hover:text-zinc-300"
               aria-label="Eliminar filtro"
             >
               <Trash2 className="h-4 w-4" />
@@ -500,7 +500,7 @@ function ClusterLabelsModal({
     <AtlasModalShell
       onBackdropClick={onClose}
       zIndexClass="z-50"
-      panelClassName="w-full max-w-md rounded-xl border border-cf-line bg-[#111418] p-5 shadow-2xl ring-1 ring-white/10"
+      panelClassName="w-full max-w-md rounded-xl border border-cf-line bg-cf-panel p-5 shadow-2xl ring-1 ring-cf-line/40"
     >
       <form
         role="dialog"
@@ -518,7 +518,7 @@ function ClusterLabelsModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-zinc-500 hover:bg-white/10"
+            className="rounded p-1 text-zinc-500 hover:bg-cf-card"
             aria-label="Cerrar"
           >
             <X className="h-4 w-4" />
@@ -539,7 +539,7 @@ function ClusterLabelsModal({
               <input
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-cf-line bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cf-orange/50"
+                className="mt-1 w-full rounded-lg border border-cf-line bg-cf-card px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cf-orange/50"
                 autoComplete="off"
               />
             </label>
@@ -897,7 +897,7 @@ export function AtlasRancherClustersView({
       {canAdmin && settingsOpen ? (
         <form
           onSubmit={(e) => void onSaveSettings(e)}
-          className="rounded-xl border border-cf-line/80 bg-cf-panel/80 p-4 ring-1 ring-white/[0.03]"
+          className="rounded-xl border border-cf-line/80 bg-cf-panel/80 p-4 ring-1 ring-cf-line/30"
         >
           <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Conexión API</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -907,7 +907,7 @@ export function AtlasRancherClustersView({
                 value={cfgUrl}
                 onChange={(e) => setCfgUrl(e.target.value)}
                 placeholder="https://rancher.ejemplo.com"
-                className="mt-1 w-full rounded-lg border border-cf-line bg-black/30 px-3 py-2 text-sm text-zinc-100"
+                className="mt-1 w-full rounded-lg border border-cf-line bg-cf-card/90 px-3 py-2 text-sm text-zinc-100"
                 autoComplete="off"
               />
             </label>
@@ -918,7 +918,7 @@ export function AtlasRancherClustersView({
                 onChange={(e) => setCfgToken(e.target.value)}
                 type="password"
                 placeholder="token…"
-                className="mt-1 w-full rounded-lg border border-cf-line bg-black/30 px-3 py-2 text-sm text-zinc-100"
+                className="mt-1 w-full rounded-lg border border-cf-line bg-cf-card/90 px-3 py-2 text-sm text-zinc-100"
                 autoComplete="off"
               />
             </label>
@@ -941,7 +941,7 @@ export function AtlasRancherClustersView({
               <input
                 value={cfgCfId}
                 onChange={(e) => setCfgCfId(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-cf-line bg-black/30 px-3 py-2 text-sm text-zinc-100"
+                className="mt-1 w-full rounded-lg border border-cf-line bg-cf-card/90 px-3 py-2 text-sm text-zinc-100"
                 autoComplete="off"
               />
             </label>
@@ -952,7 +952,7 @@ export function AtlasRancherClustersView({
                 onChange={(e) => setCfgCfSecret(e.target.value)}
                 type="password"
                 placeholder="Dejar vacío para no cambiar"
-                className="mt-1 w-full rounded-lg border border-cf-line bg-black/30 px-3 py-2 text-sm text-zinc-100"
+                className="mt-1 w-full rounded-lg border border-cf-line bg-cf-card/90 px-3 py-2 text-sm text-zinc-100"
                 autoComplete="off"
               />
             </label>
@@ -1011,7 +1011,7 @@ export function AtlasRancherClustersView({
 
         <motion.div
           layout
-          className="overflow-hidden rounded-xl border border-cf-line/70 bg-[#111418]/90 ring-1 ring-white/[0.03]"
+          className="overflow-hidden rounded-xl border border-cf-line/70 bg-cf-panel ring-1 ring-cf-line/30"
         >
           {loading && clusters.length === 0 ? (
             <AtlasLoadingSplash message="Cargando equipos…" minHeight="min-h-[320px]" />
@@ -1079,7 +1079,7 @@ export function AtlasRancherClustersView({
                       {displayedClusters.map((c) => (
                             <tr
                               key={c.id}
-                              className="border-b border-cf-line/40 hover:bg-white/[0.02]"
+                              className="border-b border-cf-line/40 hover:bg-cf-card/80"
                             >
                               <td className="px-4 py-3">
                                 <span className="font-medium text-zinc-100">{clusterDisplayName(c)}</span>

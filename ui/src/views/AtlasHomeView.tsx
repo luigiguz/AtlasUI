@@ -73,12 +73,12 @@ function MetricCard({
 }) {
   const valueCls =
     tone === "ok"
-      ? "text-emerald-400"
+      ? "text-emerald-500"
       : tone === "warn"
-        ? "text-rose-400"
+        ? "text-rose-500"
         : tone === "muted"
           ? "text-zinc-500"
-          : "text-zinc-50";
+          : "text-zinc-100";
 
   const body = (
     <>
@@ -91,8 +91,7 @@ function MetricCard({
   );
 
   const className =
-    "rounded-xl border border-white/[0.08] bg-[#111418]/90 p-4 text-left ring-1 ring-white/[0.03] transition " +
-    (onClick ? "hover:border-cf-orange/30 hover:ring-cf-orange/20 cursor-pointer" : "");
+    "atlas-metric-card " + (onClick ? "cursor-pointer" : "");
 
   if (onClick) {
     return (
@@ -130,7 +129,7 @@ function QuickLink({
       className={
         primary
           ? "inline-flex items-center gap-2 rounded-lg bg-cf-orange px-3 py-2 text-xs font-semibold text-black"
-          : "inline-flex items-center gap-2 rounded-lg bg-zinc-800/80 px-3 py-2 text-xs font-medium text-zinc-300 ring-1 ring-zinc-700/60 hover:bg-zinc-700/80"
+          : "atlas-btn-secondary"
       }
     >
       <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />

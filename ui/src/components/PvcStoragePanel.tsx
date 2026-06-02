@@ -112,7 +112,7 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
           type="button"
           onClick={() => void loadPvcs(true)}
           disabled={refreshing}
-          className="inline-flex items-center gap-1 rounded-lg border border-cf-line/60 px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/5 disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-lg border border-cf-line/60 px-2 py-1 text-[11px] text-zinc-400 hover:bg-cf-card disabled:opacity-50"
         >
           <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
           Actualizar
@@ -160,7 +160,7 @@ export function PvcStoragePanel({ cluster, canEdit, onOpenVolumeTerminal }: Prop
                   return (
                     <tr
                       key={pvc.name}
-                      className="border-b border-cf-line/40 hover:bg-white/[0.02]"
+                      className="border-b border-cf-line/40 hover:bg-cf-card/80"
                     >
                       <td className="px-4 py-3">
                         <span className="font-medium text-zinc-100">{pvc.name}</span>

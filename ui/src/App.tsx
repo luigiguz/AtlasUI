@@ -964,7 +964,7 @@ export default function App() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.06 }}
-              className="rounded-2xl border border-cf-line bg-cf-card/80 p-6 ring-1 ring-white/[0.03]"
+              className="rounded-2xl border border-cf-line bg-cf-card/80 p-6 ring-1 ring-cf-line/30"
             >
               <h3 className="font-semibold text-cf-orange">Qué es</h3>
               <div className="mt-3 space-y-3 text-sm leading-relaxed text-zinc-300">

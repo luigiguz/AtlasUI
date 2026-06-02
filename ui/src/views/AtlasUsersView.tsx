@@ -38,7 +38,7 @@ type RoleOption = {
 };
 
 const inputClass =
-  "mt-1 w-full rounded-lg border border-cf-line bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50 focus:ring-2 focus:ring-cf-orange/20";
+  "mt-1 w-full rounded-lg border border-cf-line bg-cf-card px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50 focus:ring-2 focus:ring-cf-orange/20";
 
 function randomInt(maxExclusive: number): number {
   if (maxExclusive <= 0) return 0;
@@ -149,14 +149,14 @@ function Modal({
     <AtlasModalShell
       onBackdropClick={onClose}
       zIndexClass="z-50"
-      panelClassName={`w-full rounded-2xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.06] ${wide ? "max-w-lg" : "max-w-md"}`}
+      panelClassName={`w-full rounded-2xl border border-cf-line bg-cf-panel shadow-2xl ring-1 ring-cf-line/40 ${wide ? "max-w-lg" : "max-w-md"}`}
     >
       <div className="flex items-start justify-between gap-3 border-b border-cf-line/80 px-5 py-4">
         <h2 className="text-sm font-semibold text-zinc-100">{title}</h2>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
+          className="rounded-lg p-1.5 text-zinc-500 hover:bg-cf-card hover:text-zinc-200"
           aria-label="Cerrar"
         >
           <X className="h-4 w-4" />
@@ -186,11 +186,11 @@ function RolePicker({
   };
 
   return (
-    <div className="mt-2 space-y-2 rounded-xl border border-cf-line/70 bg-black/25 p-3">
+    <div className="mt-2 space-y-2 rounded-xl border border-cf-line/70 bg-cf-card/80 p-3">
       {options.map((r) => (
         <label
           key={r.id}
-          className="flex cursor-pointer items-start gap-2 rounded-lg px-1 py-1 hover:bg-white/[0.03]"
+          className="flex cursor-pointer items-start gap-2 rounded-lg px-1 py-1 hover:bg-cf-card"
         >
           <input
             type="checkbox"
@@ -415,8 +415,8 @@ export function AtlasUsersView({ me }: Props) {
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-2xl border border-cf-line bg-cf-card/90 ring-1 ring-white/[0.03]">
-        <div className="flex flex-col gap-3 border-b border-cf-line/80 bg-black/25 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="overflow-hidden rounded-2xl border border-cf-line bg-cf-card/90 ring-1 ring-cf-line/30">
+        <div className="flex flex-col gap-3 border-b border-cf-line/80 bg-cf-card/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
             Cuentas ({filtered.length})
           </p>
@@ -427,7 +427,7 @@ export function AtlasUsersView({ me }: Props) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Buscar…"
-              className="w-full rounded-lg border border-cf-line bg-black/40 py-2 pl-9 pr-3 text-sm outline-none focus:border-cf-orange/50"
+              className="w-full rounded-lg border border-cf-line bg-cf-card py-2 pl-9 pr-3 text-sm outline-none focus:border-cf-orange/50"
             />
           </div>
         </div>
@@ -452,7 +452,7 @@ export function AtlasUsersView({ me }: Props) {
                 {filtered.map((u) => {
                   const isSelf = u.username === me.username;
                   return (
-                    <tr key={u.id} className="border-b border-cf-line/30 hover:bg-white/[0.02]">
+                    <tr key={u.id} className="border-b border-cf-line/30 hover:bg-cf-card/80">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
                           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-xs font-semibold">
@@ -476,7 +476,7 @@ export function AtlasUsersView({ me }: Props) {
                           <button
                             type="button"
                             onClick={() => openEdit(u)}
-                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs ring-1 ring-cf-line hover:bg-white/5"
+                            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs ring-1 ring-cf-line hover:bg-cf-card"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                             Editar
@@ -535,7 +535,7 @@ export function AtlasUsersView({ me }: Props) {
                     <button
                       type="button"
                       onClick={() => setCuPw(generateRandomPassword())}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-cf-line px-2.5 py-2 text-xs text-zinc-300 hover:bg-white/5"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-cf-line px-2.5 py-2 text-xs text-zinc-300 hover:bg-cf-card"
                     >
                       <RefreshCw className="h-3.5 w-3.5" />
                       Generar
@@ -605,7 +605,7 @@ export function AtlasUsersView({ me }: Props) {
                   <button
                     type="button"
                     onClick={() => setEditPw(generateRandomPassword())}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-cf-line px-2.5 py-2 text-xs text-zinc-300 hover:bg-white/5"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-cf-line px-2.5 py-2 text-xs text-zinc-300 hover:bg-cf-card"
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
                     Generar

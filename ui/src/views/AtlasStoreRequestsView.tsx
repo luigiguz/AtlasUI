@@ -414,9 +414,9 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
         </button>
       </div>
 
-      <div className="rounded-xl border border-cf-line/70 bg-[#111418]/90 px-4 py-4 sm:px-5 sm:py-5">
+      <div className="rounded-xl border border-cf-line/70 bg-cf-panel px-4 py-4 sm:px-5 sm:py-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="inline-flex rounded-lg bg-black/40 p-1 ring-1 ring-white/[0.06]">
+          <div className="inline-flex rounded-lg bg-cf-card p-1 ring-1 ring-cf-line/40">
             <button
               type="button"
               onClick={() => setRequestsPanelTab("queue")}
@@ -486,7 +486,7 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
                 {displayedQueueRequests.map((req) => (
                   <li
                     key={req.id}
-                    className="flex flex-col gap-2 rounded-lg border border-white/[0.06] bg-black/25 p-3 sm:flex-row sm:items-center sm:justify-between"
+                    className="flex flex-col gap-2 rounded-lg border border-cf-line/50 bg-cf-card/80 p-3 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-zinc-200">
@@ -606,10 +606,10 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
                     {historyRequests.length} registro{historyRequests.length !== 1 ? "s" : ""}
                   </p>
                 ) : null}
-              <div className="mt-4 overflow-x-auto rounded-lg border border-white/[0.06]">
+              <div className="mt-4 overflow-x-auto rounded-lg border border-cf-line/50">
                 <table className="w-full min-w-[640px] text-left text-xs">
                   <thead>
-                    <tr className="border-b border-white/[0.06] text-[10px] uppercase tracking-wide text-zinc-500">
+                    <tr className="border-b border-cf-line/50 text-[10px] uppercase tracking-wide text-zinc-500">
                       <th className="px-3 py-2 font-medium">#</th>
                       <th className="px-3 py-2 font-medium">Tienda</th>
                       <th className="px-3 py-2 font-medium">Resumen</th>
@@ -622,11 +622,11 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
                       <th className="px-3 py-2 font-medium text-right">Detalle</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/[0.04]">
+                  <tbody className="divide-y divide-cf-line/50">
                     {displayedHistoryRequests.map((req) => (
                       <tr
                         key={`${req.entryType ?? "request"}-${req.id}`}
-                        className="bg-black/20 hover:bg-black/30"
+                        className="bg-cf-card/70 hover:bg-cf-card/90"
                       >
                         <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">{req.id}</td>
                         <td className="whitespace-nowrap px-3 py-2.5 font-medium text-zinc-200">{req.storeId}</td>
@@ -726,7 +726,7 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
         {requestDetailId !== null ? (
           <AtlasModalShell
             onBackdropClick={requestDetailLoading ? undefined : closeRequestDetail}
-            panelClassName="w-full max-w-lg rounded-2xl border border-cf-line bg-[#111418] p-5 shadow-2xl ring-1 ring-white/[0.06]"
+            panelClassName="w-full max-w-lg rounded-2xl border border-cf-line bg-cf-panel p-5 shadow-2xl ring-1 ring-cf-line/40"
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -761,7 +761,7 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
                     {requestDetail.kind === "create" ? "Nueva tienda" : "Actualización"} · {requestDetail.folderName}
                   </span>
                 </div>
-                <dl className="grid gap-2 rounded-lg border border-cf-line/50 bg-black/25 px-3 py-2.5 text-zinc-400">
+                <dl className="grid gap-2 rounded-lg border border-cf-line/50 bg-cf-card/80 px-3 py-2.5 text-zinc-400">
                   <div>
                     <dt className="text-zinc-600">Resumen</dt>
                     <dd className="text-zinc-300">{requestDetail.summary}</dd>

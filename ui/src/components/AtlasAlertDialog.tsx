@@ -22,7 +22,7 @@ export function AtlasAlertDialog({
     <AtlasModalFrame
       open={open}
       onBackdropClick={onClose}
-      panelClassName="w-full max-w-md rounded-2xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.06]"
+      panelClassName="w-full max-w-md rounded-2xl border border-cf-line bg-cf-panel shadow-2xl ring-1 ring-cf-line/40"
     >
       <div className="px-5 py-4" role="alertdialog" aria-modal="true">
         <h2 className="text-sm font-semibold text-zinc-100">{title}</h2>

@@ -174,13 +174,13 @@ function NavLeafButton({
             : "flex w-full cursor-not-allowed items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-zinc-600"
           : active
             ? collapsed
-              ? "flex w-full items-center justify-center rounded-lg bg-white/[0.08] p-2 text-zinc-100 ring-1 ring-white/10"
-              : `flex w-full items-center gap-2 rounded-lg bg-white/[0.08] py-2 text-left text-sm font-medium text-zinc-100 ring-1 ring-white/10 ${
+              ? `flex w-full items-center justify-center rounded-lg p-2 atlas-nav-item-active`
+              : `flex w-full items-center gap-2 rounded-lg py-2 text-left text-sm atlas-nav-item-active ${
                   subMenu ? "pl-8 pr-2.5" : "px-2.5"
                 }`
             : collapsed
-              ? "flex w-full items-center justify-center rounded-lg p-2 text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
-              : `flex w-full items-center gap-2 rounded-lg py-2 text-left text-sm text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200 ${
+              ? "flex w-full items-center justify-center rounded-lg p-2 atlas-nav-item"
+              : `flex w-full items-center gap-2 rounded-lg py-2 text-left text-sm atlas-nav-item ${
                   subMenu ? "pl-8 pr-2.5" : "px-2.5"
                 }`
       }
@@ -260,8 +260,8 @@ function NavGroupBlock({
         onClick={handleLabelClick}
         className={
           groupActive
-            ? "flex w-full items-center justify-center rounded-lg bg-white/[0.08] p-2 text-zinc-100 ring-1 ring-white/10"
-            : "flex w-full items-center justify-center rounded-lg p-2 text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200"
+            ? "flex w-full items-center justify-center rounded-lg p-2 atlas-nav-item-active"
+            : "flex w-full items-center justify-center rounded-lg p-2 atlas-nav-item"
         }
       >
         <Icon className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
@@ -275,7 +275,7 @@ function NavGroupBlock({
         className={
           groupActive
             ? `flex w-full items-center gap-2 rounded-lg py-2 text-left text-sm font-medium text-zinc-100 ${subMenu ? "pl-8 pr-2.5" : "px-2.5"}`
-            : `flex w-full items-center gap-2 rounded-lg py-2 text-left text-sm text-zinc-300 hover:bg-white/[0.04] ${subMenu ? "pl-8 pr-2.5" : "px-2.5"}`
+            : `flex w-full items-center gap-2 rounded-lg py-2 text-left text-sm text-zinc-400 atlas-nav-item ${subMenu ? "pl-8 pr-2.5" : "px-2.5"}`
         }
       >
         <button type="button" onClick={handleLabelClick} className="flex min-w-0 flex-1 items-center gap-2 text-left">
@@ -287,7 +287,7 @@ function NavGroupBlock({
             type="button"
             onClick={handleChevronClick}
             aria-label={open ? "Contraer" : "Expandir"}
-            className="rounded p-0.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-300"
+            className="rounded p-0.5 text-zinc-500 hover:bg-cf-card hover:text-zinc-300"
           >
             {open ? (
               <ChevronDown className="h-4 w-4 shrink-0" aria-hidden />
@@ -306,7 +306,7 @@ function NavGroupBlock({
             transition={{ duration: 0.18 }}
             className="overflow-hidden pl-1"
           >
-            <motion.div layout className="ml-3 space-y-0.5 border-l border-white/[0.06] pl-1">
+            <motion.div layout className="ml-3 space-y-0.5 border-l border-cf-line/60 pl-1">
               {group.children.map((child) => (
                 <NavEntryBlock
                   key={child.kind === "leaf" ? child.id : child.id}
@@ -394,7 +394,7 @@ function SidebarQuickSearch({
               onExpandSidebar();
               requestAnimationFrame(() => inputRef.current?.focus());
             }}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 ring-1 ring-white/[0.06] hover:bg-white/[0.04] hover:text-zinc-300"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 ring-1 ring-cf-line/60 hover:bg-cf-line/35 hover:text-zinc-300"
           >
             <Search className="h-4 w-4" aria-hidden />
           </button>
@@ -420,7 +420,7 @@ function SidebarQuickSearch({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Búsqueda rápida…"
-          className="w-full rounded-lg border border-white/[0.06] bg-black/30 py-2 pl-8 pr-[4.25rem] text-xs text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-cf-orange/40 focus:ring-1 focus:ring-cf-orange/30"
+          className="atlas-input py-2 pl-8 pr-[4.25rem] text-xs"
         />
         <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-white/10 bg-zinc-900/80 px-1.5 py-0.5 font-mono text-[10px] text-zinc-500 sm:inline">
           Ctrl K
@@ -508,7 +508,7 @@ export function AtlasShell({
       <motion.div
         layout
         transition={sidebarMotion}
-        className={`flex w-full shrink-0 items-center border-b border-white/[0.06] ${
+        className={`flex w-full shrink-0 items-center border-b border-cf-line/60 ${
           sidebarCollapsedEffective ? "justify-center px-2 py-3.5" : "gap-3 px-3 py-3.5"
         }`}
       >
@@ -555,13 +555,13 @@ export function AtlasShell({
         />
       </div>
 
-      <div className="flex shrink-0 justify-start border-t border-white/[0.06] p-2">
+      <div className="flex shrink-0 justify-start border-t border-cf-line/60 p-2">
         <button
           type="button"
           onClick={toggleSidebarCollapsed}
           title={sidebarCollapsedEffective ? "Expandir barra lateral" : "Contraer barra lateral"}
           aria-label={sidebarCollapsedEffective ? "Expandir barra lateral" : "Contraer barra lateral"}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 ring-1 ring-white/[0.06] hover:bg-white/[0.04] hover:text-zinc-300"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 ring-1 ring-cf-line/40 hover:bg-cf-card hover:text-zinc-300"
         >
           {sidebarCollapsedEffective ? (
             <PanelLeft className="h-4 w-4" aria-hidden />
@@ -576,7 +576,7 @@ export function AtlasShell({
   return (
     <motion.div className="atlas-app-bg flex h-dvh min-h-0 overflow-hidden text-zinc-100">
       <motion.aside
-        className="atlas-app-header hidden min-h-0 shrink-0 self-stretch overflow-hidden border-r border-white/[0.06] md:flex md:flex-col"
+        className="atlas-app-header hidden min-h-0 shrink-0 self-stretch overflow-hidden border-r border-cf-line/50 md:flex md:flex-col"
         initial={false}
         animate={{ width: sidebarCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED }}
         transition={sidebarMotion}
@@ -601,7 +601,7 @@ export function AtlasShell({
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "spring", stiffness: 400, damping: 36 }}
-              className="fixed inset-y-0 left-0 z-50 flex w-[min(18rem,88vw)] flex-col border-r border-white/[0.06] shadow-2xl md:hidden"
+              className="atlas-app-header fixed inset-y-0 left-0 z-50 flex w-[min(18rem,88vw)] flex-col border-r border-cf-line/60 shadow-2xl md:hidden"
             >
               {sidebar}
             </motion.aside>
@@ -610,10 +610,10 @@ export function AtlasShell({
       </AnimatePresence>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="atlas-app-header flex shrink-0 flex-wrap items-center gap-3 border-b border-white/[0.06] px-4 py-3 backdrop-blur-md">
+        <header className="atlas-app-header flex shrink-0 flex-wrap items-center gap-3 border-b border-cf-line/60 px-4 py-3 shadow-sm backdrop-blur-md">
           <button
             type="button"
-            className="inline-flex rounded-lg p-2 text-zinc-400 ring-1 ring-white/10 hover:bg-white/5 md:hidden"
+            className="inline-flex rounded-lg p-2 text-zinc-400 ring-1 ring-cf-line/60 hover:bg-cf-line/30 md:hidden"
             onClick={() => setMobileOpen((v) => !v)}
             aria-label={mobileOpen ? "Cerrar menú" : "Abrir menú"}
           >
@@ -630,7 +630,7 @@ export function AtlasShell({
             </nav>
             <h1 className="truncate text-lg font-semibold tracking-tight text-zinc-50 sm:text-xl">{meta.title}</h1>
           </div>
-          <div className="flex shrink-0 items-stretch overflow-hidden rounded-lg border border-white/[0.06] bg-white/[0.02]">
+          <div className="flex shrink-0 items-stretch overflow-hidden rounded-lg border border-cf-line/60 bg-cf-panel/80 shadow-sm">
             <div className="flex min-w-0 items-center gap-2 px-2.5">
               <span
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-800/90 text-[10px] font-semibold uppercase text-zinc-400"
@@ -645,16 +645,16 @@ export function AtlasShell({
                 <p className="truncate text-[10px] uppercase tracking-wide text-zinc-500">{user.role}</p>
               </div>
             </div>
-            <span className="my-2 w-px shrink-0 bg-white/[0.08]" aria-hidden />
+            <span className="my-2 w-px shrink-0 bg-cf-line/70" aria-hidden />
             <AtlasNotifications
               onNavigate={onNavigate}
-              buttonClassName="relative inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-200"
+              buttonClassName="relative inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:bg-cf-line/35 hover:text-zinc-200"
             />
-            <span className="my-2 w-px shrink-0 bg-white/[0.08]" aria-hidden />
+            <span className="my-2 w-px shrink-0 bg-cf-line/70" aria-hidden />
             <button
               type="button"
               onClick={onToggleTheme}
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-200"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:bg-cf-line/35 hover:text-zinc-200"
               title={theme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
               aria-label={theme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
             >
@@ -664,11 +664,11 @@ export function AtlasShell({
                 <Moon className="h-4 w-4 shrink-0" aria-hidden />
               )}
             </button>
-            <span className="my-2 w-px shrink-0 bg-white/[0.08]" aria-hidden />
+            <span className="my-2 w-px shrink-0 bg-cf-line/70" aria-hidden />
             <button
               type="button"
               onClick={() => setLogoutConfirmOpen(true)}
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-200"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:bg-cf-line/35 hover:text-zinc-200"
               title="Salir"
               aria-label="Salir"
             >

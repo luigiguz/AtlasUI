@@ -85,7 +85,7 @@ export function SshTextEditorModal({
         if (!saving) onClose();
       }}
       zIndexClass="z-[70]"
-      panelClassName="flex max-h-[min(90vh,42rem)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.08]"
+      panelClassName="flex max-h-[min(90vh,42rem)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-cf-line bg-cf-panel shadow-2xl ring-1 ring-white/[0.08]"
     >
       <div className="flex shrink-0 items-center justify-between border-b border-cf-line/60 px-4 py-3">
         <div className="min-w-0">
@@ -96,7 +96,7 @@ export function SshTextEditorModal({
           type="button"
           onClick={onClose}
           disabled={saving}
-          className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/10 disabled:opacity-40"
+          className="rounded-lg p-1.5 text-zinc-500 hover:bg-cf-card disabled:opacity-40"
           aria-label="Cerrar"
         >
           <X className="h-4 w-4" />
@@ -112,7 +112,7 @@ export function SshTextEditorModal({
             value={text}
             onChange={(e) => setText(e.target.value)}
             spellCheck={false}
-            className="h-[min(60vh,28rem)] w-full resize-none rounded-lg border border-cf-line/60 bg-black/40 p-3 font-mono text-xs leading-relaxed text-zinc-200 outline-none focus:border-cf-orange/40"
+            className="h-[min(60vh,28rem)] w-full resize-none rounded-lg border border-cf-line/60 bg-cf-card p-3 font-mono text-xs leading-relaxed text-zinc-200 outline-none focus:border-cf-orange/40"
           />
         )}
         {error ? <p className="mt-2 text-xs text-red-300">{error}</p> : null}
@@ -122,7 +122,7 @@ export function SshTextEditorModal({
           type="button"
           onClick={onClose}
           disabled={saving}
-          className="rounded-lg px-3 py-1.5 text-xs text-zinc-400 hover:bg-white/5 disabled:opacity-40"
+          className="rounded-lg px-3 py-1.5 text-xs text-zinc-400 hover:bg-cf-card disabled:opacity-40"
         >
           Cancelar
         </button>
@@ -214,7 +214,7 @@ export function SshPermissionsModal({
         if (!saving) onClose();
       }}
       zIndexClass="z-[70]"
-      panelClassName="w-full max-w-md overflow-hidden rounded-xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.08]"
+      panelClassName="w-full max-w-md overflow-hidden rounded-xl border border-cf-line bg-cf-panel shadow-2xl ring-1 ring-white/[0.08]"
     >
       <div className="border-b border-cf-line/60 px-4 py-3">
         <h2 className="text-sm font-semibold text-zinc-100">Permisos</h2>
@@ -230,7 +230,7 @@ export function SshPermissionsModal({
               <input
                 value={modeOctal}
                 onChange={(e) => setModeOctal(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-cf-line/60 bg-black/30 px-2 py-1.5 font-mono text-sm text-zinc-200 outline-none focus:border-cf-orange/40"
+                className="mt-1 w-full rounded-lg border border-cf-line/60 bg-cf-card/90 px-2 py-1.5 font-mono text-sm text-zinc-200 outline-none focus:border-cf-orange/40"
                 placeholder="0755"
               />
             </label>
@@ -240,7 +240,7 @@ export function SshPermissionsModal({
                 <input
                   value={uid}
                   onChange={(e) => setUid(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-cf-line/60 bg-black/30 px-2 py-1.5 font-mono text-sm text-zinc-200 outline-none focus:border-cf-orange/40"
+                  className="mt-1 w-full rounded-lg border border-cf-line/60 bg-cf-card/90 px-2 py-1.5 font-mono text-sm text-zinc-200 outline-none focus:border-cf-orange/40"
                 />
               </label>
               <label className="block text-xs text-zinc-400">
@@ -248,7 +248,7 @@ export function SshPermissionsModal({
                 <input
                   value={gid}
                   onChange={(e) => setGid(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-cf-line/60 bg-black/30 px-2 py-1.5 font-mono text-sm text-zinc-200 outline-none focus:border-cf-orange/40"
+                  className="mt-1 w-full rounded-lg border border-cf-line/60 bg-cf-card/90 px-2 py-1.5 font-mono text-sm text-zinc-200 outline-none focus:border-cf-orange/40"
                 />
               </label>
             </div>
@@ -261,7 +261,7 @@ export function SshPermissionsModal({
           type="button"
           onClick={onClose}
           disabled={saving}
-          className="rounded-lg px-3 py-1.5 text-xs text-zinc-400 hover:bg-white/5"
+          className="rounded-lg px-3 py-1.5 text-xs text-zinc-400 hover:bg-cf-card"
         >
           Cancelar
         </button>

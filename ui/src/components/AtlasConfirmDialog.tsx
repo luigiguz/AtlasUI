@@ -38,7 +38,7 @@ export function AtlasConfirmDialog({
     <AtlasModalFrame
       open={open}
       onBackdropClick={busy ? undefined : onCancel}
-      panelClassName="w-full max-w-md rounded-2xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.06]"
+      panelClassName="w-full max-w-md rounded-2xl border border-cf-line bg-cf-panel shadow-2xl ring-1 ring-cf-line/40"
     >
       <div className="px-5 py-4" role="alertdialog" aria-modal="true" aria-labelledby="atlas-confirm-title" aria-describedby="atlas-confirm-desc">
         <h2 id="atlas-confirm-title" className="text-sm font-semibold text-zinc-100">

@@ -82,7 +82,7 @@ export function matchesFilterRules<TField extends string>(
 }
 
 const selectClass =
-  "w-full min-w-0 rounded-lg border border-cf-line bg-black/40 px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-cf-orange/50";
+  "w-full min-w-0 rounded-lg border border-cf-line bg-cf-card px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-cf-orange/50";
 
 export function AtlasFilterSearchInput({
   value,
@@ -114,7 +114,7 @@ export function AtlasFilterSearchInput({
         <button
           type="button"
           onClick={() => onChange("")}
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-500 hover:bg-white/10 hover:text-zinc-300"
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-500 hover:bg-cf-card hover:text-zinc-300"
           aria-label="Borrar búsqueda"
         >
           <X className="h-3.5 w-3.5" />
@@ -177,7 +177,7 @@ export function AtlasFieldFiltersPanel<TField extends string>({
     <div
       role="dialog"
       aria-label={dialogLabel}
-      className="absolute left-0 right-0 top-full z-30 mt-2 w-full max-w-xl rounded-xl border border-cf-line bg-[#111418] p-4 shadow-2xl ring-1 ring-white/10 sm:left-auto sm:right-0 sm:w-[min(36rem,calc(100vw-2rem))]"
+      className="absolute left-0 right-0 top-full z-30 mt-2 w-full max-w-xl rounded-xl border border-cf-line bg-cf-panel p-4 shadow-2xl ring-1 ring-cf-line/40 sm:left-auto sm:right-0 sm:w-[min(36rem,calc(100vw-2rem))]"
       onKeyDown={onKeyDown}
     >
       <div className="mb-3 flex items-center justify-between">
@@ -185,7 +185,7 @@ export function AtlasFieldFiltersPanel<TField extends string>({
         <button
           type="button"
           onClick={onClose}
-          className="rounded p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-300"
+          className="rounded p-1 text-zinc-500 hover:bg-cf-card hover:text-zinc-300"
           aria-label="Cerrar filtros"
         >
           <X className="h-4 w-4" />
@@ -226,13 +226,13 @@ export function AtlasFieldFiltersPanel<TField extends string>({
               value={rule.value}
               onChange={(e) => updateRule(rule.id, { value: e.target.value })}
               placeholder={fieldPlaceholder(rule.field)}
-              className="min-w-0 flex-1 rounded-lg border border-cf-line bg-black/40 px-2.5 py-1.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50"
+              className="min-w-0 flex-1 rounded-lg border border-cf-line bg-cf-card px-2.5 py-1.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50"
               aria-label="Valor del filtro"
             />
             <button
               type="button"
               onClick={() => removeRule(rule.id)}
-              className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-white/10 hover:text-zinc-300"
+              className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-cf-card hover:text-zinc-300"
               aria-label="Eliminar filtro"
             >
               <Trash2 className="h-4 w-4" />

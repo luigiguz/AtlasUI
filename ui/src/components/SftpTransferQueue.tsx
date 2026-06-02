@@ -132,7 +132,7 @@ export function SftpTransferQueue({ jobs, onCancel, onDismiss }: Props): ReactEl
   const verb = headline.direction === "upload" ? "Subiendo" : "Descargando";
 
   return (
-    <div className="shrink-0 border-t border-zinc-700 bg-[#111418] shadow-[0_-4px_12px_rgba(0,0,0,0.35)]">
+    <div className="shrink-0 border-t border-zinc-700 bg-cf-panel shadow-[0_-4px_12px_rgba(0,0,0,0.35)]">
       <div className="flex items-center justify-between border-b border-zinc-800/90 px-2 py-1">
         <p className="truncate text-[10px] font-medium text-zinc-300">
           {verb}{" "}

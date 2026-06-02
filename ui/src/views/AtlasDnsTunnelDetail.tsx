@@ -5,7 +5,6 @@ import {
   ExternalLink,
   Globe,
   Lock,
-  Server,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -168,7 +167,7 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
                           <th className="px-4 py-2 font-medium">Rutas</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-white/[0.04]">
+                      <tbody className="divide-y divide-cf-line/50">
                         {tunnel.sites.map((site) => (
                           <tr key={site.id} className="hover:bg-cf-card/40">
                             <td className="px-4 py-2.5">
@@ -270,7 +269,7 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
                   <div className="border-b border-cf-line/60 px-4 py-3">
                     <h3 className="text-sm font-medium text-zinc-200">Listado de rutas</h3>
                   </div>
-                  <ul className="divide-y divide-white/[0.04]">
+                  <ul className="divide-y divide-cf-line/50">
                     {tunnel.routes.map((link) => (
                       <li
                         key={`${link.url}-${link.suffix ?? ""}-${link.port ?? ""}`}
@@ -350,20 +349,6 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
                 </div>
               ) : null}
             </dl>
-          </section>
-
-          <section className="rounded-xl border border-cf-line/70 bg-cf-panel/40 p-4">
-            <h3 className="text-sm font-medium text-zinc-200">Casos de uso</h3>
-            <ul className="mt-3 space-y-2 text-xs text-zinc-400">
-              <li className="flex gap-2 rounded-lg border border-cf-line/50 bg-cf-card/40 px-3 py-2">
-                <Globe className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cf-orange" />
-                Publicar aplicaciones Poslite con hostname en Cloudflare.
-              </li>
-              <li className="flex gap-2 rounded-lg border border-cf-line/50 bg-cf-card/40 px-3 py-2">
-                <Server className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cf-orange" />
-                Revisar estado SSH y rutas por tienda desde un solo túnel.
-              </li>
-            </ul>
           </section>
         </aside>
       </div>

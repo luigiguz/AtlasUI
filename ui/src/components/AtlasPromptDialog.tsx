@@ -43,7 +43,7 @@ export function AtlasPromptDialog({
     <AtlasModalFrame
       open={open}
       onBackdropClick={onCancel}
-      panelClassName="w-full max-w-md rounded-2xl border border-cf-line bg-[#111418] shadow-2xl ring-1 ring-white/[0.06]"
+      panelClassName="w-full max-w-md rounded-2xl border border-cf-line bg-cf-panel shadow-2xl ring-1 ring-cf-line/40"
     >
       <form onSubmit={submit} role="dialog" aria-modal="true">
         <div className="px-5 py-4">
@@ -56,7 +56,7 @@ export function AtlasPromptDialog({
             autoFocus
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-cf-line bg-black/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cf-orange/50 focus:ring-2 focus:ring-cf-orange/20"
+            className="mt-1 w-full rounded-lg border border-cf-line bg-cf-card px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cf-orange/50 focus:ring-2 focus:ring-cf-orange/20"
           />
           <div className="mt-5 flex flex-wrap justify-end gap-2">
             <button
