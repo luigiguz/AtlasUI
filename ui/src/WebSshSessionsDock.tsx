@@ -50,6 +50,8 @@ export type SshWebSession = {
   site: string;
   minimized: boolean;
   poppedOut?: boolean;
+  /** Sesión de terminal pura (sin panel SFTP). */
+  terminalOnly?: boolean;
   /** Volúmenes: explorador SFTP del PVC */
   volume?: {
     pvcName: string;
@@ -307,6 +309,8 @@ type PaneProps = {
   onRelayMirrorClosed?: () => void;
   /** Solo autenticación SSH (volúmenes PVC): terminal a pantalla completa, sin SFTP. */
   authOnly?: boolean;
+  /** Oculta SFTP y deja la terminal ocupando todo el panel. */
+  hideFileTransfer?: boolean;
   /** Tras `ready` en modo authOnly (p. ej. abrir explorador del volumen). */
   onAuthSuccess?: () => void;
 };
@@ -322,6 +326,7 @@ function SshSessionPane({
   relayPoppedOut = false,
   onRelayMirrorClosed,
   authOnly = false,
+  hideFileTransfer = false,
   onAuthSuccess,
 }: PaneProps): ReactElement {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -340,7 +345,7 @@ function SshSessionPane({
   const [banner, setBanner] = useState<string | null>(null);
   const [hostStats, setHostStats] = useState<SshHostStatsPayload | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; canCopy: boolean } | null>(null);
-  const [sftpOpen, setSftpOpen] = useState(!authOnly);
+  const [sftpOpen, setSftpOpen] = useState(!authOnly && !hideFileTransfer);
   const [sshTerminalReady, setSshTerminalReady] = useState(false);
   const sshTerminalReadyRef = useRef(false);
   const authSuccessSentRef = useRef(false);
@@ -348,6 +353,10 @@ function SshSessionPane({
   onAuthSuccessRef.current = onAuthSuccess;
   const cmdRef = useRef<string | null>(null);
   const [sftpWidth, setSftpWidth] = useState(280);
+
+  useEffect(() => {
+    if (hideFileTransfer || authOnly) setSftpOpen(false);
+  }, [hideFileTransfer, authOnly]);
 
   useEffect(() => {
     sshTerminalReadyRef.current = sshTerminalReady;
@@ -941,7 +950,7 @@ function SshSessionPane({
           que en Conexiones). Después se abrirá el explorador del volumen.
         </div>
       ) : null}
-      {!fatal && !relayPoppedOut && !authOnly ? (
+      {!fatal && !relayPoppedOut && !authOnly && !hideFileTransfer ? (
         <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 bg-zinc-900/50 px-2 py-1">
           <button
             type="button"
@@ -984,7 +993,7 @@ function SshSessionPane({
             </button>
           </div>
         ) : null}
-        {!fatal && sftpOpen && !relayPoppedOut && !authOnly ? (
+        {!fatal && sftpOpen && !relayPoppedOut && !authOnly && !hideFileTransfer ? (
           <>
             <div
               className="flex min-h-0 shrink-0 flex-col overflow-hidden border-r border-zinc-800"
@@ -1799,6 +1808,10 @@ export function WebSshSessionsDock({
         setPopoutAlert("Los volúmenes PVC solo se editan en el panel integrado (sin ventana emergente).");
         return;
       }
+      if (sess.terminalOnly) {
+        setPopoutAlert("La sesión Execute Shell se usa dentro del panel integrado (sin SFTP).");
+        return;
+      }
       const url = buildSshWebPopoutUrl(sess.site, sess.id);
       const w = Math.min(1200, window.screen.availWidth - 48);
       const h = Math.min(820, window.screen.availHeight - 48);
@@ -2115,6 +2128,7 @@ export function WebSshSessionsDock({
                   site={s.site}
                   sessionId={s.id}
                   visible={paneVisible || holdWsOffscreen}
+                  hideFileTransfer={Boolean(s.terminalOnly)}
                   relayPoppedOut={holdWsOffscreen}
                   onRelayMirrorClosed={() => {
                     setSessions((prev) =>

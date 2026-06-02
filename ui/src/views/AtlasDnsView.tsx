@@ -21,10 +21,10 @@ type Props = {
 
 const STATUS_FILTER_OPTIONS: { key: "all" | DnsTunnelStatus; label: string }[] = [
   { key: "all", label: "Todos los estados" },
-  { key: "healthy", label: "Buen estado" },
-  { key: "degraded", label: "Con incidencias" },
-  { key: "idle", label: "En espera" },
-  { key: "empty", label: "Sin rutas DNS" },
+  { key: "healthy", label: "Up" },
+  { key: "degraded", label: "Down" },
+  { key: "idle", label: "Down (sin túnel activo)" },
+  { key: "empty", label: "Down (sin rutas DNS)" },
 ];
 
 export function AtlasDnsView({ sites, domainSuffix }: Props) {

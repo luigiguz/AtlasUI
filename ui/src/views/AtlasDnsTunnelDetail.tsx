@@ -41,6 +41,34 @@ function sshStatusClass(status: string): string {
   return "text-zinc-500";
 }
 
+function downHintsForTunnel(tunnel: DnsTunnelGroup): string[] {
+  const hints: string[] = [];
+  const withSsh = tunnel.sites.filter((s) => Boolean(s.ssh));
+  const sshDead = withSsh.filter((s) => s.sshStatus === "dead");
+  const sshActive = withSsh.filter((s) => s.sshStatus === "active");
+
+  if (tunnel.routeCount === 0) {
+    hints.push("No hay rutas DNS publicadas para este túnel.");
+  }
+  if (withSsh.length === 0) {
+    hints.push("No hay conexión SSH configurada en los sitios de este túnel.");
+  } else if (sshActive.length === 0) {
+    hints.push("No hay ninguna conexión SSH activa; el túnel no está operativo.");
+  }
+  if (sshDead.length > 0) {
+    hints.push(
+      `Se detectaron ${sshDead.length} sitio${sshDead.length !== 1 ? "s" : ""} con SSH caído.`
+    );
+  }
+
+  if (hints.length === 0 && tunnel.status !== "healthy") {
+    hints.push(
+      "El túnel aparece como Down por la última sincronización de estado; revisa Conexiones para validar SSH."
+    );
+  }
+  return hints;
+}
+
 export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
   const [tab, setTab] = useState<DetailTab>("summary");
 
@@ -56,6 +84,7 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
       links: site.posliteUrls ?? [],
     }));
   }, [tunnel.sites]);
+  const downHints = useMemo(() => downHintsForTunnel(tunnel), [tunnel]);
 
   return (
     <motion.div
@@ -152,6 +181,21 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
                     </div>
                   </dl>
                 </section>
+
+                {tunnel.status !== "healthy" ? (
+                  <section className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4">
+                    <h3 className="text-sm font-medium text-rose-200">Diagnóstico de caída</h3>
+                    <ul className="mt-2 space-y-1 text-xs text-rose-100/90">
+                      {downHints.map((hint) => (
+                        <li key={hint}>- {hint}</li>
+                      ))}
+                    </ul>
+                    <p className="mt-3 text-[11px] text-rose-100/80">
+                      Tip: si eres admin, valida SSH del sitio en <strong>Atlas VPN - Conexiones</strong> y revisa
+                      logs del pod en <strong>Atlas Rancher - Contenedores</strong>.
+                    </p>
+                  </section>
+                ) : null}
 
                 <section className="rounded-xl border border-cf-line/70 bg-cf-panel/50">
                   <div className="flex items-center justify-between border-b border-cf-line/60 px-4 py-3">

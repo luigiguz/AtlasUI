@@ -16,13 +16,13 @@ export type DnsTunnelGroup = {
 export function tunnelStatusLabel(status: DnsTunnelStatus): string {
   switch (status) {
     case "healthy":
-      return "Buen estado";
+      return "Up";
     case "degraded":
-      return "Con incidencias";
+      return "Down";
     case "empty":
-      return "Sin rutas DNS";
+      return "Down";
     default:
-      return "En espera";
+      return "Down";
   }
 }
 

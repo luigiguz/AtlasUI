@@ -169,11 +169,17 @@ export default function App() {
   const sshPopoutSite = sshPopoutParams?.site ?? null;
   const sshPopoutDockSessionId = sshPopoutParams?.dockSessionId ?? null;
 
-  const openSshWebSession = useCallback((site: string) => {
-    const id = crypto.randomUUID();
-    setSshWebSessions((prev) => [...prev, { id, site, minimized: false }]);
-    setActiveSshWebId(id);
-  }, []);
+  const openSshWebSession = useCallback(
+    (site: string, opts?: { terminalOnly?: boolean }) => {
+      const id = crypto.randomUUID();
+      setSshWebSessions((prev) => [
+        ...prev,
+        { id, site, minimized: false, terminalOnly: opts?.terminalOnly === true },
+      ]);
+      setActiveSshWebId(id);
+    },
+    []
+  );
 
   const openPvcVolumeSession = useCallback((opts: OpenPvcVolumeSessionOpts) => {
     setSshWebSessions((prev) => {
@@ -630,6 +636,7 @@ export default function App() {
             focusTiendaId={containersFocusId}
             onFocusTiendaConsumed={() => setContainersFocusId(null)}
             onOpenVolumeTerminal={openPvcVolumeSession}
+            onOpenContainerShell={(site) => openSshWebSession(site, { terminalOnly: true })}
           />
         )}
 
