@@ -36,6 +36,7 @@ export function PodExecTerminalPane({ sessionId, exec, visible, onClose }: Props
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const disposedRef = useRef(false);
   const [fatal, setFatal] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>("Conectando al contenedor…");
 
@@ -59,6 +60,10 @@ export function PodExecTerminalPane({ sessionId, exec, visible, onClose }: Props
   }, [visible]);
 
   useEffect(() => {
+    disposedRef.current = false;
+    setFatal(null);
+    setBanner("Conectando al contenedor…");
+
     const token = getAccessToken();
     if (!token) {
       setFatal("No hay token de sesión. Vuelve a iniciar sesión.");
@@ -131,11 +136,29 @@ export function PodExecTerminalPane({ sessionId, exec, visible, onClose }: Props
     };
 
     ws.onerror = () => {
-      setBanner((b) => b || "Error de red en la conexión al contenedor.");
+      if (disposedRef.current) return;
+      setFatal(
+        "No se pudo abrir la terminal del contenedor (WebSocket). Comprueba que el túnel o proxy " +
+          "(p. ej. Cloudflare) permita conexiones WSS hacia el API de Atlas, que atlas-api esté en marcha " +
+          "y que el pod siga existiendo."
+      );
+      setBanner(null);
     };
 
-    ws.onclose = () => {
-      setBanner((b) => b || "Sesión de contenedor cerrada.");
+    ws.onclose = (ev) => {
+      if (disposedRef.current) return;
+      if (ev.code === 1000) return;
+      setFatal((prev) => {
+        if (prev) return prev;
+        if (ev.code === 1006 || ev.code === 1001) {
+          return (
+            "Conexión WebSocket interrumpida. Suele deberse al proxy/túnel (WSS no enrutado), API reiniciándose " +
+            "o pod eliminado durante un rollout."
+          );
+        }
+        return "Sesión de contenedor cerrada.";
+      });
+      setBanner(null);
     };
 
     const ro = new ResizeObserver(() => refit());
@@ -143,10 +166,11 @@ export function PodExecTerminalPane({ sessionId, exec, visible, onClose }: Props
     window.addEventListener("resize", refit);
 
     return () => {
+      disposedRef.current = true;
       window.removeEventListener("resize", refit);
       ro.disconnect();
       try {
-        ws.close();
+        ws.close(1000);
       } catch {
         /* ignore */
       }

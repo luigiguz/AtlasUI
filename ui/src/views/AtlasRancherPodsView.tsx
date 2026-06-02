@@ -9,6 +9,9 @@ import {
   Network,
   RefreshCw,
   RotateCcw,
+  CheckCircle2,
+  Circle,
+  AlertCircle,
   RotateCw,
   ScrollText,
   Search,
@@ -150,47 +153,97 @@ function stateTone(state: string): string {
   return "text-zinc-400";
 }
 
-function RolloutConfirmModal({
+type RolloutLogTone = "info" | "ok" | "err";
+type RolloutLogLine = { id: number; text: string; tone: RolloutLogTone };
+type RolloutModalPhase = "confirm" | "running" | "done" | "failed";
+
+const ROLLOUT_STEP_LABELS: Record<string, string> = {
+  pull_policy_always: "Pull forzado (Always) y reinicio del pod",
+  rollout_ready: "Pod listo — réplicas en ejecución",
+  pull_policy_restored: "Política de pull restaurada en el deployment",
+  pull_policy_restored_on_error: "Política de pull restaurada tras error",
+};
+
+const ROLLOUT_PLANNED_STEPS = [
+  "Aplicar imagePullPolicy: Always y reiniciar el pod",
+  "Esperar a que el pod quede listo",
+  "Restaurar la política de pull original",
+] as const;
+
+function rolloutLogToneClass(tone: RolloutLogTone): string {
+  if (tone === "ok") return "text-emerald-400/90";
+  if (tone === "err") return "text-red-300";
+  return "text-zinc-400";
+}
+
+function RolloutImageModal({
   deployments,
   clusterLabel,
-  busy,
+  phase,
+  logs,
+  replicaHint,
   onConfirm,
-  onCancel,
+  onClose,
 }: {
   deployments: RancherDeployment[];
   clusterLabel: string;
-  busy: boolean;
+  phase: RolloutModalPhase;
+  logs: RolloutLogLine[];
+  replicaHint: string;
   onConfirm: () => void;
-  onCancel: () => void;
+  onClose: () => void;
 }) {
   const count = deployments.length;
   const single = count === 1 ? deployments[0] : null;
+  const busy = phase === "running";
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [logs.length, replicaHint, phase]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) onCancel();
+      if (e.key === "Escape" && !busy) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [busy, onCancel]);
+  }, [busy, onClose]);
+
+  const showProgress = phase !== "confirm";
 
   return (
     <AtlasModalShell
       onBackdropClick={() => {
-        if (!busy) onCancel();
+        if (!busy) onClose();
       }}
       zIndexClass="z-[60]"
-      panelClassName="w-full max-w-md overflow-hidden rounded-xl border border-cf-line bg-cf-panel shadow-2xl ring-1 ring-white/[0.08]"
+      panelClassName="w-full max-w-lg overflow-hidden rounded-xl border border-cf-line bg-cf-panel shadow-2xl ring-1 ring-white/[0.08]"
     >
       <div role="dialog" aria-modal="true" aria-labelledby="rollout-confirm-title">
         <div className="border-b border-cf-line/60 bg-gradient-to-r from-cf-orange/10 via-transparent to-transparent px-5 py-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cf-orange/15 ring-1 ring-cf-orange/30">
-                <RotateCw className="h-5 w-5 text-cf-orange" aria-hidden />
+                {busy ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-cf-orange" aria-hidden />
+                ) : phase === "done" ? (
+                  <CheckCircle2 className="h-5 w-5 text-emerald-400" aria-hidden />
+                ) : phase === "failed" ? (
+                  <AlertCircle className="h-5 w-5 text-red-400" aria-hidden />
+                ) : (
+                  <RotateCw className="h-5 w-5 text-cf-orange" aria-hidden />
+                )}
               </div>
               <div>
                 <h2 id="rollout-confirm-title" className="text-sm font-semibold text-zinc-100">
-                  Actualizar imagen
+                  {phase === "confirm"
+                    ? "Actualizar imagen"
+                    : phase === "running"
+                      ? "Actualizando imagen…"
+                      : phase === "done"
+                        ? "Actualización completada"
+                        : "Actualización con errores"}
                 </h2>
                 <p className="mt-0.5 text-xs text-zinc-500">{clusterLabel}</p>
               </div>
@@ -198,7 +251,7 @@ function RolloutConfirmModal({
             <button
               type="button"
               disabled={busy}
-              onClick={onCancel}
+              onClick={onClose}
               className="rounded-lg p-1.5 text-zinc-500 hover:bg-cf-card disabled:opacity-40"
               aria-label="Cerrar"
             >
@@ -207,60 +260,123 @@ function RolloutConfirmModal({
           </div>
         </div>
 
-        <div className="px-5 py-4 space-y-2">
-          {single ? (
-            <p className="text-sm text-zinc-300">
-              Se actualizará la imagen de{" "}
-              <span className="font-medium text-zinc-100">{single.name}</span>.
-            </p>
-          ) : (
+        <div className="space-y-3 px-5 py-4">
+          {phase === "confirm" ? (
             <>
-              <p className="text-sm text-zinc-300">
-                Se actualizará la imagen de{" "}
-                <span className="font-medium text-zinc-100">{count} servicios</span>.
-              </p>
-              <ul className="mt-3 max-h-36 space-y-1 overflow-y-auto rounded-lg border border-cf-line/50 bg-cf-card/70 px-3 py-2 text-xs text-zinc-400">
-                {deployments.map((d) => (
-                  <li key={d.name} className="truncate">
-                    {d.name}
+              {single ? (
+                <p className="text-sm text-zinc-300">
+                  Se actualizará la imagen de{" "}
+                  <span className="font-medium text-zinc-100">{single.name}</span>.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm text-zinc-300">
+                    Se actualizará la imagen de{" "}
+                    <span className="font-medium text-zinc-100">{count} servicios</span>.
+                  </p>
+                  <ul className="max-h-28 space-y-1 overflow-y-auto rounded-lg border border-cf-line/50 bg-cf-card/70 px-3 py-2 text-xs text-zinc-400">
+                    {deployments.map((d) => (
+                      <li key={d.name} className="truncate">
+                        {d.name}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <ul className="space-y-1.5 text-xs text-zinc-500">
+                {ROLLOUT_PLANNED_STEPS.map((step, i) => (
+                  <li key={step} className="flex items-start gap-2">
+                    <span className="mt-0.5 font-mono text-[10px] text-zinc-600">{i + 1}.</span>
+                    <span>{step}</span>
                   </li>
                 ))}
               </ul>
             </>
-          )}
-          <p className="text-xs text-zinc-500">
-            Se reiniciará el pod, se forzará la descarga de la imagen en el nodo y se restaurará la
-            política de pull habitual del deployment.
-          </p>
+          ) : null}
+
+          {showProgress ? (
+            <>
+              <ul className="space-y-1 rounded-lg border border-cf-line/40 bg-cf-card/50 px-3 py-2 text-[11px] text-zinc-500">
+                {ROLLOUT_PLANNED_STEPS.map((step) => (
+                  <li key={step} className="flex items-center gap-2">
+                    {busy ? (
+                      <Circle className="h-3 w-3 shrink-0 text-zinc-600" />
+                    ) : (
+                      <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500/80" />
+                    )}
+                    <span>{step}</span>
+                  </li>
+                ))}
+              </ul>
+
+              {replicaHint ? (
+                <p className="text-xs text-cf-orange">
+                  <span className="font-medium text-zinc-400">Estado en cluster: </span>
+                  {replicaHint}
+                </p>
+              ) : busy ? (
+                <p className="text-xs text-zinc-500">Consultando estado en Rancher…</p>
+              ) : null}
+
+              <div
+                className="max-h-44 overflow-y-auto rounded-lg border border-cf-line/50 bg-[#0a0c0f] px-3 py-2 font-mono text-[11px] leading-relaxed"
+                aria-live="polite"
+                aria-relevant="additions"
+              >
+                {logs.length === 0 ? (
+                  <p className="text-zinc-600">Preparando…</p>
+                ) : (
+                  logs.map((line) => (
+                    <p key={line.id} className={rolloutLogToneClass(line.tone)}>
+                      <span className="text-zinc-600 select-none">{"> "}</span>
+                      {line.text}
+                    </p>
+                  ))
+                )}
+                <div ref={logEndRef} />
+              </div>
+            </>
+          ) : null}
         </div>
 
         <div className="flex gap-2 border-t border-cf-line/60 bg-cf-card/70 px-5 py-4">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onCancel}
-            className="flex-1 rounded-lg border border-cf-line bg-zinc-900/80 py-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onConfirm}
-            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-cf-orange py-2.5 text-xs font-semibold text-black hover:brightness-110 disabled:opacity-60"
-          >
-            {busy ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Actualizando…
-              </>
-            ) : (
-              <>
+          {phase === "confirm" ? (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onClose}
+                className="flex-1 rounded-lg border border-cf-line bg-zinc-900/80 py-2.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onConfirm}
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-cf-orange py-2.5 text-xs font-semibold text-black hover:brightness-110 disabled:opacity-60"
+              >
                 <RotateCw className="h-3.5 w-3.5" />
                 Confirmar
-              </>
-            )}
-          </button>
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onClose}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-cf-line bg-zinc-900/80 py-2.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+            >
+              {busy ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  En curso…
+                </>
+              ) : (
+                "Cerrar"
+              )}
+            </button>
+          )}
         </div>
       </div>
     </AtlasModalShell>
@@ -837,7 +953,13 @@ function ClusterContainersPanel({
   const [error, setError] = useState("");
   const [rolling, setRolling] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [confirmDeployments, setConfirmDeployments] = useState<RancherDeployment[] | null>(null);
+  const [rolloutModal, setRolloutModal] = useState<{
+    deployments: RancherDeployment[];
+    phase: RolloutModalPhase;
+    logs: RolloutLogLine[];
+    replicaHint: string;
+  } | null>(null);
+  const rolloutLogIdRef = useRef(0);
   const [filterQuery, setFilterQuery] = useState("");
   const [expandedService, setExpandedService] = useState<string | null>(null);
   const [logsTarget, setLogsTarget] = useState<{ serviceName: string; pods: RancherPod[] } | null>(
@@ -945,9 +1067,27 @@ function ClusterContainersPanel({
     }
   }
 
+  function pushRolloutLog(text: string, tone: RolloutLogTone = "info") {
+    rolloutLogIdRef.current += 1;
+    const id = rolloutLogIdRef.current;
+    setRolloutModal((prev) =>
+      prev ? { ...prev, logs: [...prev.logs, { id, text, tone }] } : prev
+    );
+  }
+
+  function setRolloutReplicaHint(hint: string) {
+    setRolloutModal((prev) => (prev ? { ...prev, replicaHint: hint } : prev));
+  }
+
   function openRolloutConfirm(deps: RancherDeployment[]) {
     if (!canEdit || rolling || !deps.length) return;
-    setConfirmDeployments(deps);
+    rolloutLogIdRef.current = 0;
+    setRolloutModal({
+      deployments: deps,
+      phase: "confirm",
+      logs: [],
+      replicaHint: "",
+    });
   }
 
   function selectedDeployments(): RancherDeployment[] {
@@ -958,34 +1098,95 @@ function ClusterContainersPanel({
     if (!deps.length) return;
     setRolling(true);
     setError("");
+    rolloutLogIdRef.current = 0;
+    setRolloutModal({
+      deployments: deps,
+      phase: "running",
+      logs: [{ id: 1, text: "Iniciando actualización en el cluster…", tone: "info" }],
+      replicaHint: "",
+    });
+    rolloutLogIdRef.current = 1;
+
     const ns = encodeURIComponent(cluster.namespace);
     const nm = encodeURIComponent(cluster.name);
     const steve = cluster.steveCollection || "provisioning.cattle.io.customclusters";
+    const paths = clusterRancherPaths(cluster);
     const failed: string[] = [];
+    const depNames = new Set(deps.map((d) => d.name));
 
-    for (const dep of deps) {
+    const pollReplicaStatus = async () => {
       try {
-        const depName = encodeURIComponent(dep.name);
-        await api<DeploymentRolloutResponse>(
-          `/api/atlas-rancher/custom-clusters/${ns}/${nm}/deployments/${depName}/rollout`,
-          {
-            method: "POST",
-            body: JSON.stringify({ steve_collection: steve }),
-          }
-        );
+        const depRes = await api<DeploymentsResponse>(paths.deployments);
+        const hints = (depRes.deployments ?? [])
+          .filter((d) => depNames.has(d.name))
+          .map((d) => {
+            const ready = d.readyReplicas ?? 0;
+            const total = d.replicas ?? 1;
+            return `${d.name}: ${ready}/${total} lista(s)`;
+          });
+        if (hints.length) setRolloutReplicaHint(hints.join(" · "));
       } catch {
-        failed.push(dep.name);
+        /* polling opcional */
       }
+    };
+
+    await pollReplicaStatus();
+    const pollTimer = window.setInterval(() => {
+      void pollReplicaStatus();
+    }, 2000);
+
+    try {
+      for (let i = 0; i < deps.length; i += 1) {
+        const dep = deps[i];
+        if (deps.length > 1) {
+          pushRolloutLog(`—— Servicio ${i + 1}/${deps.length}: ${dep.name} ——`, "info");
+        } else {
+          pushRolloutLog(`Servicio: ${dep.name}`, "info");
+        }
+        pushRolloutLog("Enviando petición a Rancher (pull Always + reinicio)…", "info");
+
+        try {
+          const depName = encodeURIComponent(dep.name);
+          const res = await api<DeploymentRolloutResponse>(
+            `/api/atlas-rancher/custom-clusters/${ns}/${nm}/deployments/${depName}/rollout`,
+            {
+              method: "POST",
+              body: JSON.stringify({ steve_collection: steve }),
+            }
+          );
+          for (const step of res.steps ?? []) {
+            pushRolloutLog(ROLLOUT_STEP_LABELS[step] ?? step, "ok");
+          }
+          const tag = deploymentImageLabel(res.deployment ?? dep);
+          pushRolloutLog(`Completado — imagen en ejecución: ${tag}`, "ok");
+          await pollReplicaStatus();
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Error desconocido";
+          pushRolloutLog(`Error: ${msg}`, "err");
+          failed.push(dep.name);
+        }
+      }
+    } finally {
+      window.clearInterval(pollTimer);
     }
 
-    setConfirmDeployments(null);
     setSelected(new Set());
     await loadAll({ silent: true });
 
     if (failed.length === deps.length) {
       setError("No se pudo actualizar ningún servicio.");
+      pushRolloutLog("Ningún servicio se actualizó correctamente.", "err");
+      setRolloutModal((prev) => (prev ? { ...prev, phase: "failed" } : prev));
     } else if (failed.length > 0) {
       setError(`No se pudo actualizar: ${failed.join(", ")}.`);
+      pushRolloutLog(`Finalizado con errores en: ${failed.join(", ")}`, "err");
+      setRolloutModal((prev) => (prev ? { ...prev, phase: "failed" } : prev));
+    } else {
+      pushRolloutLog(
+        deps.length === 1 ? "Actualización finalizada." : `Los ${deps.length} servicios se actualizaron.`,
+        "ok"
+      );
+      setRolloutModal((prev) => (prev ? { ...prev, phase: "done" } : prev));
     }
 
     setRolling(false);
@@ -1281,15 +1482,17 @@ function ClusterContainersPanel({
       </AnimatePresence>
 
       <AnimatePresence>
-        {confirmDeployments?.length ? (
-          <RolloutConfirmModal
-            deployments={confirmDeployments}
+        {rolloutModal?.deployments.length ? (
+          <RolloutImageModal
+            deployments={rolloutModal.deployments}
             clusterLabel={clusterDisplayName(cluster)}
-            busy={rolling}
-            onCancel={() => {
-              if (!rolling) setConfirmDeployments(null);
+            phase={rolloutModal.phase}
+            logs={rolloutModal.logs}
+            replicaHint={rolloutModal.replicaHint}
+            onClose={() => {
+              if (!rolling) setRolloutModal(null);
             }}
-            onConfirm={() => void executeRollouts(confirmDeployments)}
+            onConfirm={() => void executeRollouts(rolloutModal.deployments)}
           />
         ) : null}
       </AnimatePresence>
