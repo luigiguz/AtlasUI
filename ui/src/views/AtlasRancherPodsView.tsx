@@ -26,7 +26,7 @@ import { AtlasLoadingSplash } from "../components/AtlasLoadingSplash";
 import { AtlasModalShell } from "../components/AtlasModalFrame";
 import { PvcStoragePanel } from "../components/PvcStoragePanel";
 import { PodLogsPanel } from "../components/PodLogsPanel";
-import type { OpenPvcVolumeSessionOpts } from "../WebSshSessionsDock";
+import type { OpenPodExecSessionOpts, OpenPvcVolumeSessionOpts } from "../WebSshSessionsDock";
 import { normalizeApplication, normalizeDistro, normalizeState } from "../rancherLabels";
 import {
   rememberTiendaForContainers,
@@ -102,20 +102,14 @@ type Props = {
   onFocusTiendaConsumed?: () => void;
   /** Abre la terminal web del dock (modo volúmenes / PVC). */
   onOpenVolumeTerminal?: (opts: OpenPvcVolumeSessionOpts) => void;
-  /** Abre la terminal web del dock para Execute Shell (sin SFTP). */
-  onOpenContainerShell?: (site: string) => void;
+  /** Abre shell en el contenedor vía Rancher exec (panel inferior). */
+  onOpenPodExec?: (opts: OpenPodExecSessionOpts) => void;
 };
 
 type ContainerRow = {
   serviceName: string;
   deployment: RancherDeployment | null;
   pods: RancherPod[];
-};
-
-type StorageSshStatusResponse = {
-  ok: boolean;
-  site?: string | null;
-  message?: string | null;
 };
 
 function clusterDisplayName(c: RancherCustomCluster): string {
@@ -794,12 +788,12 @@ function ClusterDetailPanel({
   cluster,
   canEdit,
   onOpenVolumeTerminal,
-  onOpenContainerShell,
+  onOpenPodExec,
 }: {
   cluster: RancherCustomCluster;
   canEdit: boolean;
   onOpenVolumeTerminal?: (opts: OpenPvcVolumeSessionOpts) => void;
-  onOpenContainerShell?: (site: string) => void;
+  onOpenPodExec?: (opts: OpenPodExecSessionOpts) => void;
 }) {
   const [tab, setTab] = useState<ClusterDetailTab>("services");
 
@@ -810,7 +804,7 @@ function ClusterDetailPanel({
         <ClusterContainersPanel
           cluster={cluster}
           canEdit={canEdit}
-          onOpenContainerShell={onOpenContainerShell}
+          onOpenPodExec={onOpenPodExec}
         />
       ) : (
         <PvcStoragePanel
@@ -826,11 +820,11 @@ function ClusterDetailPanel({
 function ClusterContainersPanel({
   cluster,
   canEdit,
-  onOpenContainerShell,
+  onOpenPodExec,
 }: {
   cluster: RancherCustomCluster;
   canEdit: boolean;
-  onOpenContainerShell?: (site: string) => void;
+  onOpenPodExec?: (opts: OpenPodExecSessionOpts) => void;
 }) {
   const [deployments, setDeployments] = useState<RancherDeployment[]>([]);
   const [pods, setPods] = useState<RancherPod[]>([]);
@@ -845,10 +839,6 @@ function ClusterContainersPanel({
   const [logsTarget, setLogsTarget] = useState<{ serviceName: string; pods: RancherPod[] } | null>(
     null
   );
-  const [shellSite, setShellSite] = useState<string | null>(null);
-  const [shellStatusMsg, setShellStatusMsg] = useState("");
-  const [shellResolving, setShellResolving] = useState(false);
-
   const containerRows = useMemo(
     () => buildContainerRows(deployments, pods),
     [deployments, pods]
@@ -915,48 +905,23 @@ function ClusterContainersPanel({
     return () => window.clearInterval(id);
   }, [loadAll]);
 
-  useEffect(() => {
-    if (!canEdit || !onOpenContainerShell) {
-      setShellSite(null);
-      setShellStatusMsg("");
-      return;
-    }
-    let cancelled = false;
-    setShellResolving(true);
-    setShellStatusMsg("");
-    const ns = encodeURIComponent(cluster.namespace);
-    const nm = encodeURIComponent(cluster.name);
-    const store = encodeURIComponent(cluster.store || "");
-
-    void api<StorageSshStatusResponse>(
-      `/api/atlas-rancher/custom-clusters/${ns}/${nm}/storage/ssh-status?store=${store}`
-    )
-      .then((resp) => {
-        if (cancelled) return;
-        const site = (resp.site || "").trim();
-        setShellSite(site || null);
-        setShellStatusMsg((resp.message || "").trim());
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setShellSite(null);
-        setShellStatusMsg(e instanceof Error ? e.message : "No se pudo resolver el túnel SSH.");
-      })
-      .finally(() => {
-        if (!cancelled) setShellResolving(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cluster.namespace, cluster.name, cluster.store, canEdit, onOpenContainerShell]);
-
   const openExecuteShell = useCallback(
-    (pod: RancherPod | null) => {
-      if (!pod || !shellSite || !onOpenContainerShell) return;
-      onOpenContainerShell(shellSite);
+    (row: ContainerRow, pod: RancherPod | null) => {
+      if (!pod || !onOpenPodExec) return;
+      const container = (pod.containers?.[0] || "").trim();
+      if (!container) return;
+      const podNs = (pod.k8sNamespace || pod.namespace || cluster.application || "").trim();
+      onOpenPodExec({
+        clusterNamespace: cluster.namespace,
+        clusterName: cluster.name,
+        steveCollection: cluster.steveCollection || "provisioning.cattle.io.customclusters",
+        podName: pod.name,
+        podK8sNamespace: podNs,
+        container,
+        tabLabel: row.serviceName,
+      });
     },
-    [shellSite, onOpenContainerShell]
+    [cluster, onOpenPodExec]
   );
 
   function toggleRow(serviceName: string) {
@@ -1093,21 +1058,6 @@ function ClusterContainersPanel({
           {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
         </button>
       </div>
-      {canEdit && onOpenContainerShell ? (
-        <div className="flex shrink-0 items-center gap-2 border-b border-cf-line/30 bg-cf-card/40 px-3 py-1.5 text-[11px] text-zinc-500">
-          <Terminal className="h-3.5 w-3.5 text-zinc-500" />
-          {shellResolving ? (
-            <span>Resolviendo túnel para Execute Shell…</span>
-          ) : shellSite ? (
-            <span>
-              Execute Shell disponible por túnel <span className="font-mono text-zinc-300">{shellSite}</span>.
-            </span>
-          ) : (
-            <span>{shellStatusMsg || "No hay túnel SSH disponible para abrir Execute Shell."}</span>
-          )}
-        </div>
-      ) : null}
-
       {canEdit && rolloutRows.length > 0 ? (
         <div className="flex shrink-0 items-center gap-2 border-b border-cf-line/30 px-3 py-1.5">
           <input
@@ -1144,11 +1094,7 @@ function ClusterContainersPanel({
               const phase = aggregatePodPhase(row.pods);
               const shellPod =
                 row.pods.find((p) => p.phase.toLowerCase() === "running") ?? row.pods[0] ?? null;
-              const shellNamespace = (shellPod?.k8sNamespace || shellPod?.namespace || "").trim();
-              const shellCommand =
-                shellPod && shellNamespace
-                  ? `kubectl -n ${shellNamespace} exec -it ${shellPod.name} -- sh`
-                  : "";
+              const shellContainer = (shellPod?.containers?.[0] || "").trim();
               const ready =
                 d != null ? `${d.readyReplicas}/${d.replicas}` : row.pods[0]?.ready ?? "—";
               const replicas = d?.replicas ?? row.pods.length;
@@ -1214,16 +1160,16 @@ function ClusterContainersPanel({
                       </p>
                     </div>
                     <StatusPill phase={phase} />
-                    {canEdit && onOpenContainerShell ? (
+                    {canEdit && onOpenPodExec ? (
                       <button
                         type="button"
-                        disabled={!shellSite || shellResolving || !shellPod}
-                        onClick={() => openExecuteShell(shellPod)}
+                        disabled={!shellPod || !shellContainer}
+                        onClick={() => openExecuteShell(row, shellPod)}
                         className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-zinc-400 ring-1 ring-cf-line transition hover:bg-cf-card hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
                         title={
-                          shellCommand
-                            ? `Abrir terminal para ejecutar: ${shellCommand}`
-                            : "Abrir terminal del nodo para Execute Shell"
+                          shellPod && shellContainer
+                            ? `Abrir shell en ${shellPod.name} (${shellContainer})`
+                            : "Sin pod en ejecución para abrir shell"
                         }
                         aria-label={`Execute Shell para ${row.serviceName}`}
                       >
@@ -1353,7 +1299,7 @@ export function AtlasRancherPodsView({
   focusTiendaId = null,
   onFocusTiendaConsumed,
   onOpenVolumeTerminal,
-  onOpenContainerShell,
+  onOpenPodExec,
 }: Props) {
   const [clusters, setClusters] = useState<RancherCustomCluster[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1482,7 +1428,7 @@ export function AtlasRancherPodsView({
                   cluster={selectedCluster}
                   canEdit={canEdit}
                   onOpenVolumeTerminal={onOpenVolumeTerminal}
-                  onOpenContainerShell={onOpenContainerShell}
+                  onOpenPodExec={onOpenPodExec}
                 />
               )
             ) : (

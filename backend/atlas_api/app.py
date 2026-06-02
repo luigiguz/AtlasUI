@@ -86,6 +86,7 @@ from atlas_vpn.ssh_sftp import (
     write_file as sftp_write_file,
 )
 from atlas_vpn.ssh_tunnel import SshTunnelError
+from atlas_rancher.pod_exec_ws import run_pod_exec_ws
 from atlas_vpn.ssh_terminal_ws import run_ssh_terminal_ws
 from atlas_core.web_tokens import encode_access_token
 from atlas_core.web_users import (
@@ -461,6 +462,10 @@ def create_app() -> FastAPI:
     @app.websocket("/api/ws/ssh-terminal")
     async def ws_ssh_terminal(websocket: WebSocket) -> None:
         await run_ssh_terminal_ws(websocket)
+
+    @app.websocket("/api/ws/rancher-pod-exec")
+    async def ws_rancher_pod_exec(websocket: WebSocket) -> None:
+        await run_pod_exec_ws(websocket)
 
     @app.get("/api/logo")
     def logo() -> FileResponse:

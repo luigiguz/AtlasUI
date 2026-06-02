@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 
 import { AtlasAlertDialog } from "./components/AtlasAlertDialog";
+import { PodExecTerminalPane } from "./PodExecTerminalPane";
 import { PvcVolumeSessionPane } from "./components/PvcVolumeSessionPane";
 import {
   SshFileTransferPanel,
@@ -52,6 +53,8 @@ export type SshWebSession = {
   poppedOut?: boolean;
   /** Sesión de terminal pura (sin panel SFTP). */
   terminalOnly?: boolean;
+  /** Exec en pod Kubernetes vía Rancher. */
+  podExec?: OpenPodExecSessionOpts;
   /** Volúmenes: explorador SFTP del PVC */
   volume?: {
     pvcName: string;
@@ -61,6 +64,9 @@ export type SshWebSession = {
 };
 
 export function sshSessionTabLabel(session: SshWebSession): string {
+  if (session.podExec) {
+    return session.podExec.tabLabel;
+  }
   if (session.volume) {
     return `${session.volume.pvcName}`;
   }
@@ -72,6 +78,17 @@ export type OpenPvcVolumeSessionOpts = {
   pvcName: string;
   startPath: string;
   tunnelLabel?: string;
+};
+
+/** Shell en contenedor (Rancher exec), no SSH al nodo. */
+export type OpenPodExecSessionOpts = {
+  clusterNamespace: string;
+  clusterName: string;
+  steveCollection: string;
+  podName: string;
+  podK8sNamespace: string;
+  container: string;
+  tabLabel: string;
 };
 
 export type SshWebPopoutParams = { site: string; dockSessionId: string | null };
@@ -1808,8 +1825,8 @@ export function WebSshSessionsDock({
         setPopoutAlert("Los volúmenes PVC solo se editan en el panel integrado (sin ventana emergente).");
         return;
       }
-      if (sess.terminalOnly) {
-        setPopoutAlert("La sesión Execute Shell se usa dentro del panel integrado (sin SFTP).");
+      if (sess.terminalOnly || sess.podExec) {
+        setPopoutAlert("Execute Shell y volúmenes solo se usan en el panel integrado.");
         return;
       }
       const url = buildSshWebPopoutUrl(sess.site, sess.id);
@@ -1985,7 +2002,7 @@ export function WebSshSessionsDock({
                     {s.poppedOut ? " · ↗" : s.minimized ? " · ○" : ""}
                     {s.volume ? " · Vol" : ""}
                   </button>
-                  {!s.volume ? (
+                  {!s.volume && !s.podExec ? (
                   <button
                     type="button"
                     title={s.poppedOut ? "Ya está en ventana emergente" : "Abrir en ventana nueva (otro monitor)"}
@@ -2103,7 +2120,14 @@ export function WebSshSessionsDock({
               }
               style={{ display: holdWsOffscreen || paneVisible ? "flex" : "none" }}
             >
-              {s.volume ? (
+              {s.podExec ? (
+                <PodExecTerminalPane
+                  sessionId={s.id}
+                  exec={s.podExec}
+                  visible={paneVisible}
+                  onClose={() => closeSession(s.id)}
+                />
+              ) : s.volume ? (
                 <PvcVolumeSessionPane
                   site={s.site}
                   sessionId={s.id}

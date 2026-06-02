@@ -50,6 +50,7 @@ import {
   SshWebPopoutApp,
   SSH_WEB_REATTACH_MESSAGE_TYPE,
   WebSshSessionsDock,
+  type OpenPodExecSessionOpts,
   type OpenPvcVolumeSessionOpts,
   type SshWebSession,
 } from "./WebSshSessionsDock";
@@ -169,17 +170,39 @@ export default function App() {
   const sshPopoutSite = sshPopoutParams?.site ?? null;
   const sshPopoutDockSessionId = sshPopoutParams?.dockSessionId ?? null;
 
-  const openSshWebSession = useCallback(
-    (site: string, opts?: { terminalOnly?: boolean }) => {
+  const openSshWebSession = useCallback((site: string) => {
+    const id = crypto.randomUUID();
+    setSshWebSessions((prev) => [...prev, { id, site, minimized: false }]);
+    setActiveSshWebId(id);
+  }, []);
+
+  const openPodExecSession = useCallback((opts: OpenPodExecSessionOpts) => {
+    setSshWebSessions((prev) => {
+      const existing = prev.find(
+        (s) =>
+          s.podExec?.podName === opts.podName &&
+          s.podExec?.container === opts.container &&
+          s.podExec?.clusterName === opts.clusterName
+      );
+      if (existing) {
+        queueMicrotask(() => setActiveSshWebId(existing.id));
+        return prev.map((s) =>
+          s.id === existing.id ? { ...s, minimized: false, poppedOut: false } : s
+        );
+      }
       const id = crypto.randomUUID();
-      setSshWebSessions((prev) => [
+      queueMicrotask(() => setActiveSshWebId(id));
+      return [
         ...prev,
-        { id, site, minimized: false, terminalOnly: opts?.terminalOnly === true },
-      ]);
-      setActiveSshWebId(id);
-    },
-    []
-  );
+        {
+          id,
+          site: opts.tabLabel,
+          minimized: false,
+          podExec: opts,
+        },
+      ];
+    });
+  }, []);
 
   const openPvcVolumeSession = useCallback((opts: OpenPvcVolumeSessionOpts) => {
     setSshWebSessions((prev) => {
@@ -636,7 +659,7 @@ export default function App() {
             focusTiendaId={containersFocusId}
             onFocusTiendaConsumed={() => setContainersFocusId(null)}
             onOpenVolumeTerminal={openPvcVolumeSession}
-            onOpenContainerShell={(site) => openSshWebSession(site, { terminalOnly: true })}
+            onOpenPodExec={openPodExecSession}
           />
         )}
 

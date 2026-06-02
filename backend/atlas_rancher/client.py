@@ -930,6 +930,29 @@ def _pod_log_query_params(
     return "&".join(params)
 
 
+def build_pod_exec_ws_url(
+    mgmt_id: str,
+    k8s_ns: str,
+    pod_name: str,
+    *,
+    container: str = "",
+    commands: list[str] | None = None,
+) -> str:
+    """Ruta relativa (HTTP→WS) para exec en pod, protocolo base64.channel.k8s.io."""
+    params: list[tuple[str, str]] = [
+        ("stdout", "1"),
+        ("stdin", "1"),
+        ("stderr", "1"),
+        ("tty", "1"),
+    ]
+    if container.strip():
+        params.append(("container", container.strip()))
+    for cmd in commands or ["/bin/sh"]:
+        params.append(("command", cmd))
+    base = f"k8s/clusters/{mgmt_id}/api/v1/namespaces/{k8s_ns}/pods/{pod_name}/exec"
+    return f"{base}?{urllib.parse.urlencode(params)}"
+
+
 def _pod_log_path_k8s_proxy(
     mgmt_id: str,
     k8s_ns: str,
