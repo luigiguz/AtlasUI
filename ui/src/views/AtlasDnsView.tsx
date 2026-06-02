@@ -129,10 +129,10 @@ export function AtlasDnsView({ sites, domainSuffix }: Props) {
               </select>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-cf-line/70 bg-cf-panel/40">
+            <div className="atlas-table-wrap flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
                 <table className="w-full min-w-[720px] text-left text-sm">
-                  <thead className="sticky top-0 z-10 border-b border-cf-line/70 bg-cf-panel/95 backdrop-blur">
+                  <thead className="atlas-table-head">
                     <tr className="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
                       <th className="px-4 py-3">Nombre</th>
                       <th className="w-40 px-4 py-3">Estado</th>
@@ -206,15 +206,13 @@ function TunnelListRow({ tunnel, onOpen }: { tunnel: DnsTunnelGroup; onOpen: () 
         ) : null}
       </td>
       <td className="px-4 py-3.5">
-        <span
-          className={`inline-flex rounded-md px-2.5 py-0.5 text-[11px] font-semibold ring-1 ${tunnelStatusPillClass(tunnel.status)}`}
-        >
+        <span className={tunnelStatusPillClass(tunnel.status)}>
           {tunnelStatusLabel(tunnel.status)}
         </span>
       </td>
       <td className="px-4 py-3.5 tabular-nums text-zinc-300">{tunnel.sites.length}</td>
       <td className="px-4 py-3.5">
-        <span className="inline-flex rounded-md border border-cf-line bg-cf-card/70 px-2.5 py-1 text-xs text-zinc-300">
+        <span className="inline-flex rounded-md border border-cf-line bg-cf-input px-2.5 py-1 text-xs font-medium text-zinc-300">
           {tunnel.routeCount} aplicación{tunnel.routeCount !== 1 ? "es" : ""}
         </span>
       </td>

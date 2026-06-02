@@ -25,6 +25,7 @@ module.exports = {
           panel: "rgb(var(--atlas-panel) / <alpha-value>)",
           card: "rgb(var(--atlas-card) / <alpha-value>)",
           line: "rgb(var(--atlas-line) / <alpha-value>)",
+          input: "rgb(var(--atlas-input) / <alpha-value>)",
         },
       },
       fontFamily: {

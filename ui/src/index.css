@@ -30,6 +30,29 @@
   --atlas-app-header: 13 15 18;
   --atlas-overlay-strong: 0 0 0;
   --atlas-overlay-soft: 255 255 255;
+
+  --atlas-pill-success-bg: 16 185 129;
+  --atlas-pill-success-fg: 167 243 208;
+  --atlas-pill-success-ring: 16 185 129;
+  --atlas-pill-danger-bg: 244 63 94;
+  --atlas-pill-danger-fg: 254 205 211;
+  --atlas-pill-danger-ring: 244 63 94;
+  --atlas-pill-warning-bg: 245 158 11;
+  --atlas-pill-warning-fg: 253 230 138;
+  --atlas-pill-warning-ring: 245 158 11;
+  --atlas-pill-muted-bg: 63 63 70;
+  --atlas-pill-muted-fg: 161 161 170;
+  --atlas-pill-muted-ring: 82 82 91;
+  --atlas-badge-info-bg: 14 165 233;
+  --atlas-badge-info-fg: 186 230 253;
+  --atlas-badge-info-ring: 14 165 233;
+  --atlas-alert-danger-bg: 244 63 94;
+  --atlas-alert-danger-fg: 254 205 211;
+  --atlas-alert-danger-border: 244 63 94;
+  --atlas-status-ok-fg: 52 211 153;
+  --atlas-status-bad-fg: 251 113 133;
+  --atlas-status-muted-fg: 113 113 122;
+
   color-scheme: dark;
 }
 
@@ -38,21 +61,21 @@
   --atlas-accent-dim: 180 83 9;
   --atlas-ink: 248 250 252;
   --atlas-panel: 255 255 255;
-  --atlas-card: 248 250 252;
-  --atlas-line: 203 213 225;
+  --atlas-card: 255 255 255;
+  --atlas-line: 148 163 184;
   --atlas-input: 241 245 249;
   --atlas-hover: 15 23 42;
   --atlas-nav-active: 255 247 237;
   --atlas-shadow: 15 23 42;
 
   --atlas-zinc-50: 15 23 42;
-  --atlas-zinc-100: 30 41 59;
-  --atlas-zinc-200: 51 65 85;
-  --atlas-zinc-300: 71 85 105;
-  --atlas-zinc-400: 100 116 139;
+  --atlas-zinc-100: 15 23 42;
+  --atlas-zinc-200: 30 41 59;
+  --atlas-zinc-300: 51 65 85;
+  --atlas-zinc-400: 71 85 105;
   --atlas-zinc-500: 100 116 139;
   --atlas-zinc-600: 71 85 105;
-  --atlas-zinc-700: 148 163 184;
+  --atlas-zinc-700: 51 65 85;
   --atlas-zinc-800: 226 232 240;
   --atlas-zinc-900: 241 245 249;
   --atlas-zinc-950: 248 250 252;
@@ -61,6 +84,29 @@
   --atlas-app-header: 255 255 255;
   --atlas-overlay-strong: 15 23 42;
   --atlas-overlay-soft: 255 255 255;
+
+  --atlas-pill-success-bg: 220 252 231;
+  --atlas-pill-success-fg: 6 78 59;
+  --atlas-pill-success-ring: 16 185 129;
+  --atlas-pill-danger-bg: 255 228 230;
+  --atlas-pill-danger-fg: 136 19 55;
+  --atlas-pill-danger-ring: 244 63 94;
+  --atlas-pill-warning-bg: 254 243 199;
+  --atlas-pill-warning-fg: 146 64 14;
+  --atlas-pill-warning-ring: 245 158 11;
+  --atlas-pill-muted-bg: 241 245 249;
+  --atlas-pill-muted-fg: 71 85 105;
+  --atlas-pill-muted-ring: 148 163 184;
+  --atlas-badge-info-bg: 224 242 254;
+  --atlas-badge-info-fg: 7 89 133;
+  --atlas-badge-info-ring: 14 165 233;
+  --atlas-alert-danger-bg: 255 241 242;
+  --atlas-alert-danger-fg: 159 18 57;
+  --atlas-alert-danger-border: 251 113 133;
+  --atlas-status-ok-fg: 4 120 87;
+  --atlas-status-bad-fg: 190 18 60;
+  --atlas-status-muted-fg: 100 116 139;
+
   color-scheme: light;
 }
 
@@ -152,5 +198,128 @@ body {
 
   .atlas-btn-secondary {
     @apply inline-flex items-center gap-2 rounded-lg border border-cf-line bg-cf-card px-3 py-2 text-xs font-medium text-zinc-300 shadow-sm hover:bg-cf-line/25;
+  }
+
+  .atlas-pill-success,
+  .atlas-pill-danger,
+  .atlas-pill-warning,
+  .atlas-pill-muted {
+    @apply inline-flex rounded-md px-2.5 py-0.5 text-[11px] font-semibold ring-1;
+  }
+
+  .atlas-pill-success {
+    background-color: rgb(var(--atlas-pill-success-bg) / 0.18);
+    color: rgb(var(--atlas-pill-success-fg));
+    --tw-ring-color: rgb(var(--atlas-pill-success-ring) / 0.4);
+  }
+
+  .atlas-pill-danger {
+    background-color: rgb(var(--atlas-pill-danger-bg) / 0.18);
+    color: rgb(var(--atlas-pill-danger-fg));
+    --tw-ring-color: rgb(var(--atlas-pill-danger-ring) / 0.4);
+  }
+
+  .atlas-pill-warning {
+    background-color: rgb(var(--atlas-pill-warning-bg) / 0.18);
+    color: rgb(var(--atlas-pill-warning-fg));
+    --tw-ring-color: rgb(var(--atlas-pill-warning-ring) / 0.4);
+  }
+
+  .atlas-pill-muted {
+    background-color: rgb(var(--atlas-pill-muted-bg) / 0.35);
+    color: rgb(var(--atlas-pill-muted-fg));
+    --tw-ring-color: rgb(var(--atlas-pill-muted-ring) / 0.45);
+  }
+
+  :root[data-theme="light"] .atlas-pill-success {
+    background-color: rgb(var(--atlas-pill-success-bg));
+  }
+
+  :root[data-theme="light"] .atlas-pill-danger {
+    background-color: rgb(var(--atlas-pill-danger-bg));
+  }
+
+  :root[data-theme="light"] .atlas-pill-warning {
+    background-color: rgb(var(--atlas-pill-warning-bg));
+  }
+
+  :root[data-theme="light"] .atlas-pill-muted {
+    background-color: rgb(var(--atlas-pill-muted-bg));
+  }
+
+  .atlas-badge-info {
+    @apply inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-[11px] font-semibold;
+    background-color: rgb(var(--atlas-badge-info-bg) / 0.14);
+    color: rgb(var(--atlas-badge-info-fg));
+    border-color: rgb(var(--atlas-badge-info-ring) / 0.35);
+  }
+
+  :root[data-theme="light"] .atlas-badge-info {
+    background-color: rgb(var(--atlas-badge-info-bg));
+    color: rgb(var(--atlas-badge-info-fg));
+    border-color: rgb(var(--atlas-badge-info-ring) / 0.45);
+  }
+
+  .atlas-badge-info-muted {
+    color: rgb(var(--atlas-badge-info-fg) / 0.85);
+  }
+
+  :root[data-theme="light"] .atlas-badge-info-muted {
+    color: rgb(var(--atlas-badge-info-fg));
+    opacity: 0.85;
+  }
+
+  .atlas-alert-danger {
+    @apply rounded-xl border p-4;
+    background-color: rgb(var(--atlas-alert-danger-bg) / 0.12);
+    border-color: rgb(var(--atlas-alert-danger-border) / 0.35);
+    color: rgb(var(--atlas-alert-danger-fg));
+  }
+
+  :root[data-theme="light"] .atlas-alert-danger {
+    background-color: rgb(var(--atlas-alert-danger-bg));
+    border-color: rgb(var(--atlas-alert-danger-border) / 0.55);
+  }
+
+  .atlas-alert-danger h3 {
+    @apply text-sm font-semibold;
+    color: rgb(var(--atlas-alert-danger-fg));
+  }
+
+  .atlas-status-ok {
+    color: rgb(var(--atlas-status-ok-fg));
+    @apply font-medium;
+  }
+
+  .atlas-status-bad {
+    color: rgb(var(--atlas-status-bad-fg));
+    @apply font-medium;
+  }
+
+  .atlas-status-muted {
+    color: rgb(var(--atlas-status-muted-fg));
+  }
+
+  .atlas-tab-bar {
+    @apply inline-flex rounded-lg border border-cf-line bg-cf-input p-1;
+  }
+
+  .atlas-tab-active {
+    @apply rounded-md bg-cf-panel px-3 py-1.5 text-xs font-semibold text-zinc-100 shadow-sm ring-1 ring-cf-line transition;
+  }
+
+  .atlas-tab-inactive {
+    @apply rounded-md px-3 py-1.5 text-xs font-medium text-zinc-500 transition hover:text-zinc-300;
+  }
+
+  :root[data-theme="light"] .atlas-tab-active {
+    @apply bg-white shadow;
+  }
+
+  :root[data-theme="light"] .atlas-surface,
+  :root[data-theme="light"] .atlas-surface-raised,
+  :root[data-theme="light"] .atlas-table-wrap {
+    border-color: rgb(var(--atlas-line) / 0.75);
+    box-shadow: 0 1px 2px rgb(var(--atlas-shadow) / 0.06);
   }
 }

@@ -36,9 +36,9 @@ function sshStatusLabel(status: string): string {
 }
 
 function sshStatusClass(status: string): string {
-  if (status === "active") return "text-emerald-400";
-  if (status === "dead") return "text-rose-400";
-  return "text-zinc-500";
+  if (status === "active") return "atlas-status-ok";
+  if (status === "dead") return "atlas-status-bad";
+  return "atlas-status-muted";
 }
 
 function downHintsForTunnel(tunnel: DnsTunnelGroup): string[] {
@@ -111,7 +111,7 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
           </p>
         </div>
         <span
-          className={`inline-flex rounded-md px-2.5 py-1 text-[11px] font-semibold ring-1 ${tunnelStatusPillClass(tunnel.status)}`}
+          className={tunnelStatusPillClass(tunnel.status)}
         >
           {tunnelStatusLabel(tunnel.status)}
         </span>
@@ -119,7 +119,7 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
         <div className="min-w-0 flex-1 space-y-4">
-          <div className="inline-flex rounded-lg border border-cf-line bg-cf-panel/60 p-1">
+          <div className="atlas-tab-bar">
             {(
               [
                 ["summary", "Resumen"],
@@ -130,11 +130,7 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
                 key={key}
                 type="button"
                 onClick={() => setTab(key)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                  tab === key
-                    ? "bg-cf-card text-zinc-100 ring-1 ring-cf-line"
-                    : "text-zinc-500 hover:text-zinc-300"
-                }`}
+                className={tab === key ? "atlas-tab-active" : "atlas-tab-inactive"}
               >
                 {label}
               </button>
@@ -150,8 +146,8 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
                 exit={{ opacity: 0, y: -4 }}
                 className="space-y-4"
               >
-                <section className="rounded-xl border border-cf-line/70 bg-cf-panel/50 p-4">
-                  <h3 className="text-sm font-medium text-zinc-200">Métricas</h3>
+                <section className="atlas-surface rounded-xl p-4">
+                  <h3 className="text-sm font-semibold text-zinc-200">Métricas</h3>
                   <dl className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     <div>
                       <dt className="text-[11px] text-zinc-500">Rutas DNS</dt>
@@ -169,7 +165,7 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
                       <dt className="text-[11px] text-zinc-500">Estado</dt>
                       <dd className="mt-1">
                         <span
-                          className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1 ${tunnelStatusPillClass(tunnel.status)}`}
+                          className={tunnelStatusPillClass(tunnel.status)}
                         >
                           {tunnelStatusLabel(tunnel.status)}
                         </span>
@@ -183,21 +179,21 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
                 </section>
 
                 {tunnel.status !== "healthy" ? (
-                  <section className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4">
-                    <h3 className="text-sm font-medium text-rose-200">Diagnóstico de caída</h3>
-                    <ul className="mt-2 space-y-1 text-xs text-rose-100/90">
+                  <section className="atlas-alert-danger">
+                    <h3>Diagnóstico de caída</h3>
+                    <ul className="mt-2 space-y-1 text-xs opacity-95">
                       {downHints.map((hint) => (
                         <li key={hint}>- {hint}</li>
                       ))}
                     </ul>
-                    <p className="mt-3 text-[11px] text-rose-100/80">
+                    <p className="mt-3 text-[11px] opacity-90">
                       Tip: si eres admin, valida SSH del sitio en <strong>Atlas VPN - Conexiones</strong> y revisa
                       logs del pod en <strong>Atlas Rancher - Contenedores</strong>.
                     </p>
                   </section>
                 ) : null}
 
-                <section className="rounded-xl border border-cf-line/70 bg-cf-panel/50">
+                <section className="atlas-surface overflow-hidden rounded-xl">
                   <div className="flex items-center justify-between border-b border-cf-line/60 px-4 py-3">
                     <h3 className="text-sm font-medium text-zinc-200">Sitios del túnel</h3>
                   </div>
@@ -242,9 +238,9 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
                 exit={{ opacity: 0, y: -4 }}
                 className="space-y-4"
               >
-                <section className="rounded-xl border border-cf-line/70 bg-cf-panel/50 p-4 sm:p-5">
+                <section className="atlas-surface rounded-xl p-4 sm:p-5">
                   <div className="mb-4 flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-medium text-zinc-200">Mapa de rutas</h3>
+                    <h3 className="text-sm font-semibold text-zinc-200">Mapa de rutas</h3>
                     <span className="text-[11px] text-zinc-500">Sincronizado desde Cloudflare</span>
                   </div>
                   {tunnel.routeCount === 0 ? (
@@ -273,19 +269,19 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
                                     href={link.url}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-cf-line bg-cf-card/70 px-3 py-2.5 text-sm text-zinc-200 hover:border-cf-orange/40 hover:text-cf-orange"
+                                    className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-cf-line bg-cf-card px-3 py-2.5 text-sm font-medium text-zinc-200 shadow-sm hover:border-cf-orange/50 hover:text-cf-orange"
                                   >
-                                    <Globe className="h-4 w-4 shrink-0 text-zinc-500" />
+                                    <Globe className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
                                     <span className="truncate font-mono">{host}</span>
                                     <ExternalLink className="ml-auto h-3.5 w-3.5 shrink-0 opacity-60" />
                                   </a>
                                   <div className="hidden h-px w-6 shrink-0 bg-cf-line sm:block" aria-hidden />
-                                  <div className="flex shrink-0 items-center justify-center rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-[11px] font-medium text-sky-200">
+                                  <div className="atlas-badge-info shrink-0">
                                     Aplicación publicada
-                                    <span className="ml-1.5 text-sky-300/80">· {label}</span>
+                                    <span className="atlas-badge-info-muted ml-1.5">· {label}</span>
                                   </div>
                                   <div className="hidden h-px w-6 shrink-0 bg-cf-line sm:block" aria-hidden />
-                                  <div className="flex shrink-0 items-center gap-2 rounded-lg border border-cf-line bg-cf-card/80 px-3 py-2 text-xs text-zinc-300">
+                                  <div className="flex shrink-0 items-center gap-2 rounded-lg border border-cf-line bg-cf-input px-3 py-2 text-xs font-medium text-zinc-300">
                                     <Lock className="h-3.5 w-3.5 text-zinc-500" />
                                     {tunnel.name}
                                   </div>
@@ -309,9 +305,9 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
                   )}
                 </section>
 
-                <section className="rounded-xl border border-cf-line/70 bg-cf-panel/50">
-                  <div className="border-b border-cf-line/60 px-4 py-3">
-                    <h3 className="text-sm font-medium text-zinc-200">Listado de rutas</h3>
+                <section className="atlas-surface overflow-hidden rounded-xl">
+                  <div className="border-b border-cf-line px-4 py-3">
+                    <h3 className="text-sm font-semibold text-zinc-200">Listado de rutas</h3>
                   </div>
                   <ul className="divide-y divide-cf-line/50">
                     {tunnel.routes.map((link) => (
@@ -355,17 +351,17 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
         </div>
 
         <aside className="w-full shrink-0 space-y-3 lg:w-72">
-          <section className="rounded-xl border border-cf-line/70 bg-cf-panel/50 p-4">
-            <h3 className="text-sm font-medium text-zinc-200">Detalles del túnel</h3>
+          <section className="atlas-surface-raised rounded-xl p-4">
+            <h3 className="text-sm font-semibold text-zinc-200">Detalles del túnel</h3>
             <dl className="mt-3 space-y-3 text-xs">
               <div>
-                <dt className="text-zinc-500">Nombre</dt>
-                <dd className="mt-0.5 font-medium text-zinc-200">{tunnel.name}</dd>
+                <dt className="font-medium uppercase tracking-wide text-zinc-500">Nombre</dt>
+                <dd className="mt-0.5 text-sm font-semibold text-zinc-100">{tunnel.name}</dd>
               </div>
               <div>
-                <dt className="text-zinc-500">Identificador</dt>
+                <dt className="font-medium uppercase tracking-wide text-zinc-500">Identificador</dt>
                 <dd className="mt-0.5 flex items-center gap-2">
-                  <span className="truncate font-mono text-zinc-300">{tunnel.tunnelLabel}</span>
+                  <span className="truncate font-mono text-sm text-zinc-300">{tunnel.tunnelLabel}</span>
                   <button
                     type="button"
                     onClick={() => copyText(tunnel.tunnelLabel)}
@@ -377,19 +373,19 @@ export function AtlasDnsTunnelDetail({ tunnel, domainSuffix, onBack }: Props) {
                 </dd>
               </div>
               <div>
-                <dt className="text-zinc-500">Tipo</dt>
-                <dd className="mt-0.5 text-zinc-300">cloudflared · Atlas VPN</dd>
+                <dt className="font-medium uppercase tracking-wide text-zinc-500">Tipo</dt>
+                <dd className="mt-0.5 text-sm text-zinc-300">cloudflared · Atlas VPN</dd>
               </div>
               {domainSuffix ? (
                 <div>
-                  <dt className="text-zinc-500">Dominio</dt>
-                  <dd className="mt-0.5 font-mono text-zinc-300">{domainSuffix}</dd>
+                  <dt className="font-medium uppercase tracking-wide text-zinc-500">Dominio</dt>
+                  <dd className="mt-0.5 font-mono text-sm text-zinc-300">{domainSuffix}</dd>
                 </div>
               ) : null}
               {primarySite?.ssh?.hostname ? (
                 <div>
-                  <dt className="text-zinc-500">Host SSH</dt>
-                  <dd className="mt-0.5 font-mono text-zinc-300">{primarySite.ssh.hostname}</dd>
+                  <dt className="font-medium uppercase tracking-wide text-zinc-500">Host SSH</dt>
+                  <dd className="mt-0.5 font-mono text-sm text-zinc-300">{primarySite.ssh.hostname}</dd>
                 </div>
               ) : null}
             </dl>

@@ -1013,6 +1013,9 @@ def create_app() -> FastAPI:
 
         @app.get("/favicon.ico")
         def fav() -> FileResponse:
+            ico = STATIC_WEB / "favicon.ico"
+            if ico.is_file():
+                return FileResponse(ico, media_type="image/x-icon")
             p = resolve_logo_path()
             if p and p.is_file():
                 return FileResponse(p)

@@ -29,13 +29,13 @@ export function tunnelStatusLabel(status: DnsTunnelStatus): string {
 export function tunnelStatusPillClass(status: DnsTunnelStatus): string {
   switch (status) {
     case "healthy":
-      return "bg-emerald-500/15 text-emerald-200 ring-emerald-500/35";
+      return "atlas-pill-success";
     case "degraded":
-      return "bg-rose-500/15 text-rose-200 ring-rose-500/35";
+      return "atlas-pill-danger";
     case "empty":
-      return "bg-zinc-700/40 text-zinc-400 ring-zinc-600/40";
+      return "atlas-pill-muted";
     default:
-      return "bg-amber-500/15 text-amber-200 ring-amber-500/35";
+      return "atlas-pill-warning";
   }
 }
 
