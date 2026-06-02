@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronDown, Copy, ExternalLink, Globe } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   AtlasFieldFiltersPanel,
@@ -13,8 +13,6 @@ import {
   SITES_PAGE_SIZE,
   SitePaginationBar,
   siteDisplayName,
-  siteListVariants,
-  siteRowVariants,
   type SiteRow,
 } from "../components/AtlasSiteListUi";
 import {
@@ -30,7 +28,7 @@ type Props = {
 };
 
 function siteDnsSummary(site: SiteRow): {
-  tone: "ok" | "empty" | "idle";
+  tone: "ok" | "empty";
   label: string;
   hint: string;
 } {
@@ -45,21 +43,11 @@ function siteDnsSummary(site: SiteRow): {
   };
 }
 
-function dnsRailClass(tone: "ok" | "empty" | "idle"): string {
+function dnsStatusPillClass(tone: "ok" | "empty"): string {
   if (tone === "ok") {
-    return "bg-gradient-to-b from-sky-400 to-sky-600 shadow-[inset_-1px_0_0_rgba(0,0,0,0.2)]";
+    return "bg-sky-500/20 text-sky-200 ring-sky-500/35";
   }
-  if (tone === "empty") {
-    return "bg-zinc-600/90";
-  }
-  return "bg-zinc-600/90";
-}
-
-function dnsDotClass(tone: "ok" | "empty" | "idle"): string {
-  if (tone === "ok") {
-    return "bg-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.65)]";
-  }
-  return "bg-zinc-500";
+  return "bg-zinc-700/40 text-zinc-400 ring-zinc-600/40";
 }
 
 function dnsLinkLabel(link: { url: string; suffix?: string | null; port?: number | null }): string {
@@ -73,6 +61,12 @@ function dnsLinkLabel(link: { url: string; suffix?: string | null; port?: number
   } catch {
     return "DNS";
   }
+}
+
+function sitePreviewLink(site: SiteRow): string {
+  const first = site.posliteUrls?.[0];
+  if (!first) return "Sin URLs Poslite";
+  return dnsLinkLabel(first);
 }
 
 function SiteDnsFiltersBar({
@@ -244,153 +238,175 @@ export function AtlasDnsView({ sites, domainSuffix }: Props) {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-cf-line/60 bg-black/[0.12]">
-          <motion.div
-            variants={siteListVariants}
-            initial="hidden"
-            animate="show"
-            className="grid min-h-0 flex-1 auto-rows-min gap-3 overflow-y-auto p-2 pb-1 sm:grid-cols-2 sm:p-3 lg:grid-cols-3 [scrollbar-gutter:stable]"
-          >
-            {sites.length === 0 && (
-              <div className="col-span-full rounded-2xl border border-dashed border-cf-line bg-cf-panel/50 p-10 text-center text-zinc-500">
-                No hay sitios en tunnels.json. Sincroniza desde Cloudflare o crea plantilla.
-              </div>
-            )}
-            {sites.length > 0 && filtered.length === 0 && (
-              <div className="col-span-full rounded-2xl border border-dashed border-cf-line bg-cf-panel/50 p-10 text-center text-zinc-500">
-                Ningún sitio coincide con la búsqueda o los filtros seleccionados.
-              </div>
-            )}
-            {pageSlice.map((s) => {
-              const open = expandedId === s.id;
-              const dns = siteDnsSummary(s);
-              const urls = s.posliteUrls ?? [];
-              return (
-                <motion.div
-                  key={s.id}
-                  variants={siteRowVariants}
-                  layout
-                  className={
-                    open
-                      ? "group flex flex-row overflow-hidden rounded-2xl border border-cf-orange bg-cf-orange/10 shadow-lg shadow-cf-orange/10 ring-1 ring-cf-orange/40"
-                      : "group flex flex-row overflow-hidden rounded-2xl border border-cf-line bg-cf-card/90 ring-1 ring-transparent hover:border-zinc-600 hover:bg-cf-card"
-                  }
-                  aria-label={`${siteDisplayName(s)}: ${dns.hint}`}
-                >
-                  <div
-                    className={`w-2 shrink-0 self-stretch ${dnsRailClass(dns.tone)}`}
-                    title={dns.hint}
-                    aria-hidden
-                  />
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <button
-                      type="button"
-                      className="flex w-full items-start justify-between gap-2 p-4 text-left"
-                      onClick={() => setExpandedId(open ? null : s.id)}
-                    >
-                      <div className="flex min-w-0 flex-1 items-start gap-3">
-                        <div
-                          className="flex shrink-0 flex-col items-center gap-1 border-r border-white/10 pr-3 pt-0.5"
-                          title={dns.hint}
-                        >
-                          <span className={`h-2 w-2 shrink-0 rounded-full ${dnsDotClass(dns.tone)}`} aria-hidden />
-                          <span
-                            className={`text-[9px] font-bold uppercase leading-none tracking-tight ${
-                              dns.tone === "ok" ? "text-sky-300" : "text-zinc-500"
-                            }`}
+          <div className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
+            <table className="w-full min-w-[860px] text-left text-xs">
+              <thead className="sticky top-0 z-10 bg-[#0f1317]/95 backdrop-blur">
+                <tr className="border-b border-cf-line/70 text-[10px] uppercase tracking-wide text-zinc-500">
+                  <th className="w-12 px-3 py-2 font-medium">Detalle</th>
+                  <th className="px-3 py-2 font-medium">Sitio</th>
+                  <th className="w-32 px-3 py-2 font-medium">Registros</th>
+                  <th className="w-44 px-3 py-2 font-medium">Estado DNS</th>
+                  <th className="px-3 py-2 font-medium">Vista rápida</th>
+                  <th className="w-40 px-3 py-2 font-medium text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.04]">
+                {sites.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center text-zinc-500">
+                      No hay sitios en tunnels.json. Sincroniza desde Cloudflare o crea plantilla.
+                    </td>
+                  </tr>
+                ) : null}
+                {sites.length > 0 && filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center text-zinc-500">
+                      Ningún sitio coincide con la búsqueda o los filtros seleccionados.
+                    </td>
+                  </tr>
+                ) : null}
+                {pageSlice.map((s) => {
+                  const open = expandedId === s.id;
+                  const dns = siteDnsSummary(s);
+                  const urls = s.posliteUrls ?? [];
+                  const firstUrl = urls[0]?.url;
+                  return (
+                    <Fragment key={s.id}>
+                      <tr
+                        className={`transition ${open ? "bg-cf-orange/5" : "bg-black/15 hover:bg-black/25"}`}
+                      >
+                        <td className="whitespace-nowrap px-3 py-2.5 align-top">
+                          <button
+                            type="button"
+                            className="inline-flex items-center rounded-md border border-cf-line bg-black/30 p-1.5 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+                            onClick={() => setExpandedId(open ? null : s.id)}
+                            aria-label={open ? "Ocultar detalle DNS" : "Mostrar detalle DNS"}
                           >
-                            {dns.label}
-                          </span>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <span className="font-semibold tracking-tight">{siteDisplayName(s)}</span>
+                            <ChevronDown
+                              className={`h-4 w-4 transition-transform duration-200 ${open ? "rotate-180 text-cf-orange" : ""}`}
+                            />
+                          </button>
+                        </td>
+                        <td className="px-3 py-2.5 align-top">
+                          <p className="font-medium text-zinc-200">{siteDisplayName(s)}</p>
                           {s.tunnelName && s.tunnelName !== s.name ? (
-                            <span className="mt-0.5 block truncate font-mono text-[10px] text-zinc-600">
-                              {s.name}
-                            </span>
+                            <p className="mt-0.5 truncate font-mono text-[10px] text-zinc-600">{s.name}</p>
                           ) : null}
-                          <p className="mt-1 text-[11px] text-zinc-500">
-                            Pulsa para {open ? "ocultar" : "mostrar"} registros DNS
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2.5 align-top">
+                          <span className="text-sm font-semibold text-zinc-100">{urls.length}</span>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2.5 align-top">
+                          <span
+                            className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1 ${dnsStatusPillClass(dns.tone)}`}
+                          >
+                            {dns.hint}
+                          </span>
+                        </td>
+                        <td className="max-w-[22rem] px-3 py-2.5 align-top">
+                          <p className="truncate text-zinc-400" title={firstUrl ?? sitePreviewLink(s)}>
+                            {firstUrl ?? sitePreviewLink(s)}
                           </p>
-                        </div>
-                      </div>
-                      <ChevronDown
-                        className={`h-5 w-5 shrink-0 text-zinc-400 transition-transform duration-200 ${
-                          open ? "rotate-180 text-cf-orange" : ""
-                        }`}
-                      />
-                    </button>
-                    <div className="border-t border-white/5 px-4 pb-3 pt-0">
-                      <div className="flex items-center gap-2 text-xs">
-                        <Globe className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
-                        <span className="text-zinc-500">Registros</span>
-                        <span className="font-medium text-zinc-300">{urls.length}</span>
-                      </div>
-                      {urls.length > 0 ? null : (
-                        <p className="mt-2 text-[11px] text-zinc-600">Sin URLs Poslite configuradas</p>
-                      )}
-                    </div>
-                    <AnimatePresence initial={false}>
-                      {open ? (
-                        <motion.div
-                          key={`dns-panel-${s.id}`}
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: "auto" }}
-                          exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.2, ease: "easeOut" }}
-                          className="overflow-hidden border-t border-cf-line/80 bg-black/25"
-                        >
-                          <div className="flex flex-col gap-2 p-3">
-                            {urls.length === 0 ? (
-                              <p className="text-center text-xs text-zinc-500">
-                                Este sitio no tiene registros DNS en la última sincronización.
-                              </p>
+                        </td>
+                        <td className="px-3 py-2.5 align-top">
+                          <div className="flex justify-end gap-2">
+                            {firstUrl ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => void copyUrl(firstUrl)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-2.5 py-1.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                                >
+                                  <Copy className="h-3 w-3" />
+                                  Copiar
+                                </button>
+                                <a
+                                  href={firstUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 rounded-lg bg-cf-orange px-2.5 py-1.5 text-[11px] font-semibold text-black hover:bg-cf-orange/90"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  Abrir
+                                </a>
+                              </>
                             ) : (
-                              urls.map((link) => {
-                                const label = dnsLinkLabel(link);
-                                return (
-                                  <div
-                                    key={`${s.id}-${link.suffix ?? link.port ?? link.url}`}
-                                    className="flex flex-col gap-2 rounded-lg border border-white/[0.06] bg-black/30 p-3"
-                                  >
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                      <span className="text-xs font-medium text-zinc-200">{label}</span>
-                                      <div className="flex flex-wrap gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={() => void copyUrl(link.url)}
-                                          className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-2.5 py-1.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
-                                        >
-                                          <Copy className="h-3 w-3" />
-                                          Copiar
-                                        </button>
-                                        <a
-                                          href={link.url}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="inline-flex items-center gap-1 rounded-lg bg-cf-orange px-2.5 py-1.5 text-[11px] font-semibold text-black hover:bg-cf-orange/90"
-                                        >
-                                          <ExternalLink className="h-3 w-3" />
-                                          Abrir
-                                        </a>
-                                      </div>
-                                    </div>
-                                    <p className="break-all font-mono text-[11px] text-zinc-500">{link.url}</p>
-                                    {link.port != null ? (
-                                      <p className="text-[10px] text-zinc-600">Puerto local: {link.port}</p>
-                                    ) : null}
-                                  </div>
-                                );
-                              })
+                              <span className="text-[11px] text-zinc-600">Sin acción</span>
                             )}
                           </div>
-                        </motion.div>
-                      ) : null}
-                    </AnimatePresence>
-                  </div>
-                </motion.div>
-              );
-            })}
-          </motion.div>
+                        </td>
+                      </tr>
+                      <tr className={open ? "bg-black/25" : "hidden"}>
+                        <td colSpan={6} className="p-0">
+                          <AnimatePresence initial={false}>
+                            {open ? (
+                              <motion.div
+                                key={`dns-panel-${s.id}`}
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                transition={{ duration: 0.2, ease: "easeOut" }}
+                                className="overflow-hidden border-t border-cf-line/60 bg-black/30"
+                              >
+                                <div className="flex items-center gap-2 px-4 pt-3 text-[11px] text-zinc-500">
+                                  <Globe className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                  Detalle de registros DNS
+                                </div>
+                                <div className="grid gap-2 p-3 sm:grid-cols-2">
+                                  {urls.length === 0 ? (
+                                    <p className="col-span-full rounded-lg border border-white/[0.06] bg-black/30 p-3 text-center text-xs text-zinc-500">
+                                      Este sitio no tiene registros DNS en la última sincronización.
+                                    </p>
+                                  ) : (
+                                    urls.map((link) => {
+                                      const label = dnsLinkLabel(link);
+                                      return (
+                                        <div
+                                          key={`${s.id}-${link.suffix ?? link.port ?? link.url}`}
+                                          className="flex flex-col gap-2 rounded-lg border border-white/[0.06] bg-black/30 p-3"
+                                        >
+                                          <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <span className="text-xs font-medium text-zinc-200">{label}</span>
+                                            <div className="flex flex-wrap gap-2">
+                                              <button
+                                                type="button"
+                                                onClick={() => void copyUrl(link.url)}
+                                                className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-2.5 py-1.5 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                                              >
+                                                <Copy className="h-3 w-3" />
+                                                Copiar
+                                              </button>
+                                              <a
+                                                href={link.url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-1 rounded-lg bg-cf-orange px-2.5 py-1.5 text-[11px] font-semibold text-black hover:bg-cf-orange/90"
+                                              >
+                                                <ExternalLink className="h-3 w-3" />
+                                                Abrir
+                                              </a>
+                                            </div>
+                                          </div>
+                                          <p className="break-all font-mono text-[11px] text-zinc-500">{link.url}</p>
+                                          {link.port != null ? (
+                                            <p className="text-[10px] text-zinc-600">Puerto local: {link.port}</p>
+                                          ) : null}
+                                        </div>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              </motion.div>
+                            ) : null}
+                          </AnimatePresence>
+                        </td>
+                      </tr>
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
           {sites.length > 0 ? (
             <SitePaginationBar
               page={listPage}
