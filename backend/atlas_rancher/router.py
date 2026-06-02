@@ -287,7 +287,7 @@ def post_deployment_rollout(
     body: DeploymentRolloutBody,
     user: dict[str, Any] = Depends(require_permission(PERM_RANCHER_WRITE)),
 ) -> dict[str, Any]:
-    """Réplicas 0 → N para forzar descarga de imagen en el nodo."""
+    """Always + restart del pod, espera rollout y restaura imagePullPolicy original."""
     settings = load_rancher_settings()
     if not settings["url"] or not settings["token"]:
         raise HTTPException(

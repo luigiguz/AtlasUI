@@ -207,7 +207,7 @@ function RolloutConfirmModal({
           </div>
         </div>
 
-        <div className="px-5 py-4">
+        <div className="px-5 py-4 space-y-2">
           {single ? (
             <p className="text-sm text-zinc-300">
               Se actualizará la imagen de{" "}
@@ -228,6 +228,10 @@ function RolloutConfirmModal({
               </ul>
             </>
           )}
+          <p className="text-xs text-zinc-500">
+            Se reiniciará el pod, se forzará la descarga de la imagen en el nodo y se restaurará la
+            política de pull habitual del deployment.
+          </p>
         </div>
 
         <div className="flex gap-2 border-t border-cf-line/60 bg-cf-card/70 px-5 py-4">

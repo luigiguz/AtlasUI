@@ -6,6 +6,7 @@ import json
 import logging
 import ssl
 import time
+from datetime import datetime, timezone
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -35,6 +36,7 @@ RANCHER_POD_LOG_TIMEOUT_S = 45.0
 RANCHER_POD_LOG_STREAM_TIMEOUT_S = 600.0
 ROLLOUT_WAIT_TIMEOUT_S = 120.0
 ROLLOUT_POLL_INTERVAL_S = 2.0
+K8S_RESTARTED_AT_ANNOTATION = "kubectl.kubernetes.io/restartedAt"
 POD_COUNT_MAX_WORKERS = 4
 # Cloudflare (p. ej. atlas.asptienda.com) suele bloquear Python-urllib; usar firma de navegador.
 _DEFAULT_USER_AGENT = (
@@ -803,6 +805,122 @@ def _wait_deployment_replicas(
     )
 
 
+def _normalize_k8s_pull_policy(raw: Any) -> str:
+    s = str(raw or "").strip()
+    if s == "Always":
+        return "Always"
+    if s == "Never":
+        return "Never"
+    return "IfNotPresent"
+
+
+def _container_pull_policies_from_template(spec_template: dict[str, Any]) -> dict[str, str]:
+    """Nombre de contenedor → imagePullPolicy efectiva (omitido en API = IfNotPresent)."""
+    out: dict[str, str] = {}
+    pod_spec = _as_dict(spec_template.get("spec"))
+    for key in ("containers", "initContainers"):
+        for container in pod_spec.get(key) or []:
+            if not isinstance(container, dict):
+                continue
+            cname = str(container.get("name") or "").strip()
+            if not cname:
+                continue
+            out[cname] = _normalize_k8s_pull_policy(container.get("imagePullPolicy"))
+    return out
+
+
+def _apply_pull_policies_to_template(
+    spec_template: dict[str, Any],
+    policies: dict[str, str],
+    *,
+    uniform: str | None = None,
+) -> None:
+    pod_spec = _as_dict(spec_template.setdefault("spec", {}))
+    for key in ("containers", "initContainers"):
+        containers = pod_spec.get(key)
+        if not isinstance(containers, list):
+            continue
+        for container in containers:
+            if not isinstance(container, dict):
+                continue
+            cname = str(container.get("name") or "").strip()
+            if uniform is not None:
+                container["imagePullPolicy"] = uniform
+            elif cname and cname in policies:
+                container["imagePullPolicy"] = policies[cname]
+
+
+def _touch_pod_template_restart_annotation(spec_template: dict[str, Any]) -> None:
+    meta = _as_dict(spec_template.setdefault("metadata", {}))
+    annotations = _as_dict(meta.setdefault("annotations", {}))
+    restarted_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    annotations[K8S_RESTARTED_AT_ANNOTATION] = restarted_at
+
+
+def _put_deployment_resource(
+    settings: dict[str, str | bool],
+    *,
+    mgmt_id: str,
+    k8s_ns: str,
+    deployment_name: str,
+    resource: dict[str, Any],
+) -> dict[str, Any]:
+    path = _deployment_path(mgmt_id, k8s_ns, deployment_name)
+    updated = rancher_put(settings, path, resource)
+    if not isinstance(updated, dict):
+        raise RancherApiError("Rancher no devolvió el deployment actualizado.")
+    return updated
+
+
+def _wait_deployment_ready(
+    settings: dict[str, str | bool],
+    *,
+    mgmt_id: str,
+    k8s_ns: str,
+    deployment_name: str,
+    timeout_s: float = ROLLOUT_WAIT_TIMEOUT_S,
+) -> int:
+    """Espera a que readyReplicas >= réplicas deseadas del deployment."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        resource = _get_deployment_resource(
+            settings, mgmt_id=mgmt_id, k8s_ns=k8s_ns, deployment_name=deployment_name
+        )
+        desired, ready, _ = _deployment_status_replicas(resource)
+        target = desired if desired > 0 else 1
+        if ready >= target:
+            return target
+        time.sleep(ROLLOUT_POLL_INTERVAL_S)
+    raise RancherApiError(
+        f"Timeout esperando rollout del deployment «{deployment_name}» (réplicas listas)."
+    )
+
+
+def _restore_deployment_pull_policies(
+    settings: dict[str, str | bool],
+    *,
+    mgmt_id: str,
+    k8s_ns: str,
+    deployment_name: str,
+    original_policies: dict[str, str],
+) -> dict[str, Any]:
+    resource = _get_deployment_resource(
+        settings, mgmt_id=mgmt_id, k8s_ns=k8s_ns, deployment_name=deployment_name
+    )
+    spec = _as_dict(resource.get("spec"))
+    template = _as_dict(spec.get("template"))
+    _apply_pull_policies_to_template(template, original_policies)
+    spec["template"] = template
+    resource["spec"] = spec
+    return _put_deployment_resource(
+        settings,
+        mgmt_id=mgmt_id,
+        k8s_ns=k8s_ns,
+        deployment_name=deployment_name,
+        resource=resource,
+    )
+
+
 def rollout_deployment_image_pull(
     settings: dict[str, str | bool],
     *,
@@ -812,8 +930,8 @@ def rollout_deployment_image_pull(
     deployment_name: str,
 ) -> dict[str, Any]:
     """
-    Escala a 0 y vuelve al número de réplicas original para forzar pull de imagen
-  (patrón habitual con imagePullPolicy Always / IfNotPresent en edge).
+    Fuerza pull de imagen en edge: imagePullPolicy Always + restart del pod template,
+    espera rollout y restaura las políticas originales (p. ej. IfNotPresent).
     """
     dep_name = deployment_name.strip()
     if not dep_name:
@@ -828,41 +946,77 @@ def rollout_deployment_image_pull(
     resource = _get_deployment_resource(
         settings, mgmt_id=mgmt_id, k8s_ns=app_ns, deployment_name=dep_name
     )
-    desired, _, _ = _deployment_status_replicas(resource)
-    target = desired if desired > 0 else 1
+    spec = _as_dict(resource.get("spec"))
+    template = _as_dict(spec.get("template"))
+    original_policies = _container_pull_policies_from_template(template)
+    if not original_policies:
+        raise RancherConfigError(
+            f"El deployment «{dep_name}» no tiene contenedores en el pod template."
+        )
 
-    set_deployment_replicas(
-        settings,
-        mgmt_id=mgmt_id,
-        k8s_ns=app_ns,
-        deployment_name=dep_name,
-        replicas=0,
-    )
+    desired, _, _ = _deployment_status_replicas(resource)
+    target_replicas = desired if desired > 0 else 1
+    steps: list[str] = []
+    pull_patched = False
+
     try:
-        _wait_deployment_replicas(
+        _apply_pull_policies_to_template(template, original_policies, uniform="Always")
+        _touch_pod_template_restart_annotation(template)
+        spec["template"] = template
+        resource["spec"] = spec
+        _put_deployment_resource(
             settings,
             mgmt_id=mgmt_id,
             k8s_ns=app_ns,
             deployment_name=dep_name,
-            want_available=0,
+            resource=resource,
         )
-    except RancherApiError:
-        log.warning("rollout %s: timeout en escala a 0; continuando a %s", dep_name, target)
+        pull_patched = True
+        steps.append("pull_policy_always")
 
-    final = set_deployment_replicas(
-        settings,
-        mgmt_id=mgmt_id,
-        k8s_ns=app_ns,
-        deployment_name=dep_name,
-        replicas=target,
-    )
+        _wait_deployment_ready(
+            settings,
+            mgmt_id=mgmt_id,
+            k8s_ns=app_ns,
+            deployment_name=dep_name,
+        )
+        steps.append("rollout_ready")
+
+        final = _restore_deployment_pull_policies(
+            settings,
+            mgmt_id=mgmt_id,
+            k8s_ns=app_ns,
+            deployment_name=dep_name,
+            original_policies=original_policies,
+        )
+        steps.append("pull_policy_restored")
+    except Exception:
+        if pull_patched:
+            try:
+                _restore_deployment_pull_policies(
+                    settings,
+                    mgmt_id=mgmt_id,
+                    k8s_ns=app_ns,
+                    deployment_name=dep_name,
+                    original_policies=original_policies,
+                )
+                steps.append("pull_policy_restored_on_error")
+            except Exception as restore_err:
+                log.warning(
+                    "rollout %s: no se pudo restaurar imagePullPolicy tras error: %s",
+                    dep_name,
+                    restore_err,
+                )
+        raise
+
     return {
-        "deployment": final,
+        "deployment": _normalize_deployment(final, k8s_ns=app_ns),
         "managementClusterId": mgmt_id,
         "namespace": app_ns,
         "application": application,
-        "targetReplicas": target,
-        "steps": ["scaled_to_0", f"scaled_to_{target}"],
+        "targetReplicas": target_replicas,
+        "restoredPullPolicies": original_policies,
+        "steps": steps,
     }
 
 
