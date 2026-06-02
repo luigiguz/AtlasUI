@@ -1,8 +1,9 @@
 import { motion } from "framer-motion";
-import { Loader2, Lock, User } from "lucide-react";
+import { Loader2, Lock, Moon, Sun, User } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
 import { parseAuthUser, type AuthUser } from "../atlasAuth";
+import { useAtlasTheme } from "../atlasTheme";
 import { api, apiUrl, setAccessToken, setRefreshToken } from "../apiClient";
 import { PoweredByVerkkutech } from "./PoweredByVerkkutech";
 
@@ -29,6 +30,7 @@ function AtlasLoginLogo() {
 }
 
 export function AuthLoginPanel({ onDone }: Props) {
+  const { theme, toggleTheme } = useAtlasTheme();
   const [user, setUser] = useState("");
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
@@ -66,7 +68,16 @@ export function AuthLoginPanel({ onDone }: Props) {
   };
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-cf-ink px-4 py-10 text-zinc-100 vpn-grid-bg">
+    <div className="atlas-app-bg relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 py-10 text-zinc-100 vpn-grid-bg">
+      <button
+        type="button"
+        onClick={toggleTheme}
+        className="absolute right-4 top-4 z-10 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-cf-line bg-cf-panel/90 text-zinc-400 shadow-sm transition hover:border-cf-orange/40 hover:text-zinc-200"
+        title={theme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
+        aria-label={theme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
+      >
+        {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      </button>
       <div
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_45%_at_50%_-5%,rgba(244,129,32,0.14),transparent_55%)]"
         aria-hidden
@@ -92,7 +103,7 @@ export function AuthLoginPanel({ onDone }: Props) {
 
         <form
           onSubmit={(e) => void submit(e)}
-          className="space-y-4 rounded-2xl border border-cf-line/80 bg-[#111418]/95 p-6 shadow-2xl shadow-black/50 ring-1 ring-white/[0.06] backdrop-blur-sm sm:p-8"
+          className="space-y-4 rounded-2xl border border-cf-line/80 bg-cf-panel/95 p-6 shadow-2xl shadow-black/10 ring-1 ring-white/[0.06] backdrop-blur-sm sm:p-8"
         >
           <div className="border-b border-cf-line/50 pb-4">
             <h1 className="text-lg font-semibold text-zinc-100">Iniciar sesión</h1>
@@ -116,7 +127,7 @@ export function AuthLoginPanel({ onDone }: Props) {
                 aria-hidden
               />
               <input
-                className="w-full rounded-lg border border-cf-line bg-black/35 py-2.5 pl-10 pr-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-cf-orange/50 focus:ring-2 focus:ring-cf-orange/25"
+                className="w-full rounded-lg border border-cf-line bg-cf-card/75 py-2.5 pl-10 pr-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-cf-orange/50 focus:ring-2 focus:ring-cf-orange/25"
                 placeholder="admin"
                 value={user}
                 onChange={(e) => setUser(e.target.value)}
@@ -135,7 +146,7 @@ export function AuthLoginPanel({ onDone }: Props) {
                 aria-hidden
               />
               <input
-                className="w-full rounded-lg border border-cf-line bg-black/35 py-2.5 pl-10 pr-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-cf-orange/50 focus:ring-2 focus:ring-cf-orange/25"
+                className="w-full rounded-lg border border-cf-line bg-cf-card/75 py-2.5 pl-10 pr-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-cf-orange/50 focus:ring-2 focus:ring-cf-orange/25"
                 placeholder="••••••••"
                 type="password"
                 value={pw}

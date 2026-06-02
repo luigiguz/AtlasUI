@@ -14,6 +14,26 @@
       rel="stylesheet"
     />
     <script src="/atlas-runtime-config.js"></script>
+    <script>
+      (function () {
+        try {
+          var key = "atlas.theme";
+          var t = localStorage.getItem(key);
+          if (t !== "light" && t !== "dark") {
+            var legacy = localStorage.getItem("atlasvpn.theme");
+            if (legacy === "light" || legacy === "dark") {
+              t = legacy;
+              localStorage.setItem(key, legacy);
+              localStorage.removeItem("atlasvpn.theme");
+            }
+          }
+          if (t === "light" || t === "dark") {
+            document.documentElement.setAttribute("data-theme", t);
+            document.documentElement.style.colorScheme = t;
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body class="antialiased">
     <div id="root"></div>

@@ -62,7 +62,7 @@ export function AtlasLoadingSplash({
       role="status"
       aria-live="polite"
       aria-busy="true"
-      className={`flex ${height} w-full flex-col items-center justify-center bg-[#0b0d10] px-6 ${padding} ${className}`}
+      className={`atlas-app-bg flex ${height} w-full flex-col items-center justify-center px-6 ${padding} ${className}`}
     >
       <AtlasSplashLogo compact={compact} />
       <div className={`${barGap} h-0.5 ${barWidth} overflow-hidden rounded-full bg-zinc-800/90`} aria-hidden>

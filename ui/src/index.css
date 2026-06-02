@@ -3,13 +3,64 @@
 @tailwind utilities;
 
 :root {
+  --atlas-accent: 244 129 32;
+  --atlas-accent-dim: 201 101 14;
+  --atlas-ink: 11 13 16;
+  --atlas-panel: 17 20 24;
+  --atlas-card: 22 27 34;
+  --atlas-line: 48 54 61;
+
+  --atlas-zinc-50: 250 250 250;
+  --atlas-zinc-100: 244 244 245;
+  --atlas-zinc-200: 228 228 231;
+  --atlas-zinc-300: 212 212 216;
+  --atlas-zinc-400: 161 161 170;
+  --atlas-zinc-500: 113 113 122;
+  --atlas-zinc-600: 82 82 91;
+  --atlas-zinc-700: 63 63 70;
+  --atlas-zinc-800: 39 39 42;
+  --atlas-zinc-900: 24 24 27;
+  --atlas-zinc-950: 9 9 11;
+
+  --atlas-app-bg: 11 13 16;
+  --atlas-app-header: 13 15 18;
+  --atlas-overlay-strong: 0 0 0;
+  --atlas-overlay-soft: 255 255 255;
   color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --atlas-accent: 224 110 14;
+  --atlas-accent-dim: 186 84 4;
+  --atlas-ink: 245 247 251;
+  --atlas-panel: 255 255 255;
+  --atlas-card: 248 250 252;
+  --atlas-line: 203 213 225;
+
+  --atlas-zinc-50: 9 9 11;
+  --atlas-zinc-100: 24 24 27;
+  --atlas-zinc-200: 39 39 42;
+  --atlas-zinc-300: 63 63 70;
+  --atlas-zinc-400: 82 82 91;
+  --atlas-zinc-500: 113 113 122;
+  --atlas-zinc-600: 161 161 170;
+  --atlas-zinc-700: 212 212 216;
+  --atlas-zinc-800: 228 228 231;
+  --atlas-zinc-900: 244 244 245;
+  --atlas-zinc-950: 250 250 250;
+
+  --atlas-app-bg: 241 245 249;
+  --atlas-app-header: 248 250 252;
+  --atlas-overlay-strong: 15 23 42;
+  --atlas-overlay-soft: 255 255 255;
+  color-scheme: light;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background: #0b0d10;
+  background: rgb(var(--atlas-app-bg));
+  color: rgb(var(--atlas-zinc-100));
 }
 
 .vpn-grid-bg {
@@ -20,7 +71,16 @@ body {
 }
 
 .glass {
-  background: rgba(17, 20, 24, 0.72);
+  background: rgba(var(--atlas-panel), 0.72);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+}
+
+@layer utilities {
+  .atlas-app-bg {
+    background-color: rgb(var(--atlas-app-bg));
+  }
+  .atlas-app-header {
+    background-color: rgb(var(--atlas-app-header));
+  }
 }

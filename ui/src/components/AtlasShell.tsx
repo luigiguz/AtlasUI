@@ -4,9 +4,11 @@ import {
   ChevronRight,
   LogOut,
   Menu,
+  Moon,
   PanelLeft,
   PanelLeftClose,
   Search,
+  Sun,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -38,6 +40,8 @@ type Props = {
   onNavigate: (r: AtlasRouteId) => void;
   user: AuthUser;
   onLogout: () => void;
+  theme: "dark" | "light";
+  onToggleTheme: () => void;
   children: ReactNode;
 };
 
@@ -428,7 +432,15 @@ function SidebarQuickSearch({
   );
 }
 
-export function AtlasShell({ route, onNavigate, user, onLogout, children }: Props): ReactNode {
+export function AtlasShell({
+  route,
+  onNavigate,
+  user,
+  onLogout,
+  theme,
+  onToggleTheme,
+  children,
+}: Props): ReactNode {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [navQuery, setNavQuery] = useState("");
@@ -492,7 +504,7 @@ export function AtlasShell({ route, onNavigate, user, onLogout, children }: Prop
   const sidebarCollapsedEffective = sidebarCollapsed && !mobileOpen;
 
   const sidebar = (
-    <div className="flex h-full min-h-0 flex-col bg-[#0d0f12]">
+    <div className="flex h-full min-h-0 flex-col atlas-app-header">
       <motion.div
         layout
         transition={sidebarMotion}
@@ -562,9 +574,9 @@ export function AtlasShell({ route, onNavigate, user, onLogout, children }: Prop
   );
 
   return (
-    <motion.div className="flex h-dvh min-h-0 overflow-hidden bg-[#0b0d10] text-zinc-100">
+    <motion.div className="atlas-app-bg flex h-dvh min-h-0 overflow-hidden text-zinc-100">
       <motion.aside
-        className="hidden min-h-0 shrink-0 self-stretch overflow-hidden border-r border-white/[0.06] bg-[#0d0f12] md:flex md:flex-col"
+        className="atlas-app-header hidden min-h-0 shrink-0 self-stretch overflow-hidden border-r border-white/[0.06] md:flex md:flex-col"
         initial={false}
         animate={{ width: sidebarCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED }}
         transition={sidebarMotion}
@@ -598,7 +610,7 @@ export function AtlasShell({ route, onNavigate, user, onLogout, children }: Prop
       </AnimatePresence>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-white/[0.06] bg-[#0d0f12]/95 px-4 py-3 backdrop-blur-md">
+        <header className="atlas-app-header flex shrink-0 flex-wrap items-center gap-3 border-b border-white/[0.06] px-4 py-3 backdrop-blur-md">
           <button
             type="button"
             className="inline-flex rounded-lg p-2 text-zinc-400 ring-1 ring-white/10 hover:bg-white/5 md:hidden"
@@ -638,6 +650,20 @@ export function AtlasShell({ route, onNavigate, user, onLogout, children }: Prop
               onNavigate={onNavigate}
               buttonClassName="relative inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-200"
             />
+            <span className="my-2 w-px shrink-0 bg-white/[0.08]" aria-hidden />
+            <button
+              type="button"
+              onClick={onToggleTheme}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:bg-white/[0.04] hover:text-zinc-200"
+              title={theme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
+              aria-label={theme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
+            >
+              {theme === "dark" ? (
+                <Sun className="h-4 w-4 shrink-0" aria-hidden />
+              ) : (
+                <Moon className="h-4 w-4 shrink-0" aria-hidden />
+              )}
+            </button>
             <span className="my-2 w-px shrink-0 bg-white/[0.08]" aria-hidden />
             <button
               type="button"

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { API_BASE, api, apiUrl, bearerHeaders, clearAuthTokens } from "./apiClient";
 import { clearSessionActivity, touchSessionActivity, useIdleLogout } from "./useIdleLogout";
+import { useAtlasTheme } from "./atlasTheme";
 import {
   hasAnyPermission,
   hasPermission,
@@ -140,6 +141,7 @@ function StatusPill({ kind }: { kind: string }) {
 const CF_SYNC_INTERVAL_MS = 15_000;
 
 export default function App() {
+  const { theme, toggleTheme } = useAtlasTheme();
   const [authPhase, setAuthPhase] = useState<"loading" | "login" | "app">("loading");
   const [me, setMe] = useState<AuthUser | null>(null);
 
@@ -558,7 +560,7 @@ export default function App() {
   const canRoles = hasAnyPermission(me, PERM_ROLES_LIST, PERM_ROLES_MANAGE);
 
   return (
-    <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#0b0d10] text-zinc-100">
+    <div className="atlas-app-bg relative flex min-h-screen flex-col overflow-hidden text-zinc-100">
       {sshWebSessions.length > 0 ? (
         <WebSshSessionsDock
           sessions={sshWebSessions}
@@ -573,6 +575,8 @@ export default function App() {
         onNavigate={setTab}
         user={me}
         onLogout={() => void doLogout()}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       >
         {tab === "home" && (
           <AtlasHomeView
@@ -649,7 +653,7 @@ export default function App() {
                   {connFiltered.length} de {sites.length} sitio{sites.length !== 1 ? "s" : ""}
                 </p>
               </div>
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-cf-line/60 bg-black/[0.12]">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-cf-line/60 bg-cf-card/40">
               <motion.div
                 variants={siteListVariants}
                 initial="hidden"
