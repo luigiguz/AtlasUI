@@ -1,10 +1,12 @@
 import type { AtlasRouteId, AtlasNavEntry } from "./atlasNav";
+import type { StoreChangeRequestEntryType } from "./storeTypes";
 
 export type StoreRequestsPanelTab = "queue" | "history";
 
 export type StoreRequestsOpenDetail = {
   tab?: StoreRequestsPanelTab;
   requestId?: number;
+  entryType?: StoreChangeRequestEntryType;
 };
 
 export const STORE_REQUESTS_ROUTE = "rancher-store-requests" satisfies AtlasRouteId;

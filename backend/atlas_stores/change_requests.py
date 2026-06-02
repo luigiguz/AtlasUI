@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -200,8 +200,12 @@ def change_request_detail_lines(row: StoreChangeRequest) -> list[str]:
         return []
 
 
+ENTRY_REQUEST = "request"
+
+
 def _row_dict(row: StoreChangeRequest, *, include_payload: bool = False) -> dict[str, Any]:
     out: dict[str, Any] = {
+        "entryType": ENTRY_REQUEST,
         "id": int(row.id),
         "kind": row.kind,
         "folderName": row.folder_name,
@@ -317,6 +321,52 @@ def create_create_request(
     return result
 
 
+def _parse_date_param(value: str | None, *, end_of_day: bool = False) -> datetime | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        d = date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+    t = time(23, 59, 59, 999999) if end_of_day else time.min
+    return datetime.combine(d, t, tzinfo=timezone.utc)
+
+
+def _event_timestamp(item: dict[str, Any]) -> datetime:
+    raw = item.get("reviewedAt") or item.get("createdAt")
+    if not raw:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _filter_items_by_date(
+    items: list[dict[str, Any]],
+    *,
+    date_from: str | None,
+    date_to: str | None,
+) -> list[dict[str, Any]]:
+    dt_from = _parse_date_param(date_from)
+    dt_to = _parse_date_param(date_to, end_of_day=True)
+    if dt_from is None and dt_to is None:
+        return items
+    out: list[dict[str, Any]] = []
+    for item in items:
+        ts = _event_timestamp(item)
+        if dt_from is not None and ts < dt_from:
+            continue
+        if dt_to is not None and ts > dt_to:
+            continue
+        out.append(item)
+    return out
+
+
 def list_change_requests(
     user: dict[str, Any],
     *,
@@ -324,6 +374,9 @@ def list_change_requests(
     status: str | None = None,
     limit: int = 50,
     folder: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    include_direct: bool = False,
 ) -> list[dict[str, Any]]:
     lim = max(1, min(int(limit), 200))
     st = (status or STATUS_PENDING).strip().lower()
@@ -339,7 +392,22 @@ def list_change_requests(
         if not can_approve:
             q = q.where(StoreChangeRequest.created_by_user_id == _user_id(user))
         rows = session.scalars(q).all()
-        return [_row_dict(r) for r in rows]
+        items = [_row_dict(r) for r in rows]
+
+    if include_direct and can_approve and st in ("history", "all", "approved"):
+        from atlas_stores.direct_publishes import list_direct_publishes
+
+        direct = list_direct_publishes(
+            limit=lim,
+            folder=folder_q or None,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        items.extend(direct)
+
+    items = _filter_items_by_date(items, date_from=date_from, date_to=date_to)
+    items.sort(key=_event_timestamp, reverse=True)
+    return items[:lim]
 
 
 def get_change_request(

@@ -14,6 +14,7 @@ export type FilterFieldDef<TField extends string = string> = {
   key: TField;
   label: string;
   placeholder: string;
+  inputType?: "text" | "date";
 };
 
 export const FILTER_OPERATORS: { key: FilterOperator; label: string }[] = [
@@ -140,8 +141,20 @@ export function AtlasFieldFiltersPanel<TField extends string>({
 }) {
   const defaultField = fields[0]?.key;
 
+  function fieldDef(field: TField): FilterFieldDef<TField> | undefined {
+    return fields.find((f) => f.key === field);
+  }
+
   function fieldPlaceholder(field: TField): string {
-    return fields.find((f) => f.key === field)?.placeholder ?? "";
+    return fieldDef(field)?.placeholder ?? "";
+  }
+
+  function fieldInputType(field: TField): "text" | "date" {
+    return fieldDef(field)?.inputType ?? "text";
+  }
+
+  function isDateField(field: TField): boolean {
+    return fieldInputType(field) === "date";
   }
 
   function updateRule(id: string, patch: Partial<FilterRule<TField>>) {
@@ -194,20 +207,22 @@ export function AtlasFieldFiltersPanel<TField extends string>({
                 </option>
               ))}
             </select>
-            <select
-              value={rule.operator}
-              onChange={(e) => updateRule(rule.id, { operator: e.target.value as FilterOperator })}
-              className={`${selectClass} sm:w-[8.5rem]`}
-              aria-label="Operador"
-            >
-              {FILTER_OPERATORS.map((o) => (
-                <option key={o.key} value={o.key}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            {isDateField(rule.field) ? null : (
+              <select
+                value={rule.operator}
+                onChange={(e) => updateRule(rule.id, { operator: e.target.value as FilterOperator })}
+                className={`${selectClass} sm:w-[8.5rem]`}
+                aria-label="Operador"
+              >
+                {FILTER_OPERATORS.map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            )}
             <input
-              type="text"
+              type={fieldInputType(rule.field)}
               value={rule.value}
               onChange={(e) => updateRule(rule.id, { value: e.target.value })}
               placeholder={fieldPlaceholder(rule.field)}

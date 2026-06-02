@@ -185,12 +185,29 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
     }
   }, [canEdit, canApprove]);
 
+  const historyDateParams = useMemo(() => {
+    let dateFrom: string | undefined;
+    let dateTo: string | undefined;
+    for (const rule of historyAppliedRules) {
+      if (rule.field === "dateFrom" && rule.value.trim()) {
+        dateFrom = rule.value.trim().slice(0, 10);
+      }
+      if (rule.field === "dateTo" && rule.value.trim()) {
+        dateTo = rule.value.trim().slice(0, 10);
+      }
+    }
+    return { dateFrom, dateTo };
+  }, [historyAppliedRules]);
+
   const loadHistoryRequests = useCallback(async () => {
     if (!canEdit && !canApprove) return;
     setHistoryLoading(true);
     try {
       const statusParam = historyStatusFilter === "all" ? "history" : historyStatusFilter;
       const params = new URLSearchParams({ status: statusParam, limit: "100" });
+      if (canApprove) params.set("include_direct", "true");
+      if (historyDateParams.dateFrom) params.set("date_from", historyDateParams.dateFrom);
+      if (historyDateParams.dateTo) params.set("date_to", historyDateParams.dateTo);
       const data = await api<StoreChangeRequestsResponse>(
         `/api/atlas-stores/change-requests?${params.toString()}`
       );
@@ -200,7 +217,7 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
     } finally {
       setHistoryLoading(false);
     }
-  }, [canEdit, canApprove, historyStatusFilter]);
+  }, [canEdit, canApprove, historyStatusFilter, historyDateParams]);
 
   const displayedQueueRequests = useMemo(
     () => filterStoreRequests(changeRequests, queueSearchQuery, queueAppliedRules),
@@ -264,22 +281,34 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
     };
   }, [approveConfirmId]);
 
-  const openRequestDetail = useCallback(async (requestId: number) => {
-    setRequestDetailId(requestId);
-    setRequestDetail(null);
-    setRequestDetailLoading(true);
-    try {
-      const r = await api<{ ok: boolean; request: StoreChangeRequest }>(
-        `/api/atlas-stores/change-requests/${requestId}`
-      );
-      setRequestDetail(r.request);
-    } catch {
-      setRequestDetailId(null);
-      setStatusMsg("No se pudo cargar el detalle de la solicitud.");
-    } finally {
-      setRequestDetailLoading(false);
-    }
-  }, []);
+  const [requestDetailEntryType, setRequestDetailEntryType] =
+    useState<StoreChangeRequest["entryType"]>("request");
+
+  const openRequestDetail = useCallback(
+    async (req: StoreChangeRequest | number, entryType: StoreChangeRequest["entryType"] = "request") => {
+      const requestId = typeof req === "number" ? req : req.id;
+      const resolvedEntryType =
+        typeof req === "number" ? entryType : req.entryType ?? entryType;
+      setRequestDetailId(requestId);
+      setRequestDetailEntryType(resolvedEntryType ?? "request");
+      setRequestDetail(null);
+      setRequestDetailLoading(true);
+      try {
+        const path =
+          resolvedEntryType === "direct"
+            ? `/api/atlas-stores/direct-publishes/${requestId}`
+            : `/api/atlas-stores/change-requests/${requestId}`;
+        const r = await api<{ ok: boolean; request: StoreChangeRequest }>(path);
+        setRequestDetail(r.request);
+      } catch {
+        setRequestDetailId(null);
+        setStatusMsg("No se pudo cargar el detalle.");
+      } finally {
+        setRequestDetailLoading(false);
+      }
+    },
+    []
+  );
 
   function closeRequestDetail() {
     setRequestDetailId(null);
@@ -291,7 +320,10 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
       const detail = (ev as CustomEvent<StoreRequestsOpenDetail>).detail ?? {};
       if (detail.tab) setRequestsPanelTab(detail.tab);
       if (detail.requestId != null) {
-        window.setTimeout(() => void openRequestDetail(detail.requestId!), 0);
+        window.setTimeout(
+          () => void openRequestDetail(detail.requestId!, detail.entryType ?? "request"),
+          0
+        );
       }
     };
     window.addEventListener(STORE_REQUESTS_OPEN_EVENT, onFocus);
@@ -469,7 +501,7 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
                       <button
                         type="button"
                         disabled={requestActionBusy}
-                        onClick={() => void openRequestDetail(req.id)}
+                        onClick={() => void openRequestDetail(req)}
                         className="inline-flex items-center gap-1 rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
                       >
                         <Eye className="h-3.5 w-3.5" />
@@ -515,7 +547,7 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
           <>
             <p className="mt-3 text-xs text-zinc-500">
               {canApprove
-                ? "Historial de solicitudes de todas las tiendas. Solo lectura."
+                ? "Historial de solicitudes aprobadas o rechazadas y de publicaciones directas de administradores en Git."
                 : "Historial de tus solicitudes enviadas."}
             </p>
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -561,17 +593,17 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
                 Cargando historial…
               </div>
             ) : historyRequests.length === 0 ? (
-              <p className="mt-4 text-xs text-zinc-500">No hay solicitudes en este filtro.</p>
+              <p className="mt-4 text-xs text-zinc-500">No hay registros en este filtro.</p>
             ) : displayedHistoryRequests.length === 0 ? (
               <p className="mt-4 text-xs text-zinc-500">
-                Ninguna solicitud coincide con la búsqueda o los filtros seleccionados.
+                Ningún registro coincide con la búsqueda o los filtros seleccionados.
               </p>
             ) : (
               <>
                 {displayedHistoryRequests.length !== historyRequests.length ? (
                   <p className="mt-3 text-xs text-zinc-500">
                     <span className="font-medium text-zinc-300">{displayedHistoryRequests.length}</span> de{" "}
-                    {historyRequests.length} solicitud{historyRequests.length !== 1 ? "es" : ""}
+                    {historyRequests.length} registro{historyRequests.length !== 1 ? "s" : ""}
                   </p>
                 ) : null}
               <div className="mt-4 overflow-x-auto rounded-lg border border-white/[0.06]">
@@ -582,16 +614,20 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
                       <th className="px-3 py-2 font-medium">Tienda</th>
                       <th className="px-3 py-2 font-medium">Resumen</th>
                       <th className="px-3 py-2 font-medium">Estado</th>
-                      {canApprove ? <th className="px-3 py-2 font-medium">Solicitante</th> : null}
-                      <th className="px-3 py-2 font-medium">Enviada</th>
-                      <th className="px-3 py-2 font-medium">Revisada por</th>
-                      <th className="px-3 py-2 font-medium">Fecha revisión</th>
+                      {canApprove ? (
+                        <th className="px-3 py-2 font-medium">Autor</th>
+                      ) : null}
+                      <th className="px-3 py-2 font-medium">Fecha</th>
+                      {canApprove ? <th className="px-3 py-2 font-medium">Revisado por</th> : null}
                       <th className="px-3 py-2 font-medium text-right">Detalle</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/[0.04]">
                     {displayedHistoryRequests.map((req) => (
-                      <tr key={req.id} className="bg-black/20 hover:bg-black/30">
+                      <tr
+                        key={`${req.entryType ?? "request"}-${req.id}`}
+                        className="bg-black/20 hover:bg-black/30"
+                      >
                         <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">{req.id}</td>
                         <td className="whitespace-nowrap px-3 py-2.5 font-medium text-zinc-200">{req.storeId}</td>
                         <td className="max-w-[14rem] truncate px-3 py-2.5 text-zinc-400" title={req.summary}>
@@ -599,27 +635,26 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
                         </td>
                         <td className="whitespace-nowrap px-3 py-2.5">
                           <span
-                            className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1 ${requestStatusBadgeClass(req.status)}`}
+                            className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1 ${requestStatusBadgeClass(req.status, req.entryType)}`}
                           >
-                            {requestStatusLabel(req.status)}
+                            {requestStatusLabel(req.status, req.entryType)}
                           </span>
                         </td>
                         {canApprove ? (
                           <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">{req.createdByUsername}</td>
                         ) : null}
                         <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">
-                          {formatRequestWhen(req.createdAt)}
+                          {formatRequestWhen(req.reviewedAt ?? req.createdAt)}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">
-                          {req.reviewedByUsername ?? "—"}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-zinc-500">
-                          {formatRequestWhen(req.reviewedAt)}
-                        </td>
+                        {canApprove ? (
+                          <td className="whitespace-nowrap px-3 py-2.5 text-zinc-400">
+                            {req.entryType === "direct" ? "—" : (req.reviewedByUsername ?? "—")}
+                          </td>
+                        ) : null}
                         <td className="whitespace-nowrap px-3 py-2.5 text-right">
                           <button
                             type="button"
-                            onClick={() => void openRequestDetail(req.id)}
+                            onClick={() => void openRequestDetail(req)}
                             className="inline-flex items-center gap-1 rounded-md border border-cf-line px-2 py-1 text-[11px] text-zinc-300 hover:bg-zinc-800"
                           >
                             <Eye className="h-3 w-3" />
@@ -695,7 +730,9 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h2 className="text-sm font-semibold text-zinc-100">Detalle de la solicitud</h2>
+                <h2 className="text-sm font-semibold text-zinc-100">
+                  {requestDetailEntryType === "direct" ? "Detalle de publicación" : "Detalle de la solicitud"}
+                </h2>
                 {requestDetail ? (
                   <p className="mt-1 text-xs text-zinc-500">
                     #{requestDetail.id} · {requestDetail.kind === "create" ? "Nueva tienda" : "Actualización"} ·{" "}
@@ -716,9 +753,9 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
               <div className="space-y-4 text-xs">
                 <div className="flex flex-wrap items-center gap-2">
                   <span
-                    className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1 ${requestStatusBadgeClass(requestDetail.status)}`}
+                    className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1 ${requestStatusBadgeClass(requestDetail.status, requestDetail.entryType)}`}
                   >
-                    {requestStatusLabel(requestDetail.status)}
+                    {requestStatusLabel(requestDetail.status, requestDetail.entryType)}
                   </span>
                   <span className="text-zinc-500">
                     {requestDetail.kind === "create" ? "Nueva tienda" : "Actualización"} · {requestDetail.folderName}
@@ -730,12 +767,15 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
                     <dd className="text-zinc-300">{requestDetail.summary}</dd>
                   </div>
                   <div>
-                    <dt className="text-zinc-600">Solicitante</dt>
+                    <dt className="text-zinc-600">
+                      {requestDetail.entryType === "direct" ? "Publicado por" : "Solicitante"}
+                    </dt>
                     <dd className="text-zinc-300">
-                      {requestDetail.createdByUsername} · {formatRequestWhen(requestDetail.createdAt)}
+                      {requestDetail.createdByUsername} ·{" "}
+                      {formatRequestWhen(requestDetail.reviewedAt ?? requestDetail.createdAt)}
                     </dd>
                   </div>
-                  {requestDetail.reviewedByUsername ? (
+                  {requestDetail.entryType !== "direct" && requestDetail.reviewedByUsername ? (
                     <div>
                       <dt className="text-zinc-600">Revisión</dt>
                       <dd className="text-zinc-300">
@@ -759,7 +799,7 @@ export function AtlasStoreRequestsView({ canEdit, canApprove }: Props) {
                 {(requestDetail.changeLines?.length ?? 0) > 0 ? (
                   <div>
                     <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
-                      Cambios propuestos
+                      {requestDetail.entryType === "direct" ? "Cambios publicados" : "Cambios propuestos"}
                     </p>
                     <PublishChangeSummary lines={requestDetail.changeLines ?? []} />
                   </div>

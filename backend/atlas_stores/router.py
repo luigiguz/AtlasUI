@@ -27,6 +27,15 @@ from atlas_stores.change_requests import (
     pending_folder_names,
     reject_change_request,
 )
+from atlas_stores.direct_publishes import (
+    DirectPublishError,
+    KIND_CREATE,
+    KIND_UPDATE,
+    get_direct_publish,
+    record_direct_publish,
+    summarize_direct_create,
+    summarize_direct_update,
+)
 from atlas_stores.equipment import (
     EquipmentNotFoundError,
     RancherNotConfiguredError,
@@ -383,6 +392,9 @@ def get_change_requests(
     status: str = "pending",
     limit: int = 50,
     folder: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    include_direct: bool = False,
 ) -> dict[str, Any]:
     can_approve = has_permission(user, PERM_STORES_APPROVE)
     if not can_approve and not has_permission(user, PERM_STORES_WRITE):
@@ -394,10 +406,26 @@ def get_change_requests(
             status=status,
             limit=limit,
             folder=folder,
+            date_from=date_from,
+            date_to=date_to,
+            include_direct=include_direct,
         )
     except ChangeRequestError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "canApprove": can_approve, "requests": items}
+
+
+@router.get("/direct-publishes/{publish_id}")
+def get_direct_publish_detail(
+    publish_id: int,
+    user: dict[str, Any] = Depends(require_permission(PERM_STORES_APPROVE)),
+) -> dict[str, Any]:
+    del user
+    try:
+        item = get_direct_publish(publish_id)
+    except DirectPublishError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"ok": True, "request": item}
 
 
 @router.get("/change-requests/{request_id}")
@@ -527,6 +555,18 @@ def put_store(
         raise HTTPException(status_code=500, detail="Error al guardar la tienda.") from e
 
     log.info("store saved folder=%s user=%s", folder_name, user.get("username"))
+    try:
+        record_direct_publish(
+            user,
+            kind=KIND_UPDATE,
+            folder_name=folder_name,
+            store_id=str(store.get("id") or folder_name),
+            summary=summarize_direct_update(folder_name, patch),
+            commit_message=git_msg,
+            patch=patch,
+        )
+    except Exception:
+        log.exception("failed to record direct store publish folder=%s", folder_name)
     return {"ok": True, "store": safe, "publishMessage": git_msg}
 
 
@@ -631,6 +671,25 @@ def post_create_store(
         equipment.get("name"),
         user.get("username"),
     )
+    create_body = {
+        "folder_name": folder,
+        "store_id": store_id,
+        "application": application,
+        "distro": distro,
+        "image_channel": body.image_channel.strip() or "stable",
+    }
+    try:
+        record_direct_publish(
+            user,
+            kind=KIND_CREATE,
+            folder_name=folder,
+            store_id=store_id,
+            summary=summarize_direct_create(create_body),
+            commit_message=git_msg,
+            body=create_body,
+        )
+    except Exception:
+        log.exception("failed to record direct store create folder=%s", folder)
     template_used = f"templates/poslite/{distro}/fleet.yaml"
     return {
         "ok": True,

@@ -8,7 +8,13 @@ export const STORE_FLEET_PUBLISH_SUCCESS = {
 
 export type HistoryStatusFilter = "all" | "approved" | "rejected" | "cancelled";
 
-export function requestStatusLabel(status: StoreChangeRequest["status"]): string {
+export function requestStatusLabel(
+  status: StoreChangeRequest["status"],
+  entryType?: StoreChangeRequest["entryType"]
+): string {
+  if (entryType === "direct" || status === "published") {
+    return "Publicación directa";
+  }
   switch (status) {
     case "approved":
       return "Aprobada";
@@ -21,7 +27,13 @@ export function requestStatusLabel(status: StoreChangeRequest["status"]): string
   }
 }
 
-export function requestStatusBadgeClass(status: StoreChangeRequest["status"]): string {
+export function requestStatusBadgeClass(
+  status: StoreChangeRequest["status"],
+  entryType?: StoreChangeRequest["entryType"]
+): string {
+  if (entryType === "direct" || status === "published") {
+    return "bg-violet-500/15 text-violet-200 ring-violet-500/30";
+  }
   switch (status) {
     case "approved":
       return "bg-emerald-500/15 text-emerald-200 ring-emerald-500/30";
@@ -32,6 +44,10 @@ export function requestStatusBadgeClass(status: StoreChangeRequest["status"]): s
     default:
       return "bg-sky-500/15 text-sky-200 ring-sky-500/30";
   }
+}
+
+export function requestHistoryEventAt(req: StoreChangeRequest): string | null | undefined {
+  return req.reviewedAt ?? req.createdAt;
 }
 
 export function formatRequestWhen(iso: string | null | undefined): string {

@@ -72,12 +72,22 @@ export type StoresListResponse = {
   pendingApprovalCount?: number;
 };
 
+export type StoreChangeRequestEntryType = "request" | "direct";
+
+export type StoreChangeRequestStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "cancelled"
+  | "published";
+
 export type StoreChangeRequest = {
+  entryType?: StoreChangeRequestEntryType;
   id: number;
   kind: "update" | "create";
   folderName: string;
   storeId: string;
-  status: "pending" | "approved" | "rejected" | "cancelled";
+  status: StoreChangeRequestStatus;
   summary: string;
   commitMessage: string;
   createdByUserId: number;

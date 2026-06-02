@@ -166,6 +166,32 @@ class StoreChangeRequest(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class StoreDirectPublish(Base):
+    """Publicación en Git sin solicitud de aprobación (admin con permiso Approve)."""
+
+    __tablename__ = "store_direct_publishes"
+    __table_args__ = (
+        Index("idx_store_direct_publishes_folder", "folder_name"),
+        Index("idx_store_direct_publishes_published_at", "published_at"),
+        Index("idx_store_direct_publishes_user", "published_by_user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(PkType, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    folder_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    store_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    summary: Mapped[str] = mapped_column(String(512), nullable=False, server_default="")
+    commit_message: Mapped[str] = mapped_column(String(256), nullable=False, server_default="")
+    change_lines: Mapped[list] = mapped_column(JsonType, nullable=False, default=list)
+    published_by_user_id: Mapped[int] = mapped_column(
+        PkType, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    published_by_username: Mapped[str] = mapped_column(String(32), nullable=False, server_default="")
+    published_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class UserNotification(Base):
     """Notificación in-app persistida (eventos de workflow, rollouts, etc.)."""
 
