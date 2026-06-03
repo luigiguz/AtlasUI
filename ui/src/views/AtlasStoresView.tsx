@@ -1,8 +1,25 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, ChevronLeft, ChevronRight, GitBranch, Loader2, Plus, RefreshCw, Save, Search, Server, Store, Trash2, Upload, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
+  GitBranch,
+  Layers,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Save,
+  Search,
+  Server,
+  Store,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { api } from "../apiClient";
+import { normalizeApplication } from "../rancherLabels";
 import type { ClustersResponse, RancherCustomCluster } from "../rancherTypes";
 import { AtlasAlertDialog } from "../components/AtlasAlertDialog";
 import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
@@ -118,6 +135,104 @@ const tagInputClass =
   "w-28 min-w-0 rounded border border-cf-line bg-cf-card px-1.5 py-0.5 text-[11px] text-zinc-200 outline-none focus:border-cf-orange/50";
 
 const CLUSTERS_CACHE_MS = 60_000;
+const STORES_APPLICATION_KEY = "atlas-stores-selected-application";
+
+function readStoredApplication(): string | null {
+  try {
+    const raw = localStorage.getItem(STORES_APPLICATION_KEY);
+    if (!raw?.trim()) return null;
+    return normalizeApplication(raw) || null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberStoredApplication(app: string): void {
+  try {
+    const canon = normalizeApplication(app) || app.trim();
+    if (canon) localStorage.setItem(STORES_APPLICATION_KEY, canon);
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearStoredApplication(): void {
+  try {
+    localStorage.removeItem(STORES_APPLICATION_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function storeMatchesApplication(storeApp: string, selectedApp: string): boolean {
+  const a = normalizeApplication(storeApp) || "Poslite";
+  const b = normalizeApplication(selectedApp);
+  return a.toLowerCase() === b.toLowerCase();
+}
+
+type StoreApplicationOption = {
+  id: string;
+  label: string;
+  count: number;
+};
+
+function StoresApplicationPicker({
+  options,
+  loading,
+  onSelect,
+}: {
+  options: StoreApplicationOption[];
+  loading: boolean;
+  onSelect: (applicationId: string) => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-cf-panel">
+      <div className="border-b border-cf-line/50 px-5 py-4 sm:px-6">
+        <h2 className="text-sm font-semibold text-zinc-100">Seleccione la aplicación que desea gestionar</h2>
+        <p className="mt-1 text-xs text-zinc-500">
+          Cada aplicación agrupa sus tiendas en el repositorio Git y las etiquetas de equipo en Rancher.
+        </p>
+      </div>
+      <div className="p-5 sm:p-6">
+        {loading ? (
+          <AtlasLoadingSplash message="Cargando aplicaciones…" minHeight="min-h-[200px]" />
+        ) : options.length === 0 ? (
+          <p className="text-center text-sm text-zinc-500">No hay aplicaciones disponibles en el repositorio.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {options.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => onSelect(opt.id)}
+                className="atlas-metric-card group flex flex-col items-start gap-3 text-left"
+              >
+                <div className="flex w-full items-start justify-between gap-2">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cf-orange/10 ring-1 ring-cf-orange/25 transition group-hover:bg-cf-orange/15">
+                    <Layers className="h-5 w-5 text-cf-orange" aria-hidden />
+                  </div>
+                  <span className="rounded-full bg-zinc-800/80 px-2 py-0.5 text-[10px] font-medium tabular-nums text-zinc-400 ring-1 ring-cf-line/60">
+                    {opt.count} tienda{opt.count !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-zinc-100 group-hover:text-white">{opt.label}</p>
+                  <p className="mt-1 text-[11px] text-zinc-600 group-hover:text-zinc-500">
+                    Ver y editar despliegues de esta aplicación
+                  </p>
+                </div>
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-cf-orange opacity-80 transition group-hover:opacity-100">
+                  Gestionar
+                  <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 
 function gitChangeBadgeClass(status: string): string {
@@ -192,6 +307,9 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [selectedApplication, setSelectedApplication] = useState<string | null>(() =>
+    readStoredApplication()
+  );
   const [viewMode, setViewMode] = useState<StoresViewMode>("list");
   const [serviceFilter, setServiceFilter] = useState("");
   const [detail, setDetail] = useState<StoreDetail | null>(null);
@@ -756,6 +874,26 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     () => [...stores].sort((a, b) => a.id.localeCompare(b.id, "es")),
     [stores]
   );
+
+  const applicationOptions = useMemo((): StoreApplicationOption[] => {
+    const counts = new Map<string, number>();
+    const bump = (raw: string) => {
+      const id = normalizeApplication(raw) || raw.trim() || "Poslite";
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    };
+    bump("Poslite");
+    bump("IERP");
+    for (const s of stores) bump(s.application || "Poslite");
+    return Array.from(counts.entries())
+      .map(([id, count]) => ({ id, label: applicationLabel(id), count }))
+      .sort((a, b) => a.label.localeCompare(b.label, "es"));
+  }, [stores]);
+
+  const storesForSelectedApplication = useMemo(() => {
+    if (!selectedApplication) return [];
+    return sortedStores.filter((s) => storeMatchesApplication(s.application, selectedApplication));
+  }, [sortedStores, selectedApplication]);
+
   const knownApplications = useMemo(() => {
     const apps = new Set<string>();
     apps.add("Poslite");
@@ -808,6 +946,19 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const hasSoftwareSections =
     (detail?.station?.services?.length ?? 0) > 0 || workerGroups.some((g) => g.workers.length > 0);
 
+  function selectApplication(app: string) {
+    const canon = normalizeApplication(app) || app.trim();
+    if (!canon) return;
+    setSelectedApplication(canon);
+    rememberStoredApplication(canon);
+    setNewApplication(canon);
+  }
+
+  function clearApplicationSelection() {
+    setSelectedApplication(null);
+    clearStoredApplication();
+  }
+
   function goBackToList() {
     setViewMode("list");
     setSelectedFolder(null);
@@ -837,12 +988,42 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     >
       {viewMode === "list" ? (
         <>
+      {!selectedApplication ? (
+        <>
+          <div>
+            <h1 className="text-lg font-semibold text-zinc-100">Gestión de Tiendas</h1>
+            <p className="text-xs text-zinc-500">
+              Elige la aplicación cuyas tiendas y despliegues quieres configurar en Git y Rancher.
+            </p>
+          </div>
+          <StoresApplicationPicker
+            options={applicationOptions}
+            loading={loading}
+            onSelect={selectApplication}
+          />
+        </>
+      ) : (
+        <>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={clearApplicationSelection}
+              className="inline-flex items-center gap-1 rounded-lg border border-cf-line bg-cf-card px-2.5 py-1 text-[11px] text-zinc-400 hover:border-cf-orange/40 hover:text-zinc-200"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+              Cambiar aplicación
+            </button>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-cf-orange/10 px-2.5 py-0.5 text-[11px] font-medium text-cf-orange ring-1 ring-cf-orange/25">
+              <Layers className="h-3 w-3" aria-hidden />
+              {applicationLabel(selectedApplication)}
+            </span>
+          </div>
           <h1 className="text-lg font-semibold text-zinc-100">Gestión de Tiendas</h1>
           <p className="text-xs text-zinc-500">
-            Configura qué software se despliega en cada tienda. Al publicar, se actualiza el repositorio y el
-            despliegue automático lo aplica en el equipo.
+            Tiendas de <span className="font-medium text-zinc-300">{applicationLabel(selectedApplication)}</span>.
+            Al publicar, se actualiza el repositorio y el despliegue automático lo aplica en el equipo.
           </p>
           <p className="mt-1 text-[11px] text-zinc-600">
             Haz clic en una tienda para abrir su ficha y gestionar servicios, tags y despliegue.
@@ -866,6 +1047,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 setCreateStep("form");
                 setCreatePreview(null);
                 setCreateError("");
+                setNewApplication(selectedApplication);
                 setCreateOpen(true);
               }}
               disabled={!configured}
@@ -1098,24 +1280,25 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-cf-panel">
           {loading ? (
             <AtlasLoadingSplash message="Cargando tiendas…" minHeight="min-h-[280px]" />
-          ) : sortedStores.length === 0 ? (
+          ) : storesForSelectedApplication.length === 0 ? (
             <div className="p-10 text-center text-sm text-zinc-500">
               <Store className="mx-auto mb-2 h-8 w-8 text-zinc-600" />
-              No hay tiendas en el repositorio.
+              {sortedStores.length === 0
+                ? "No hay tiendas en el repositorio."
+                : `No hay tiendas de ${applicationLabel(selectedApplication)} en el repositorio.`}
             </div>
           ) : (
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-cf-line/50 text-xs uppercase text-zinc-500">
                   <th className="px-4 py-3">Tienda</th>
-                  <th className="px-4 py-3">Aplicación</th>
                   <th className="px-4 py-3">Distribución</th>
                   <th className="px-4 py-3">Tag (versión)</th>
                   <th className="hidden px-4 py-3 text-right sm:table-cell" aria-hidden />
                 </tr>
               </thead>
               <tbody>
-                {sortedStores.map((s) => (
+                {storesForSelectedApplication.map((s) => (
                   <tr
                     key={s.folderName}
                     onClick={() => openStore(s.folderName)}
@@ -1132,7 +1315,6 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                         Toca para gestionar
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-zinc-400">{applicationLabel(s.application)}</td>
                     <td className="px-4 py-3 text-zinc-400">{distroLabel(s.distro)}</td>
                     <td className="px-4 py-3 text-zinc-500" title="Resumen; cada servicio puede tener otro tag en la ficha">
                       {s.imageChannel || "—"}
@@ -1150,6 +1332,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
           )}
         </div>
         </>
+      )}
+        </>
       ) : (
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1160,7 +1344,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-cf-line px-3 py-1.5 text-xs text-zinc-300 hover:bg-cf-card"
               >
                 <ChevronLeft className="h-4 w-4" />
-                Tiendas
+                {selectedApplication ? applicationLabel(selectedApplication) : "Tiendas"}
               </button>
               <div className="min-w-0">
                 <h1 className="truncate text-lg font-semibold text-zinc-100">{detail?.id ?? selectedFolder}</h1>
