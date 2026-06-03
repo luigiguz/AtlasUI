@@ -141,7 +141,12 @@ function readStoredApplication(): string | null {
   try {
     const raw = localStorage.getItem(STORES_APPLICATION_KEY);
     if (!raw?.trim()) return null;
-    return normalizeApplication(raw) || null;
+    const canon = normalizeApplication(raw) || null;
+    if (canon === "IERP") {
+      localStorage.removeItem(STORES_APPLICATION_KEY);
+      return null;
+    }
+    return canon;
   } catch {
     return null;
   }
@@ -882,9 +887,9 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       counts.set(id, (counts.get(id) ?? 0) + 1);
     };
     bump("Poslite");
-    bump("IERP");
     for (const s of stores) bump(s.application || "Poslite");
     return Array.from(counts.entries())
+      .filter(([id]) => normalizeApplication(id) !== "IERP")
       .map(([id, count]) => ({ id, label: applicationLabel(id), count }))
       .sort((a, b) => a.label.localeCompare(b.label, "es"));
   }, [stores]);
@@ -897,12 +902,13 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const knownApplications = useMemo(() => {
     const apps = new Set<string>();
     apps.add("Poslite");
-    apps.add("IERP");
     for (const s of stores) {
       const app = (s.application || "").trim();
-      if (app) apps.add(app);
+      if (app && normalizeApplication(app) !== "IERP") apps.add(app);
     }
-    if (detail?.application?.trim()) apps.add(detail.application.trim());
+    if (detail?.application?.trim() && normalizeApplication(detail.application) !== "IERP") {
+      apps.add(detail.application.trim());
+    }
     if (newApplication.trim()) apps.add(newApplication.trim());
     return Array.from(apps).sort((a, b) => a.localeCompare(b, "es"));
   }, [stores, detail?.application, newApplication]);
@@ -1418,7 +1424,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       onChange={(e) => setDetail({ ...detail, application: e.target.value })}
                       className={inputClass}
                       list="atlas-store-applications"
-                      placeholder="Ej. Poslite, IERP, ..."
+                      placeholder="Ej. Poslite"
                       disabled={!canEdit}
                     />
                   </label>
@@ -1786,7 +1792,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                       onChange={(e) => setNewApplication(e.target.value)}
                       className={inputClass}
                       list="atlas-store-applications"
-                      placeholder="Ej. Poslite, IERP, ..."
+                      placeholder="Ej. Poslite"
                     />
                   </label>
                   <label className="text-xs text-zinc-500">
