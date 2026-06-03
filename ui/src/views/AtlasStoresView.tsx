@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  Filter,
   GitBranch,
   Layers,
   Loader2,
@@ -16,10 +17,19 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 
 import { api } from "../apiClient";
-import { normalizeApplication } from "../rancherLabels";
+import { normalizeApplication, normalizeDistro } from "../rancherLabels";
 import type { ClustersResponse, RancherCustomCluster } from "../rancherTypes";
 import { AtlasAlertDialog } from "../components/AtlasAlertDialog";
 import { AtlasConfirmDialog } from "../components/AtlasConfirmDialog";
@@ -180,6 +190,249 @@ type StoreApplicationOption = {
   label: string;
   count: number;
 };
+
+type StoreFilterFieldKey = "id" | "distro" | "tag";
+type StoreFilterOperator = "contains" | "equals" | "not_contains";
+
+type StoreFilterRule = {
+  id: string;
+  field: StoreFilterFieldKey;
+  operator: StoreFilterOperator;
+  value: string;
+};
+
+const STORE_FILTER_FIELDS: { key: StoreFilterFieldKey; label: string; placeholder: string }[] = [
+  { key: "id", label: "Tienda", placeholder: "código o carpeta" },
+  { key: "distro", label: "Distribución", placeholder: "Horustech, PAM…" },
+  { key: "tag", label: "Tag", placeholder: "stable, unstable…" },
+];
+
+const STORE_FILTER_OPERATORS: { key: StoreFilterOperator; label: string }[] = [
+  { key: "contains", label: "contiene" },
+  { key: "equals", label: "es" },
+  { key: "not_contains", label: "no contiene" },
+];
+
+const storeFilterSelectClass =
+  "w-full min-w-0 rounded-lg border border-cf-line bg-cf-card px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-cf-orange/50";
+
+function newStoreFilterRule(field: StoreFilterFieldKey = "id"): StoreFilterRule {
+  return {
+    id: crypto.randomUUID(),
+    field,
+    operator: "contains",
+    value: "",
+  };
+}
+
+function storeFilterPlaceholder(field: StoreFilterFieldKey): string {
+  return STORE_FILTER_FIELDS.find((f) => f.key === field)?.placeholder ?? "";
+}
+
+function matchesStoreSearchQuery(s: StoreSummary, query: string): boolean {
+  const t = query.trim().toLowerCase();
+  if (!t) return true;
+  const haystack = [s.id, s.folderName, s.distro, distroLabel(s.distro), s.imageChannel]
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(t);
+}
+
+function storeFieldValue(s: StoreSummary, field: StoreFilterFieldKey): string {
+  switch (field) {
+    case "id":
+      return `${s.id} ${s.folderName}`;
+    case "distro":
+      return distroLabel(s.distro);
+    case "tag":
+      return s.imageChannel || "";
+    default:
+      return "";
+  }
+}
+
+function storeCompareFieldValues(field: StoreFilterFieldKey, storeVal: string, ruleVal: string): boolean {
+  if (field === "distro") {
+    return normalizeDistro(storeVal) === normalizeDistro(ruleVal);
+  }
+  return storeVal.trim().localeCompare(ruleVal.trim(), "es", { sensitivity: "base" }) === 0;
+}
+
+function storeRuleMatches(s: StoreSummary, rule: StoreFilterRule): boolean {
+  const needle = rule.value.trim();
+  if (!needle) return true;
+  const raw = storeFieldValue(s, rule.field);
+  const haystack = raw.toLowerCase();
+  const q = needle.toLowerCase();
+  if (rule.operator === "equals") {
+    return storeCompareFieldValues(rule.field, raw, needle);
+  }
+  if (rule.operator === "not_contains") {
+    return !haystack.includes(q);
+  }
+  return haystack.includes(q);
+}
+
+function matchesStoreFilterRules(s: StoreSummary, rules: StoreFilterRule[]): boolean {
+  const active = rules.filter((r) => r.value.trim());
+  return active.every((r) => storeRuleMatches(s, r));
+}
+
+function StoreSearchInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="relative min-w-0 flex-1">
+      <Search
+        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
+        aria-hidden
+      />
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Buscar por tienda, distribución, tag…"
+        autoComplete="off"
+        className="w-full rounded-xl border border-cf-line bg-cf-panel/90 py-2 pl-9 pr-9 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50 focus:ring-2 focus:ring-cf-orange/20"
+        aria-label="Buscar tiendas"
+      />
+      {value ? (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-500 hover:bg-cf-card hover:text-zinc-300"
+          aria-label="Borrar búsqueda"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function StoreFiltersPanel({
+  rules,
+  onChange,
+  onApply,
+  onClose,
+}: {
+  rules: StoreFilterRule[];
+  onChange: (rules: StoreFilterRule[]) => void;
+  onApply: () => void;
+  onClose: () => void;
+}) {
+  function updateRule(id: string, patch: Partial<StoreFilterRule>) {
+    onChange(rules.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+
+  function removeRule(id: string) {
+    const next = rules.filter((r) => r.id !== id);
+    onChange(next.length ? next : [newStoreFilterRule()]);
+  }
+
+  function onKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onApply();
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-label="Filtros de tiendas"
+      className="absolute left-0 right-0 top-full z-30 mt-2 w-full max-w-xl rounded-xl border border-cf-line bg-cf-panel p-4 shadow-2xl ring-1 ring-cf-line/40 sm:left-auto sm:right-0 sm:w-[min(36rem,calc(100vw-2rem))]"
+      onKeyDown={onKeyDown}
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-sm font-medium text-zinc-200">Filtros</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded p-1 text-zinc-500 hover:bg-cf-card hover:text-zinc-300"
+          aria-label="Cerrar filtros"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {rules.map((rule) => (
+          <div key={rule.id} className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+            <select
+              value={rule.field}
+              onChange={(e) =>
+                updateRule(rule.id, { field: e.target.value as StoreFilterFieldKey })
+              }
+              className={`${storeFilterSelectClass} sm:w-[7.5rem]`}
+              aria-label="Campo"
+            >
+              {STORE_FILTER_FIELDS.map((f) => (
+                <option key={f.key} value={f.key}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={rule.operator}
+              onChange={(e) =>
+                updateRule(rule.id, { operator: e.target.value as StoreFilterOperator })
+              }
+              className={`${storeFilterSelectClass} sm:w-[8.5rem]`}
+              aria-label="Operador"
+            >
+              {STORE_FILTER_OPERATORS.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              value={rule.value}
+              onChange={(e) => updateRule(rule.id, { value: e.target.value })}
+              placeholder={storeFilterPlaceholder(rule.field)}
+              className="min-w-0 flex-1 rounded-lg border border-cf-line bg-cf-card px-2.5 py-1.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cf-orange/50"
+              aria-label="Valor del filtro"
+            />
+            <button
+              type="button"
+              onClick={() => removeRule(rule.id)}
+              className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-cf-card hover:text-zinc-300"
+              aria-label="Eliminar filtro"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onChange([...rules, newStoreFilterRule()])}
+        className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-cf-orange hover:text-cf-orange/80"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Agregar filtro
+      </button>
+
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-cf-line/50 pt-3">
+        <p className="text-[11px] text-zinc-600">Pulsa Intro para aplicar</p>
+        <button
+          type="button"
+          onClick={onApply}
+          className="rounded-lg bg-zinc-700 px-4 py-1.5 text-sm font-medium text-zinc-100 ring-1 ring-zinc-600 hover:bg-zinc-600"
+        >
+          Aplicar
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function StoresApplicationPicker({
   options,
@@ -365,6 +618,13 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   const [publishing, setPublishing] = useState(false);
 
   const [pendingFolders, setPendingFolders] = useState<string[]>([]);
+  const [storeSearchQuery, setStoreSearchQuery] = useState("");
+  const [storeFiltersOpen, setStoreFiltersOpen] = useState(false);
+  const storeFiltersPanelRef = useRef<HTMLDivElement>(null);
+  const [storeAppliedRules, setStoreAppliedRules] = useState<StoreFilterRule[]>([]);
+  const [storeDraftRules, setStoreDraftRules] = useState<StoreFilterRule[]>(() => [
+    newStoreFilterRule(),
+  ]);
 
   const clustersCacheRef = useRef<{ clusters: RancherCustomCluster[]; at: number } | null>(null);
 
@@ -899,6 +1159,21 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
     return sortedStores.filter((s) => storeMatchesApplication(s.application, selectedApplication));
   }, [sortedStores, selectedApplication]);
 
+  const displayedStores = useMemo(() => {
+    return storesForSelectedApplication.filter(
+      (s) =>
+        matchesStoreSearchQuery(s, storeSearchQuery) &&
+        matchesStoreFilterRules(s, storeAppliedRules)
+    );
+  }, [storesForSelectedApplication, storeSearchQuery, storeAppliedRules]);
+
+  const storeActiveRuleCount = useMemo(
+    () => storeAppliedRules.filter((r) => r.value.trim()).length,
+    [storeAppliedRules]
+  );
+
+  const hasActiveStoreFilters = storeSearchQuery.trim() !== "" || storeActiveRuleCount > 0;
+
   const knownApplications = useMemo(() => {
     const apps = new Set<string>();
     apps.add("Poslite");
@@ -963,7 +1238,52 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
   function clearApplicationSelection() {
     setSelectedApplication(null);
     clearStoredApplication();
+    setStoreSearchQuery("");
+    setStoreAppliedRules([]);
+    setStoreDraftRules([newStoreFilterRule()]);
+    setStoreFiltersOpen(false);
   }
+
+  function clearAllStoreFilters() {
+    setStoreSearchQuery("");
+    setStoreAppliedRules([]);
+    setStoreDraftRules([newStoreFilterRule()]);
+  }
+
+  function openStoreFiltersPanel() {
+    setStoreDraftRules(
+      storeAppliedRules.filter((r) => r.value.trim()).length
+        ? storeAppliedRules.map((r) => ({ ...r, id: crypto.randomUUID() }))
+        : [newStoreFilterRule()]
+    );
+    setStoreFiltersOpen(true);
+  }
+
+  function applyStoreDraftFilters() {
+    setStoreAppliedRules(storeDraftRules.filter((r) => r.value.trim()));
+    setStoreFiltersOpen(false);
+  }
+
+  useEffect(() => {
+    if (!storeFiltersOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (
+        storeFiltersPanelRef.current &&
+        !storeFiltersPanelRef.current.contains(e.target as Node)
+      ) {
+        setStoreFiltersOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setStoreFiltersOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [storeFiltersOpen]);
 
   function goBackToList() {
     setViewMode("list");
@@ -1034,9 +1354,17 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
           <p className="mt-1 text-[11px] text-zinc-600">
             Haz clic en una tienda para abrir su ficha y gestionar servicios, tags y despliegue.
           </p>
-          {canAdmin && repoUrl ? <p className="mt-1 truncate text-[11px] text-zinc-600">{repoUrl}</p> : null}
         </div>
         <div className="flex flex-wrap gap-2">
+          {hasActiveStoreFilters ? (
+            <button
+              type="button"
+              onClick={clearAllStoreFilters}
+              className="rounded-lg border border-cf-line bg-cf-panel px-3 py-1.5 text-xs text-zinc-400 hover:border-zinc-500"
+            >
+              Limpiar filtros
+            </button>
+          ) : null}
           {canAdmin ? (
             <button
               type="button"
@@ -1283,7 +1611,42 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
       ) : null}
       {saveMsg ? <p className="text-xs text-zinc-400">{saveMsg}</p> : null}
 
-      <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-cf-panel">
+      {storesForSelectedApplication.length > 0 ? (
+        <div ref={storeFiltersPanelRef} className="relative flex flex-wrap items-center gap-2">
+          <StoreSearchInput value={storeSearchQuery} onChange={setStoreSearchQuery} />
+          <button
+            type="button"
+            onClick={() =>
+              storeFiltersOpen ? setStoreFiltersOpen(false) : openStoreFiltersPanel()
+            }
+            aria-expanded={storeFiltersOpen}
+            aria-haspopup="dialog"
+            className={
+              storeFiltersOpen || storeActiveRuleCount > 0
+                ? "inline-flex shrink-0 items-center gap-2 rounded-xl border border-cf-orange/45 bg-cf-orange/10 px-3.5 py-2 text-sm font-medium text-zinc-100 ring-1 ring-cf-orange/25"
+                : "inline-flex shrink-0 items-center gap-2 rounded-xl border border-cf-line bg-cf-panel/90 px-3.5 py-2 text-sm font-medium text-zinc-200 hover:border-zinc-500"
+            }
+          >
+            <Filter className="h-4 w-4 text-zinc-400" aria-hidden />
+            Filtros
+            {storeActiveRuleCount > 0 ? (
+              <span className="rounded-full bg-cf-orange/25 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-cf-orange">
+                {storeActiveRuleCount}
+              </span>
+            ) : null}
+          </button>
+          {storeFiltersOpen ? (
+            <StoreFiltersPanel
+              rules={storeDraftRules}
+              onChange={setStoreDraftRules}
+              onApply={applyStoreDraftFilters}
+              onClose={() => setStoreFiltersOpen(false)}
+            />
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="overflow-hidden rounded-xl border border-cf-line/70 bg-cf-panel ring-1 ring-cf-line/30">
           {loading ? (
             <AtlasLoadingSplash message="Cargando tiendas…" minHeight="min-h-[280px]" />
           ) : storesForSelectedApplication.length === 0 ? (
@@ -1294,6 +1657,26 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 : `No hay tiendas de ${applicationLabel(selectedApplication)} en el repositorio.`}
             </div>
           ) : (
+            <>
+              <p className="border-b border-cf-line/50 px-4 py-3 text-sm text-zinc-400">
+                {displayedStores.length === storesForSelectedApplication.length ? (
+                  <>
+                    <span className="font-medium text-zinc-300">{storesForSelectedApplication.length}</span>{" "}
+                    tienda{storesForSelectedApplication.length !== 1 ? "s" : ""}
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-zinc-300">{displayedStores.length}</span> de{" "}
+                    {storesForSelectedApplication.length} tienda
+                    {storesForSelectedApplication.length !== 1 ? "s" : ""}
+                  </>
+                )}
+              </p>
+              {displayedStores.length === 0 ? (
+                <div className="p-10 text-center text-sm text-zinc-500">
+                  Ninguna tienda coincide con la búsqueda o los filtros seleccionados.
+                </div>
+              ) : (
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-cf-line/50 text-xs uppercase text-zinc-500">
@@ -1304,7 +1687,7 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {storesForSelectedApplication.map((s) => (
+                {displayedStores.map((s) => (
                   <tr
                     key={s.folderName}
                     onClick={() => openStore(s.folderName)}
@@ -1335,6 +1718,8 @@ export function AtlasStoresView({ canAdmin, canEdit, canApprove }: Props) {
                 ))}
               </tbody>
             </table>
+              )}
+            </>
           )}
         </div>
         </>
