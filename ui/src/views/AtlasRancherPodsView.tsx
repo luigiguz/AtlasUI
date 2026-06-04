@@ -1314,7 +1314,7 @@ function ClusterContainersPanel({
   }
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       {error ? (
         <p className="shrink-0 border-b border-red-500/20 bg-red-500/5 px-4 py-2 text-xs text-red-300">{error}</p>
       ) : null}
@@ -1383,8 +1383,10 @@ function ClusterContainersPanel({
       ) : filteredRows.length === 0 ? (
         <p className="px-4 py-8 text-sm text-zinc-500">Ningún servicio coincide con la búsqueda.</p>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div
+          className={`h-full min-h-0 overflow-auto ${selected.size > 0 ? "pb-[4.75rem]" : ""}`}
+        >
           <ul className="divide-y divide-cf-line/25">
             {filteredRows.map((row) => {
               const d = row.deployment;
@@ -1545,12 +1547,12 @@ function ClusterContainersPanel({
         <AnimatePresence>
           {canEdit && selected.size > 0 ? (
             <motion.div
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
-              className="z-20 shrink-0 border-t border-cf-line/50 bg-[#0b0d10]/95 px-3 py-2.5 backdrop-blur-md"
+              exit={{ opacity: 0, y: 10 }}
+              className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center bg-gradient-to-t from-[#0b0d10] via-[#0b0d10]/90 to-transparent px-3 pb-4 pt-10 md:bottom-2"
             >
-              <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-2 sm:gap-3">
+              <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2 rounded-full border border-cf-line/80 bg-[#1a1f26]/95 px-3 py-2 shadow-xl shadow-black/50 ring-1 ring-cf-line/40 backdrop-blur-md sm:gap-3 sm:px-4">
                 <span className="text-xs text-zinc-400">
                   {selected.size} seleccionado{selected.size !== 1 ? "s" : ""}
                 </span>
@@ -1700,9 +1702,9 @@ export function AtlasRancherPodsView({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22 }}
-      className="flex flex-col gap-4"
+      className="flex h-full min-h-0 flex-col gap-4 overflow-hidden"
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-lg font-semibold text-zinc-100">Contenedores</h1>
           <p className="text-xs text-zinc-500">
@@ -1742,7 +1744,7 @@ export function AtlasRancherPodsView({
           No hay tiendas disponibles.
         </div>
       ) : (
-        <div className="flex min-h-[min(70vh,40rem)] flex-col overflow-hidden rounded-xl border border-cf-line/70 bg-cf-panel ring-1 ring-cf-line/30">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-cf-line/70 bg-cf-panel ring-1 ring-cf-line/30">
           <TiendaPicker
             tiendas={clusters}
             selectedId={selectedId}
