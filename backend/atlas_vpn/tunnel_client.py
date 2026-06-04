@@ -18,6 +18,40 @@ def tunnels_service_url() -> str:
     return (atlas_env("ATLAS_TUNNELS_URL") or os.environ.get("ATLAS_TUNNELS_URL") or "").strip().rstrip("/")
 
 
+def fetch_tunnel_diagnostics(timeout: float = 5.0) -> dict[str, Any] | None:
+    """Diagnóstico completo desde atlas-tunnels (/diagnostics)."""
+    base = tunnels_service_url()
+    if not base:
+        return None
+    url = f"{base}/diagnostics"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            data = json.loads(body) if body.strip() else {}
+            return data if isinstance(data, dict) else None
+    except Exception as e:
+        logger.debug("tunnel /diagnostics failed: %s", e)
+        return None
+
+
+def fetch_tunnel_listener_status(timeout: float = 4.0) -> dict[str, str] | None:
+    """Estado site:label desde atlas-tunnels (/status). None si no hay servicio."""
+    base = tunnels_service_url()
+    if not base:
+        return None
+    url = f"{base}/status"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            data = json.loads(body) if body.strip() else {}
+            listeners = data.get("listeners")
+            if isinstance(listeners, dict):
+                return {str(k): str(v) for k, v in listeners.items()}
+    except Exception as e:
+        logger.debug("tunnel /status failed: %s", e)
+    return None
+
+
 def request_tunnel_reconcile(timeout: float = 8.0) -> dict[str, Any] | None:
     """Pide al keeper que reconcilie túneles. None si no hay URL configurada."""
     base = tunnels_service_url()

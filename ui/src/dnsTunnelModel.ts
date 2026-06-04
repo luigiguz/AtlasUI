@@ -20,7 +20,9 @@ export function tunnelStatusLabel(status: DnsTunnelStatus): string {
     case "degraded":
       return "Down";
     case "empty":
-      return "Down";
+      return "Sin rutas";
+    case "idle":
+      return "Inactivo";
     default:
       return "Down";
   }

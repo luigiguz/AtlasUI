@@ -23,8 +23,8 @@ const STATUS_FILTER_OPTIONS: { key: "all" | DnsTunnelStatus; label: string }[] =
   { key: "all", label: "Todos los estados" },
   { key: "healthy", label: "Up" },
   { key: "degraded", label: "Down" },
-  { key: "idle", label: "Down (sin túnel activo)" },
-  { key: "empty", label: "Down (sin rutas DNS)" },
+  { key: "idle", label: "Inactivo (SSH no activo)" },
+  { key: "empty", label: "Sin rutas DNS" },
 ];
 
 export function AtlasDnsView({ sites, domainSuffix }: Props) {

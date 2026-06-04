@@ -31,7 +31,12 @@ from atlas_vpn.cf_sync import CfSyncError, sync_to_tunnels_json
 from atlas_vpn.constants import resolve_ssh_username
 from atlas_vpn.pgadmin_launch import launch_pgadmin
 from atlas_vpn.poslite_urls import poslite_links_for_site
-from atlas_vpn.tunnel_client import request_tunnel_reconcile
+from atlas_vpn.tunnel_client import (
+    fetch_tunnel_diagnostics,
+    fetch_tunnel_listener_status,
+    request_tunnel_reconcile,
+    tunnels_service_url,
+)
 from atlas_core.env import atlas_env, atlas_env_flag
 from atlas_core.paths import PROJECT_ROOT, STATIC_WEB, resolve_logo_path
 from atlas_vpn.settings_store import load_settings, save_settings
@@ -315,7 +320,19 @@ def _proc_for_site_label(state: dict, site: str, label: str) -> dict | None:
     return None
 
 
-def _state_label(row: dict | None, spec: dict | None = None) -> str:
+def _state_label(
+    row: dict | None,
+    spec: dict | None = None,
+    *,
+    site: str | None = None,
+    label: str | None = None,
+    keeper_listeners: dict[str, str] | None = None,
+) -> str:
+    if site and label and keeper_listeners:
+        key = f"{site}:{label}"
+        st = keeper_listeners.get(key)
+        if st in ("active", "dead", "idle"):
+            return st
     return tm.tunnel_row_status(row, spec)
 
 
@@ -330,6 +347,7 @@ def _sites_payload(config_path: Path) -> dict[str, Any]:
             "sites": [],
         }
     state = tm.read_state()
+    keeper_listeners = fetch_tunnel_listener_status()
     root_pd = (
         cfg.get("poslite_defaults")
         if isinstance(cfg.get("poslite_defaults"), dict)
@@ -355,8 +373,12 @@ def _sites_payload(config_path: Path) -> dict[str, Any]:
                 "displayName": display,
                 "ssh": ssh,
                 "db": db,
-                "sshStatus": _state_label(pr_ssh, ssh),
-                "dbStatus": _state_label(pr_db, db),
+                "sshStatus": _state_label(
+                    pr_ssh, ssh, site=name, label="ssh", keeper_listeners=keeper_listeners
+                ),
+                "dbStatus": _state_label(
+                    pr_db, db, site=name, label="db", keeper_listeners=keeper_listeners
+                ),
                 "posliteUrls": portal_links,
             }
         )
@@ -364,6 +386,114 @@ def _sites_payload(config_path: Path) -> dict[str, Any]:
         "configPath": str(config_path),
         "domainSuffix": domain_suffix,
         "sites": sites_out,
+    }
+
+
+def _format_ts(epoch: float | int | None) -> str | None:
+    if epoch is None:
+        return None
+    try:
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(float(epoch)))
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _tunnels_diagnostics_payload() -> dict[str, Any]:
+    """Líneas legibles para el panel de registro en Conexiones."""
+    lines: list[str] = []
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    svc_url = tunnels_service_url()
+    connect_host = tm.tunnel_connect_host()
+    lines.append(f"API → túneles: host={connect_host}" + (f", url={svc_url}" if svc_url else ", url=(no configurada)"))
+    if not svc_url:
+        errors.append("ATLAS_TUNNELS_URL no está definida en atlas-api.")
+
+    keeper = fetch_tunnel_diagnostics()
+    if keeper is None:
+        if svc_url:
+            errors.append(f"No se pudo leer /diagnostics en {svc_url}.")
+    else:
+        bind = str(keeper.get("bind") or "—")
+        active = int(keeper.get("active") or 0)
+        dead_keys = keeper.get("dead") if isinstance(keeper.get("dead"), list) else []
+        idle_keys = keeper.get("idle") if isinstance(keeper.get("idle"), list) else []
+        lines.append(
+            f"Keeper: bind={bind}, activos={active}, caídos={len(dead_keys)}, inactivos={len(idle_keys)}"
+        )
+        for key in dead_keys[:30]:
+            errors.append(f"Listener caído (keeper): {key}")
+        if len(dead_keys) > 30:
+            errors.append(f"… y {len(dead_keys) - 30} listeners caídos más")
+        for key in idle_keys[:15]:
+            warnings.append(f"Listener inactivo: {key}")
+        if len(idle_keys) > 15:
+            warnings.append(f"… y {len(idle_keys) - 15} listeners inactivos más")
+
+        last = keeper.get("lastReconcile")
+        if isinstance(last, dict):
+            at = _format_ts(last.get("at"))
+            if at:
+                lines.append(
+                    f"Último reconcile: {at} · ok={last.get('ok')} · sitios={last.get('siteCount')} · "
+                    f"muertos podados={last.get('removedDead')}"
+                )
+            loop_err = str(last.get("loopError") or "").strip()
+            if loop_err:
+                errors.append(f"Excepción en el loop del keeper: {loop_err}")
+            for ln in last.get("errors") or []:
+                if isinstance(ln, str) and ln.strip():
+                    errors.append(ln.strip())
+            for ln in last.get("lines") or []:
+                if not isinstance(ln, str):
+                    continue
+                s = ln.strip()
+                if not s or s.startswith("[OK]"):
+                    continue
+                if s.startswith("ERROR"):
+                    if s not in errors:
+                        errors.append(s)
+                elif s.startswith("[skip]"):
+                    lines.append(s)
+                else:
+                    lines.append(s)
+
+    sites_data = _sites_payload(tm.default_config_path())
+    ui_dead_ssh: list[str] = []
+    ui_dead_db: list[str] = []
+    for site in sites_data.get("sites") or []:
+        if not isinstance(site, dict):
+            continue
+        sid = str(site.get("id") or "")
+        if site.get("ssh") and site.get("sshStatus") == "dead":
+            ui_dead_ssh.append(sid)
+        if site.get("db") and site.get("dbStatus") == "dead":
+            ui_dead_db.append(sid)
+    if ui_dead_ssh:
+        errors.append(f"SSH caído (vista API/UI): {', '.join(ui_dead_ssh[:12])}" + (
+            f" (+{len(ui_dead_ssh) - 12})" if len(ui_dead_ssh) > 12 else ""
+        ))
+    if ui_dead_db:
+        warnings.append(f"BD caída (vista API/UI): {', '.join(ui_dead_db[:12])}" + (
+            f" (+{len(ui_dead_db) - 12})" if len(ui_dead_db) > 12 else ""
+        ))
+
+    if not errors and not warnings:
+        lines.append("Sin incidencias detectadas en esta revisión.")
+
+    display: list[str] = []
+    for block, prefix in ((errors, "ERROR"), (warnings, "WARN")):
+        for item in block:
+            display.append(f"{prefix} {item}" if not item.startswith(prefix) else item)
+    display.extend(lines)
+
+    return {
+        "lines": display,
+        "errors": errors,
+        "warnings": warnings,
+        "updatedAt": _format_ts(time.time()),
+        "keeperReachable": keeper is not None,
     }
 
 
@@ -701,6 +831,12 @@ def create_app() -> FastAPI:
     @app.get("/api/sites")
     def get_sites(_user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
         return _sites_payload(tm.default_config_path())
+
+    @app.get("/api/tunnels/diagnostics")
+    def get_tunnels_diagnostics(
+        _user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        return _tunnels_diagnostics_payload()
 
     @app.post("/api/start")
     def post_start(

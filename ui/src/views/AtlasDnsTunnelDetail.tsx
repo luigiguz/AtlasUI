@@ -32,6 +32,7 @@ function copyText(value: string) {
 function sshStatusLabel(status: string): string {
   if (status === "active") return "Activo";
   if (status === "dead") return "Caído";
+  if (status === "idle") return "Inactivo";
   return "—";
 }
 
@@ -48,7 +49,9 @@ function downHintsForTunnel(tunnel: DnsTunnelGroup): string[] {
   const sshActive = withSsh.filter((s) => s.sshStatus === "active");
 
   if (tunnel.routeCount === 0) {
-    hints.push("No hay rutas DNS publicadas para este túnel.");
+    hints.push(
+      "No hay rutas DNS (Poslite) asociadas a los sitios de este túnel en Cloudflare; los túneles TCP pueden estar bien en atlas-tunnels."
+    );
   }
   if (withSsh.length === 0) {
     hints.push("No hay conexión SSH configurada en los sitios de este túnel.");

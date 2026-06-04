@@ -59,6 +59,14 @@ def tunnel_connect_host() -> str:
     return (os.environ.get("ATLAS_TUNNEL_HOST") or "127.0.0.1").strip() or "127.0.0.1"
 
 
+def tunnel_probe_host() -> str:
+    """Host para comprobar listeners en el mismo host que cloudflared (p. ej. contenedor keeper)."""
+    bind = tunnel_bind_host()
+    if bind in ("0.0.0.0", "::", ""):
+        return "127.0.0.1"
+    return bind
+
+
 def start_tunnel(hostname: str, local_port: int) -> subprocess.Popen:
     url = f"{tunnel_bind_host()}:{local_port}"
     cmd = [
@@ -413,6 +421,56 @@ def tunnel_row_status(row: dict | None, spec: dict | None = None) -> str:
     if row:
         return "dead"
     return "idle"
+
+
+def tunnel_label_status(
+    site: str,
+    label: str,
+    cfg: dict,
+    state: dict,
+    *,
+    probe_host: str | None = None,
+) -> str:
+    """Estado idle | active | dead para un sitio/rol usando config + state.json."""
+    entry = (cfg.get("sites") or {}).get(site)
+    if not isinstance(entry, dict):
+        return "idle"
+    spec = entry.get(label) if label in ("ssh", "db") else None
+    spec = spec if isinstance(spec, dict) else None
+    row = _proc_for_site_label(state, site, label)
+    if not spec and not row:
+        return "idle"
+    host = (probe_host or tunnel_probe_host()).strip() or "127.0.0.1"
+    if row and tunnel_listener_alive(row, host=host):
+        return "active"
+    if spec:
+        try:
+            port = int(spec.get("local_port"))
+        except (TypeError, ValueError):
+            port = 0
+        if port > 0 and tunnel_port_open(port, host=host):
+            return "active"
+    if row:
+        return "dead"
+    return "idle"
+
+
+def build_listener_status_map(config_path: Path) -> dict[str, str]:
+    """Mapa site:label -> idle|active|dead (sondeo en el host del keeper)."""
+    cfg = load_config_optional(config_path)
+    if not cfg:
+        return {}
+    state = read_state()
+    out: dict[str, str] = {}
+    for name in sorted((cfg.get("sites") or {}).keys()):
+        entry = (cfg.get("sites") or {}).get(name)
+        if not isinstance(entry, dict):
+            continue
+        for label in ("ssh", "db"):
+            if not isinstance(entry.get(label), dict):
+                continue
+            out[f"{name}:{label}"] = tunnel_label_status(name, label, cfg, state)
+    return out
 
 
 def cmd_list_sites(args: argparse.Namespace) -> None:

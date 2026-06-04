@@ -155,6 +155,8 @@ export default function App() {
   const [connListPage, setConnListPage] = useState(0);
   const [logOpen, setLogOpen] = useState(true);
   const [logs, setLogs] = useState<string[]>([]);
+  const [tunnelDiagLines, setTunnelDiagLines] = useState<string[]>([]);
+  const [tunnelDiagUpdatedAt, setTunnelDiagUpdatedAt] = useState<string | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<{
     title: string;
     message: string;
@@ -255,7 +257,7 @@ export default function App() {
     return () => window.removeEventListener("message", onMsg);
   }, [sshPopoutSite, openSshWebSession]);
 
-  const logRef = useRef<HTMLPreElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
 
   const [acc, setAcc] = useState("");
   const [tok, setTok] = useState("");
@@ -345,6 +347,26 @@ export default function App() {
     return () => window.clearInterval(t);
   }, [authPhase, loadSites]);
 
+  const loadTunnelDiagnostics = useCallback(async () => {
+    try {
+      const d = await api<{ lines: string[]; updatedAt?: string | null }>(
+        "/api/tunnels/diagnostics"
+      );
+      setTunnelDiagLines(Array.isArray(d.lines) ? d.lines : []);
+      setTunnelDiagUpdatedAt(d.updatedAt ?? null);
+    } catch (e) {
+      setTunnelDiagLines([`ERROR No se pudo cargar diagnóstico: ${String(e)}`]);
+      setTunnelDiagUpdatedAt(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authPhase !== "app" || tab !== "conn") return;
+    void loadTunnelDiagnostics();
+    const t = window.setInterval(() => void loadTunnelDiagnostics(), 15_000);
+    return () => window.clearInterval(t);
+  }, [authPhase, tab, loadTunnelDiagnostics]);
+
   useEffect(() => {
     if (authPhase !== "app" || !me) return;
     const params = new URLSearchParams(window.location.search);
@@ -370,7 +392,7 @@ export default function App() {
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
-  }, [logs]);
+  }, [logs, tunnelDiagLines]);
 
   useEffect(() => {
     if (authPhase !== "app" || !me) return;
@@ -425,6 +447,7 @@ export default function App() {
           })
         );
         await loadSites();
+        void loadTunnelDiagnostics();
         if (!silent) appendLog([r.message]);
       } catch (e) {
         if (!silent) {
@@ -436,7 +459,7 @@ export default function App() {
         if (!silent) setSyncing(false);
       }
     },
-    [acc, tok, suf, zone, appendLog, loadSites]
+    [acc, tok, suf, zone, appendLog, loadSites, loadTunnelDiagnostics]
   );
 
   useEffect(() => {
@@ -816,12 +839,47 @@ export default function App() {
                     className="overflow-hidden rounded-b-xl border-t border-transparent"
                     style={{ maxHeight: "min(28vh, 220px)" }}
                   >
-                    <pre
+                    <div
                       ref={logRef}
-                      className="max-h-[28vh] overflow-y-auto p-3 font-mono text-[11px] leading-relaxed text-emerald-100/90 sm:max-h-[220px]"
+                      className="max-h-[28vh] overflow-y-auto p-3 font-mono text-[11px] leading-relaxed sm:max-h-[220px]"
                     >
-                      {logs.join("\n")}
-                    </pre>
+                      <p className="mb-2 text-[10px] font-sans uppercase tracking-wide text-zinc-500">
+                        Diagnóstico atlas-tunnels
+                        {tunnelDiagUpdatedAt ? (
+                          <span className="normal-case text-zinc-600"> · {tunnelDiagUpdatedAt}</span>
+                        ) : null}
+                      </p>
+                      {tunnelDiagLines.length === 0 ? (
+                        <p className="text-zinc-600">Cargando diagnóstico…</p>
+                      ) : (
+                        tunnelDiagLines.map((line, i) => (
+                          <div
+                            key={`diag-${i}-${line.slice(0, 48)}`}
+                            className={
+                              line.startsWith("ERROR")
+                                ? "text-rose-300"
+                                : line.startsWith("WARN")
+                                  ? "text-amber-200/90"
+                                  : "text-emerald-100/80"
+                            }
+                          >
+                            {line}
+                          </div>
+                        ))
+                      )}
+                      {logs.length > 0 ? (
+                        <>
+                          <p className="mb-2 mt-3 border-t border-cf-line/50 pt-2 text-[10px] font-sans uppercase tracking-wide text-zinc-500">
+                            Registro de acciones
+                          </p>
+                          {logs.map((line, i) => (
+                            <div key={`log-${i}-${line.slice(0, 48)}`} className="text-emerald-100/90">
+                              {line}
+                            </div>
+                          ))}
+                        </>
+                      ) : null}
+                    </div>
                   </div>
                 ) : null}
               </div>
