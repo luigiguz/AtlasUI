@@ -7,12 +7,12 @@ import {
   Layers,
   Loader2,
   Network,
-  RefreshCw,
-  RotateCcw,
+  CloudDownload,
   CheckCircle2,
   Circle,
   AlertCircle,
-  RotateCw,
+  Power,
+  RotateCcw,
   ScrollText,
   Search,
   Server,
@@ -264,9 +264,9 @@ function RolloutImageModal({
                 ) : phase === "failed" ? (
                   <AlertCircle className="h-5 w-5 text-red-400" aria-hidden />
                 ) : isRestart ? (
-                  <RotateCcw className="h-5 w-5 text-cf-orange" aria-hidden />
+                  <Power className="h-5 w-5 text-cf-orange" aria-hidden />
                 ) : (
-                  <RotateCw className="h-5 w-5 text-cf-orange" aria-hidden />
+                  <CloudDownload className="h-5 w-5 text-cf-orange" aria-hidden />
                 )}
               </div>
               <div>
@@ -405,9 +405,9 @@ function RolloutImageModal({
                 className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-cf-orange py-2.5 text-xs font-semibold text-black hover:brightness-110 disabled:opacity-60"
               >
                 {isRestart ? (
-                  <RotateCcw className="h-3.5 w-3.5" />
+                  <Power className="h-3.5 w-3.5" />
                 ) : (
-                  <RotateCw className="h-3.5 w-3.5" />
+                  <CloudDownload className="h-3.5 w-3.5" />
                 )}
                 Confirmar
               </button>
@@ -1496,29 +1496,31 @@ function ClusterContainersPanel({
                           type="button"
                           disabled={rolling}
                           onClick={() => openRolloutConfirm([d], "restart")}
-                          className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-cf-card hover:text-zinc-200 disabled:opacity-40"
-                          aria-label={`Reiniciar ${row.serviceName}`}
-                          title="Reiniciar pod (sin nueva imagen)"
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-zinc-400 ring-1 ring-cf-line transition hover:bg-cf-card hover:text-zinc-200 disabled:opacity-40"
+                          title="Reiniciar el pod sin descargar imagen nueva"
+                          aria-label={`Reiniciar pod ${row.serviceName}`}
                         >
                           {rolling ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
-                            <RotateCcw className="h-3.5 w-3.5" />
+                            <Power className="h-3.5 w-3.5" />
                           )}
+                          Reiniciar
                         </button>
                         <button
                           type="button"
                           disabled={rolling}
                           onClick={() => openRolloutConfirm([d], "image")}
-                          className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-cf-orange/10 hover:text-cf-orange disabled:opacity-40"
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-zinc-400 ring-1 ring-cf-orange/40 transition hover:bg-cf-orange/10 hover:text-cf-orange disabled:opacity-40"
+                          title="Descargar imagen del registry y reiniciar"
                           aria-label={`Actualizar imagen ${row.serviceName}`}
-                          title="Actualizar imagen"
                         >
                           {rolling ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
-                            <RotateCw className="h-3.5 w-3.5" />
+                            <CloudDownload className="h-3.5 w-3.5" />
                           )}
+                          Imagen
                         </button>
                       </>
                     ) : null}
@@ -1565,7 +1567,7 @@ function ClusterContainersPanel({
                   {rolling ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
-                    <RotateCcw className="h-3.5 w-3.5" />
+                    <Power className="h-3.5 w-3.5" />
                   )}
                   Reiniciar pod
                 </button>
@@ -1578,7 +1580,7 @@ function ClusterContainersPanel({
                   {rolling ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
-                    <RotateCw className="h-3.5 w-3.5" />
+                    <CloudDownload className="h-3.5 w-3.5" />
                   )}
                   Actualizar imagen
                 </button>
