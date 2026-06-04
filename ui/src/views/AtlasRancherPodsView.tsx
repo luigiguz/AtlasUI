@@ -156,19 +156,30 @@ function stateTone(state: string): string {
 type RolloutLogTone = "info" | "ok" | "err";
 type RolloutLogLine = { id: number; text: string; tone: RolloutLogTone };
 type RolloutModalPhase = "confirm" | "running" | "done" | "failed";
+type RolloutActionMode = "image" | "restart";
 
 const ROLLOUT_STEP_LABELS: Record<string, string> = {
   pull_policy_always: "Pull forzado (Always) y reinicio del pod",
   rollout_ready: "Pod listo — réplicas en ejecución",
   pull_policy_restored: "Política de pull restaurada en el deployment",
   pull_policy_restored_on_error: "Política de pull restaurada tras error",
+  restart_triggered: "Reinicio del deployment (misma imagen en el nodo)",
 };
 
-const ROLLOUT_PLANNED_STEPS = [
+const ROLLOUT_PLANNED_STEPS_IMAGE = [
   "Aplicar imagePullPolicy: Always y reiniciar el pod",
   "Esperar a que el pod quede listo",
   "Restaurar la política de pull original",
 ] as const;
+
+const ROLLOUT_PLANNED_STEPS_RESTART = [
+  "Reiniciar el pod sin descargar imagen nueva",
+  "Esperar a que el pod quede listo",
+] as const;
+
+function rolloutStepLabel(step: string): string {
+  return ROLLOUT_STEP_LABELS[step] ?? step;
+}
 
 function rolloutLogToneClass(tone: RolloutLogTone): string {
   if (tone === "ok") return "text-emerald-400/90";
@@ -179,6 +190,7 @@ function rolloutLogToneClass(tone: RolloutLogTone): string {
 function RolloutImageModal({
   deployments,
   clusterLabel,
+  mode,
   phase,
   logs,
   replicaHint,
@@ -187,6 +199,7 @@ function RolloutImageModal({
 }: {
   deployments: RancherDeployment[];
   clusterLabel: string;
+  mode: RolloutActionMode;
   phase: RolloutModalPhase;
   logs: RolloutLogLine[];
   replicaHint: string;
@@ -196,7 +209,26 @@ function RolloutImageModal({
   const count = deployments.length;
   const single = count === 1 ? deployments[0] : null;
   const busy = phase === "running";
+  const isRestart = mode === "restart";
+  const plannedSteps = isRestart ? ROLLOUT_PLANNED_STEPS_RESTART : ROLLOUT_PLANNED_STEPS_IMAGE;
   const logEndRef = useRef<HTMLDivElement>(null);
+
+  const titleByPhase =
+    phase === "confirm"
+      ? isRestart
+        ? "Reiniciar pod"
+        : "Actualizar imagen"
+      : phase === "running"
+        ? isRestart
+          ? "Reiniciando pod…"
+          : "Actualizando imagen…"
+        : phase === "done"
+          ? isRestart
+            ? "Reinicio completado"
+            : "Actualización completada"
+          : isRestart
+            ? "Reinicio con errores"
+            : "Actualización con errores";
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -231,19 +263,15 @@ function RolloutImageModal({
                   <CheckCircle2 className="h-5 w-5 text-emerald-400" aria-hidden />
                 ) : phase === "failed" ? (
                   <AlertCircle className="h-5 w-5 text-red-400" aria-hidden />
+                ) : isRestart ? (
+                  <RotateCcw className="h-5 w-5 text-cf-orange" aria-hidden />
                 ) : (
                   <RotateCw className="h-5 w-5 text-cf-orange" aria-hidden />
                 )}
               </div>
               <div>
                 <h2 id="rollout-confirm-title" className="text-sm font-semibold text-zinc-100">
-                  {phase === "confirm"
-                    ? "Actualizar imagen"
-                    : phase === "running"
-                      ? "Actualizando imagen…"
-                      : phase === "done"
-                        ? "Actualización completada"
-                        : "Actualización con errores"}
+                  {titleByPhase}
                 </h2>
                 <p className="mt-0.5 text-xs text-zinc-500">{clusterLabel}</p>
               </div>
@@ -265,14 +293,34 @@ function RolloutImageModal({
             <>
               {single ? (
                 <p className="text-sm text-zinc-300">
-                  Se actualizará la imagen de{" "}
-                  <span className="font-medium text-zinc-100">{single.name}</span>.
+                  {isRestart ? (
+                    <>
+                      Se reiniciará el pod de{" "}
+                      <span className="font-medium text-zinc-100">{single.name}</span> sin descargar
+                      una imagen nueva del registry.
+                    </>
+                  ) : (
+                    <>
+                      Se actualizará la imagen de{" "}
+                      <span className="font-medium text-zinc-100">{single.name}</span>.
+                    </>
+                  )}
                 </p>
               ) : (
                 <>
                   <p className="text-sm text-zinc-300">
-                    Se actualizará la imagen de{" "}
-                    <span className="font-medium text-zinc-100">{count} servicios</span>.
+                    {isRestart ? (
+                      <>
+                        Se reiniciarán los pods de{" "}
+                        <span className="font-medium text-zinc-100">{count} servicios</span> sin
+                        descargar imagen nueva.
+                      </>
+                    ) : (
+                      <>
+                        Se actualizará la imagen de{" "}
+                        <span className="font-medium text-zinc-100">{count} servicios</span>.
+                      </>
+                    )}
                   </p>
                   <ul className="max-h-28 space-y-1 overflow-y-auto rounded-lg border border-cf-line/50 bg-cf-card/70 px-3 py-2 text-xs text-zinc-400">
                     {deployments.map((d) => (
@@ -284,7 +332,7 @@ function RolloutImageModal({
                 </>
               )}
               <ul className="space-y-1.5 text-xs text-zinc-500">
-                {ROLLOUT_PLANNED_STEPS.map((step, i) => (
+                {plannedSteps.map((step, i) => (
                   <li key={step} className="flex items-start gap-2">
                     <span className="mt-0.5 font-mono text-[10px] text-zinc-600">{i + 1}.</span>
                     <span>{step}</span>
@@ -297,7 +345,7 @@ function RolloutImageModal({
           {showProgress ? (
             <>
               <ul className="space-y-1 rounded-lg border border-cf-line/40 bg-cf-card/50 px-3 py-2 text-[11px] text-zinc-500">
-                {ROLLOUT_PLANNED_STEPS.map((step) => (
+                {plannedSteps.map((step) => (
                   <li key={step} className="flex items-center gap-2">
                     {busy ? (
                       <Circle className="h-3 w-3 shrink-0 text-zinc-600" />
@@ -356,7 +404,11 @@ function RolloutImageModal({
                 onClick={onConfirm}
                 className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-cf-orange py-2.5 text-xs font-semibold text-black hover:brightness-110 disabled:opacity-60"
               >
-                <RotateCw className="h-3.5 w-3.5" />
+                {isRestart ? (
+                  <RotateCcw className="h-3.5 w-3.5" />
+                ) : (
+                  <RotateCw className="h-3.5 w-3.5" />
+                )}
                 Confirmar
               </button>
             </>
@@ -955,6 +1007,7 @@ function ClusterContainersPanel({
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [rolloutModal, setRolloutModal] = useState<{
     deployments: RancherDeployment[];
+    mode: RolloutActionMode;
     phase: RolloutModalPhase;
     logs: RolloutLogLine[];
     replicaHint: string;
@@ -1079,11 +1132,12 @@ function ClusterContainersPanel({
     setRolloutModal((prev) => (prev ? { ...prev, replicaHint: hint } : prev));
   }
 
-  function openRolloutConfirm(deps: RancherDeployment[]) {
+  function openRolloutConfirm(deps: RancherDeployment[], mode: RolloutActionMode) {
     if (!canEdit || rolling || !deps.length) return;
     rolloutLogIdRef.current = 0;
     setRolloutModal({
       deployments: deps,
+      mode,
       phase: "confirm",
       logs: [],
       replicaHint: "",
@@ -1094,15 +1148,25 @@ function ClusterContainersPanel({
     return rolloutRows.filter((r) => selected.has(r.serviceName)).map((r) => r.deployment);
   }
 
-  async function executeRollouts(deps: RancherDeployment[]) {
+  async function executeDeploymentAction(deps: RancherDeployment[], mode: RolloutActionMode) {
     if (!deps.length) return;
+    const isRestart = mode === "restart";
     setRolling(true);
     setError("");
     rolloutLogIdRef.current = 0;
     setRolloutModal({
       deployments: deps,
+      mode,
       phase: "running",
-      logs: [{ id: 1, text: "Iniciando actualización en el cluster…", tone: "info" }],
+      logs: [
+        {
+          id: 1,
+          text: isRestart
+            ? "Iniciando reinicio en el cluster…"
+            : "Iniciando actualización en el cluster…",
+          tone: "info",
+        },
+      ],
       replicaHint: "",
     });
     rolloutLogIdRef.current = 1;
@@ -1143,22 +1207,32 @@ function ClusterContainersPanel({
         } else {
           pushRolloutLog(`Servicio: ${dep.name}`, "info");
         }
-        pushRolloutLog("Enviando petición a Rancher (pull Always + reinicio)…", "info");
+        pushRolloutLog(
+          isRestart
+            ? "Enviando petición a Rancher (reinicio sin pull)…"
+            : "Enviando petición a Rancher (pull Always + reinicio)…",
+          "info"
+        );
 
         try {
           const depName = encodeURIComponent(dep.name);
+          const endpoint = isRestart ? "restart" : "rollout";
           const res = await api<DeploymentRolloutResponse>(
-            `/api/atlas-rancher/custom-clusters/${ns}/${nm}/deployments/${depName}/rollout`,
+            `/api/atlas-rancher/custom-clusters/${ns}/${nm}/deployments/${depName}/${endpoint}`,
             {
               method: "POST",
               body: JSON.stringify({ steve_collection: steve }),
             }
           );
           for (const step of res.steps ?? []) {
-            pushRolloutLog(ROLLOUT_STEP_LABELS[step] ?? step, "ok");
+            pushRolloutLog(rolloutStepLabel(step), "ok");
           }
-          const tag = deploymentImageLabel(res.deployment ?? dep);
-          pushRolloutLog(`Completado — imagen en ejecución: ${tag}`, "ok");
+          if (isRestart) {
+            pushRolloutLog("Reinicio completado — misma imagen en el nodo", "ok");
+          } else {
+            const tag = deploymentImageLabel(res.deployment ?? dep);
+            pushRolloutLog(`Completado — imagen en ejecución: ${tag}`, "ok");
+          }
           await pollReplicaStatus();
         } catch (e) {
           const msg = e instanceof Error ? e.message : "Error desconocido";
@@ -1174,16 +1248,33 @@ function ClusterContainersPanel({
     await loadAll({ silent: true });
 
     if (failed.length === deps.length) {
-      setError("No se pudo actualizar ningún servicio.");
-      pushRolloutLog("Ningún servicio se actualizó correctamente.", "err");
+      setError(
+        isRestart ? "No se pudo reiniciar ningún servicio." : "No se pudo actualizar ningún servicio."
+      );
+      pushRolloutLog(
+        isRestart
+          ? "Ningún servicio se reinició correctamente."
+          : "Ningún servicio se actualizó correctamente.",
+        "err"
+      );
       setRolloutModal((prev) => (prev ? { ...prev, phase: "failed" } : prev));
     } else if (failed.length > 0) {
-      setError(`No se pudo actualizar: ${failed.join(", ")}.`);
+      setError(
+        isRestart
+          ? `No se pudo reiniciar: ${failed.join(", ")}.`
+          : `No se pudo actualizar: ${failed.join(", ")}.`
+      );
       pushRolloutLog(`Finalizado con errores en: ${failed.join(", ")}`, "err");
       setRolloutModal((prev) => (prev ? { ...prev, phase: "failed" } : prev));
     } else {
       pushRolloutLog(
-        deps.length === 1 ? "Actualización finalizada." : `Los ${deps.length} servicios se actualizaron.`,
+        deps.length === 1
+          ? isRestart
+            ? "Reinicio finalizado."
+            : "Actualización finalizada."
+          : isRestart
+            ? `Los ${deps.length} servicios se reiniciaron.`
+            : `Los ${deps.length} servicios se actualizaron.`,
         "ok"
       );
       setRolloutModal((prev) => (prev ? { ...prev, phase: "done" } : prev));
@@ -1292,7 +1383,8 @@ function ClusterContainersPanel({
       ) : filteredRows.length === 0 ? (
         <p className="px-4 py-8 text-sm text-zinc-500">Ningún servicio coincide con la búsqueda.</p>
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto pb-16">
+        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-auto">
           <ul className="divide-y divide-cf-line/25">
             {filteredRows.map((row) => {
               const d = row.deployment;
@@ -1397,20 +1489,36 @@ function ClusterContainersPanel({
                       </button>
                     ) : null}
                     {canRollout ? (
-                      <button
-                        type="button"
-                        disabled={rolling}
-                        onClick={() => openRolloutConfirm([d])}
-                        className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-cf-orange/10 hover:text-cf-orange disabled:opacity-40"
-                        aria-label={`Actualizar ${row.serviceName}`}
-                        title="Actualizar imagen"
-                      >
-                        {rolling ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <RotateCw className="h-3.5 w-3.5" />
-                        )}
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          disabled={rolling}
+                          onClick={() => openRolloutConfirm([d], "restart")}
+                          className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-cf-card hover:text-zinc-200 disabled:opacity-40"
+                          aria-label={`Reiniciar ${row.serviceName}`}
+                          title="Reiniciar pod (sin nueva imagen)"
+                        >
+                          {rolling ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <RotateCcw className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={rolling}
+                          onClick={() => openRolloutConfirm([d], "image")}
+                          className="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-cf-orange/10 hover:text-cf-orange disabled:opacity-40"
+                          aria-label={`Actualizar imagen ${row.serviceName}`}
+                          title="Actualizar imagen"
+                        >
+                          {rolling ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <RotateCw className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      </>
                     ) : null}
                   </div>
                   <AnimatePresence initial={false}>
@@ -1433,6 +1541,58 @@ function ClusterContainersPanel({
             })}
           </ul>
         </div>
+
+        <AnimatePresence>
+          {canEdit && selected.size > 0 ? (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              className="z-20 shrink-0 border-t border-cf-line/50 bg-[#0b0d10]/95 px-3 py-2.5 backdrop-blur-md"
+            >
+              <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-2 sm:gap-3">
+                <span className="text-xs text-zinc-400">
+                  {selected.size} seleccionado{selected.size !== 1 ? "s" : ""}
+                </span>
+                <button
+                  type="button"
+                  disabled={rolling}
+                  onClick={() => openRolloutConfirm(selectedDeployments(), "restart")}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-cf-line bg-cf-card px-3 py-1.5 text-xs font-medium text-zinc-200 hover:border-zinc-500 disabled:opacity-60"
+                >
+                  {rolling ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  )}
+                  Reiniciar pod
+                </button>
+                <button
+                  type="button"
+                  disabled={rolling}
+                  onClick={() => openRolloutConfirm(selectedDeployments(), "image")}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-cf-orange px-3 py-1.5 text-xs font-semibold text-black hover:brightness-110 disabled:opacity-60"
+                >
+                  {rolling ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RotateCw className="h-3.5 w-3.5" />
+                  )}
+                  Actualizar imagen
+                </button>
+                <button
+                  type="button"
+                  disabled={rolling}
+                  onClick={() => setSelected(new Set())}
+                  className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+        </div>
       )}
 
       <AnimatePresence>
@@ -1448,51 +1608,20 @@ function ClusterContainersPanel({
       </AnimatePresence>
 
       <AnimatePresence>
-        {canEdit && selected.size > 0 ? (
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 12 }}
-            className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-3"
-          >
-            <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-cf-line/80 bg-[#1a1f26]/95 px-4 py-2 shadow-xl shadow-black/40 ring-1 ring-cf-line/40 backdrop-blur-md">
-              <span className="text-xs text-zinc-400">
-                {selected.size} seleccionado{selected.size !== 1 ? "s" : ""}
-              </span>
-              <button
-                type="button"
-                disabled={rolling}
-                onClick={() => openRolloutConfirm(selectedDeployments())}
-                className="inline-flex items-center gap-1.5 rounded-full bg-cf-orange px-3 py-1.5 text-xs font-semibold text-black hover:brightness-110 disabled:opacity-60"
-              >
-                {rolling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
-                Actualizar imagen
-              </button>
-              <button
-                type="button"
-                disabled={rolling}
-                onClick={() => setSelected(new Set())}
-                className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-
-      <AnimatePresence>
         {rolloutModal?.deployments.length ? (
           <RolloutImageModal
             deployments={rolloutModal.deployments}
             clusterLabel={clusterDisplayName(cluster)}
+            mode={rolloutModal.mode}
             phase={rolloutModal.phase}
             logs={rolloutModal.logs}
             replicaHint={rolloutModal.replicaHint}
             onClose={() => {
               if (!rolling) setRolloutModal(null);
             }}
-            onConfirm={() => void executeRollouts(rolloutModal.deployments)}
+            onConfirm={() =>
+              void executeDeploymentAction(rolloutModal.deployments, rolloutModal.mode)
+            }
           />
         ) : null}
       </AnimatePresence>

@@ -28,6 +28,7 @@ from atlas_rancher.client import (
     list_custom_clusters,
     list_pod_counts_for_clusters,
     rollout_deployment_image_pull,
+    rollout_deployment_restart,
     update_custom_cluster_labels,
 )
 from atlas_rancher.pvc_storage import (
@@ -362,6 +363,96 @@ def post_deployment_rollout(
             kind="rancher_rollout_ok",
             severity="success",
             title=f"Rollout completado: {deployment_name}",
+            body=f"Cluster {namespace}/{name}",
+            route="rancher-pods",
+            payload={"namespace": namespace, "cluster": name, "deployment": deployment_name},
+        )
+    return {"ok": True, **result}
+
+
+@router.post("/custom-clusters/{namespace}/{name}/deployments/{deployment_name}/restart")
+def post_deployment_restart(
+    namespace: str,
+    name: str,
+    deployment_name: str,
+    body: DeploymentRolloutBody,
+    user: dict[str, Any] = Depends(require_permission(PERM_RANCHER_WRITE)),
+) -> dict[str, Any]:
+    """Reinicia pods del deployment sin forzar pull de imagen."""
+    settings = load_rancher_settings()
+    if not settings["url"] or not settings["token"]:
+        raise HTTPException(
+            400,
+            "Configura la conexión a Rancher antes de gestionar contenedores.",
+        )
+    uid = user.get("id")
+    try:
+        result = rollout_deployment_restart(
+            settings,
+            namespace=namespace,
+            name=name,
+            steve_collection=body.steve_collection.strip(),
+            deployment_name=deployment_name,
+        )
+    except RancherConfigError as e:
+        if uid is not None:
+            notify_user(
+                user_id=int(uid),
+                kind="rancher_restart_failed",
+                severity="critical",
+                title=f"Reinicio fallido: {deployment_name}",
+                body=str(e)[:500],
+                route="rancher-pods",
+                payload={"namespace": namespace, "cluster": name, "deployment": deployment_name},
+            )
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RancherApiError as e:
+        if uid is not None:
+            notify_user(
+                user_id=int(uid),
+                kind="rancher_restart_failed",
+                severity="critical",
+                title=f"Reinicio fallido: {deployment_name}",
+                body=str(e)[:500],
+                route="rancher-pods",
+                payload={"namespace": namespace, "cluster": name, "deployment": deployment_name},
+            )
+        status = 503 if e.status is None or e.status >= 500 else 502
+        if e.status == 404:
+            status = 404
+        elif e.status == 403:
+            status = 403
+        raise HTTPException(status_code=status, detail=str(e)) from e
+    except Exception:
+        if uid is not None:
+            notify_user(
+                user_id=int(uid),
+                kind="rancher_restart_failed",
+                severity="critical",
+                title=f"Reinicio fallido: {deployment_name}",
+                body="Error interno al reiniciar el deployment.",
+                route="rancher-pods",
+                payload={"namespace": namespace, "cluster": name, "deployment": deployment_name},
+            )
+        log.exception("deployment restart failed")
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno al reiniciar el deployment.",
+        ) from None
+
+    log.info(
+        "deployment restart namespace=%s cluster=%s deployment=%s user=%s",
+        namespace,
+        name,
+        deployment_name,
+        user.get("username"),
+    )
+    if uid is not None:
+        notify_user(
+            user_id=int(uid),
+            kind="rancher_restart_ok",
+            severity="success",
+            title=f"Reinicio completado: {deployment_name}",
             body=f"Cluster {namespace}/{name}",
             route="rancher-pods",
             payload={"namespace": namespace, "cluster": name, "deployment": deployment_name},

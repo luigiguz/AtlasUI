@@ -1020,6 +1020,72 @@ def rollout_deployment_image_pull(
     }
 
 
+def rollout_deployment_restart(
+    settings: dict[str, str | bool],
+    *,
+    namespace: str,
+    name: str,
+    steve_collection: str,
+    deployment_name: str,
+) -> dict[str, Any]:
+    """
+    Reinicia los pods del deployment (anotación restartedAt) sin cambiar imagePullPolicy
+    ni forzar descarga de imagen en el nodo.
+    """
+    dep_name = deployment_name.strip()
+    if not dep_name:
+        raise RancherConfigError("El nombre del deployment es obligatorio.")
+
+    mgmt_id, app_ns, application = resolve_custom_cluster_context(
+        settings,
+        namespace=namespace,
+        name=name,
+        steve_collection=steve_collection,
+    )
+    resource = _get_deployment_resource(
+        settings, mgmt_id=mgmt_id, k8s_ns=app_ns, deployment_name=dep_name
+    )
+    spec = _as_dict(resource.get("spec"))
+    template = _as_dict(spec.get("template"))
+    if not _container_pull_policies_from_template(template):
+        raise RancherConfigError(
+            f"El deployment «{dep_name}» no tiene contenedores en el pod template."
+        )
+
+    desired, _, _ = _deployment_status_replicas(resource)
+    target_replicas = desired if desired > 0 else 1
+    steps: list[str] = []
+
+    _touch_pod_template_restart_annotation(template)
+    spec["template"] = template
+    resource["spec"] = spec
+    updated = _put_deployment_resource(
+        settings,
+        mgmt_id=mgmt_id,
+        k8s_ns=app_ns,
+        deployment_name=dep_name,
+        resource=resource,
+    )
+    steps.append("restart_triggered")
+
+    _wait_deployment_ready(
+        settings,
+        mgmt_id=mgmt_id,
+        k8s_ns=app_ns,
+        deployment_name=dep_name,
+    )
+    steps.append("rollout_ready")
+
+    return {
+        "deployment": _normalize_deployment(updated, k8s_ns=app_ns),
+        "managementClusterId": mgmt_id,
+        "namespace": app_ns,
+        "application": application,
+        "targetReplicas": target_replicas,
+        "steps": steps,
+    }
+
+
 def list_custom_cluster_pods(
     settings: dict[str, str | bool],
     *,
