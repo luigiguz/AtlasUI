@@ -2,6 +2,7 @@ import { Loader2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { api, apiUrl, bearerHeaders } from "../apiClient";
+import { AtlasFloatingPanel } from "./AtlasFloatingPanel";
 import { AtlasModalShell } from "./AtlasModalFrame";
 import type { SftpEntry } from "./SshFileTransferPanel";
 
@@ -80,31 +81,53 @@ export function SshTextEditorModal({
   }
 
   return (
-    <AtlasModalShell
+    <AtlasFloatingPanel
+      defaultWidth={760}
+      defaultHeight={540}
       onBackdropClick={() => {
         if (!saving) onClose();
       }}
-      zIndexClass="z-[70]"
-      panelClassName="flex max-h-[min(90vh,42rem)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-cf-line bg-cf-panel shadow-2xl ring-1 ring-white/[0.08]"
-    >
-      <div className="flex shrink-0 items-center justify-between border-b border-cf-line/60 px-4 py-3">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold text-zinc-100">Editar archivo</h2>
-          <p className="truncate font-mono text-[10px] text-zinc-500">{path}</p>
+      header={
+        <div className="flex items-center justify-between px-4 pb-3">
+          <div className="min-w-0 pr-2">
+            <h2 className="truncate text-sm font-semibold text-zinc-100">Editar archivo</h2>
+            <p className="truncate font-mono text-[10px] text-zinc-500">{path}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="shrink-0 rounded-lg p-1.5 text-zinc-500 hover:bg-cf-card disabled:opacity-40"
+            aria-label="Cerrar"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={saving}
-          className="rounded-lg p-1.5 text-zinc-500 hover:bg-cf-card disabled:opacity-40"
-          aria-label="Cerrar"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden p-3">
+      }
+      footer={
+        <div className="flex justify-end gap-2 px-4 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-lg px-3 py-1.5 text-xs text-zinc-400 hover:bg-cf-card disabled:opacity-40"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={loading || saving}
+            className="rounded-lg bg-cf-orange/20 px-3 py-1.5 text-xs font-medium text-cf-orange ring-1 ring-cf-orange/40 hover:bg-cf-orange/30 disabled:opacity-40"
+          >
+            {saving ? "Guardando…" : "Guardar"}
+          </button>
+        </div>
+      }
+    >
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-3">
         {loading ? (
-          <div className="flex h-48 items-center justify-center text-xs text-zinc-500">
+          <div className="flex flex-1 items-center justify-center text-xs text-zinc-500">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Cargando…
           </div>
         ) : (
@@ -112,30 +135,12 @@ export function SshTextEditorModal({
             value={text}
             onChange={(e) => setText(e.target.value)}
             spellCheck={false}
-            className="h-[min(60vh,28rem)] w-full resize-none rounded-lg border border-cf-line/60 bg-cf-card p-3 font-mono text-xs leading-relaxed text-zinc-200 outline-none focus:border-cf-orange/40"
+            className="min-h-0 flex-1 w-full resize-none rounded-lg border border-cf-line/60 bg-cf-card p-3 font-mono text-xs leading-relaxed text-zinc-200 outline-none focus:border-cf-orange/40"
           />
         )}
-        {error ? <p className="mt-2 text-xs text-red-300">{error}</p> : null}
+        {error ? <p className="mt-2 shrink-0 text-xs text-red-300">{error}</p> : null}
       </div>
-      <div className="flex shrink-0 justify-end gap-2 border-t border-cf-line/60 px-4 py-3">
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={saving}
-          className="rounded-lg px-3 py-1.5 text-xs text-zinc-400 hover:bg-cf-card disabled:opacity-40"
-        >
-          Cancelar
-        </button>
-        <button
-          type="button"
-          onClick={() => void save()}
-          disabled={loading || saving}
-          className="rounded-lg bg-cf-orange/20 px-3 py-1.5 text-xs font-medium text-cf-orange ring-1 ring-cf-orange/40 hover:bg-cf-orange/30 disabled:opacity-40"
-        >
-          {saving ? "Guardando…" : "Guardar"}
-        </button>
-      </div>
-    </AtlasModalShell>
+    </AtlasFloatingPanel>
   );
 }
 
