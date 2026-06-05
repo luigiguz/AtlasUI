@@ -52,6 +52,42 @@ def fetch_tunnel_listener_status(timeout: float = 4.0) -> dict[str, str] | None:
     return None
 
 
+def request_tunnel_restart(
+    site: str,
+    services: str = "both",
+    timeout: float = 20.0,
+) -> dict[str, Any] | None:
+    """Pide al keeper reiniciar túneles de un sitio. None si no hay URL configurada."""
+    base = tunnels_service_url()
+    if not base:
+        return None
+    url = f"{base}/restart"
+    payload = json.dumps({"site": site.strip(), "services": services}).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            return json.loads(body) if body.strip() else {"ok": True}
+    except urllib.error.HTTPError as e:
+        logger.warning("tunnel restart HTTP %s: %s", e.code, e.reason)
+        try:
+            detail = e.read().decode("utf-8", errors="replace")
+            parsed = json.loads(detail) if detail.strip() else {}
+            if isinstance(parsed, dict):
+                return {**parsed, "ok": False, "error": f"HTTP {e.code}"}
+        except Exception:
+            pass
+        return {"ok": False, "error": f"HTTP {e.code}"}
+    except Exception as e:
+        logger.warning("tunnel restart failed: %s", e)
+        return {"ok": False, "error": str(e)[:200]}
+
+
 def request_tunnel_reconcile(timeout: float = 8.0) -> dict[str, Any] | None:
     """Pide al keeper que reconcilie túneles. None si no hay URL configurada."""
     base = tunnels_service_url()

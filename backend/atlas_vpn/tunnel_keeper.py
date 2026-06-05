@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from atlas_core.paths import SCRIPTS_DIR
 
@@ -140,6 +141,34 @@ def listener_status() -> dict[str, Any]:
         "dead": dead,
         "idle": len(listeners) - active - dead,
     }
+
+
+class RestartBody(BaseModel):
+    site: str = Field(..., min_length=1)
+    services: str = "both"
+
+
+@app.post("/restart")
+def restart_endpoint(body: RestartBody) -> JSONResponse:
+    """Reinicio forzado de túneles de un sitio (stop + start)."""
+    services = body.services.strip().lower()
+    if services not in ("ssh", "db", "both"):
+        services = "both"
+    site = body.site.strip()
+    with _lock:
+        ok, lines = tm.restart_site_tunnels(site, _config_path, services)
+        errors = [ln for ln in lines if ln.startswith("ERROR")]
+        _last_snapshot.update(
+            {
+                "at": time.time(),
+                "ok": ok,
+                "lines": lines[-50:],
+                "errors": errors,
+                "loopError": None,
+            }
+        )
+    payload = {"ok": ok, "site": site, "services": services, "lines": lines}
+    return JSONResponse(content=payload, status_code=200 if ok else 207)
 
 
 @app.post("/reconcile")

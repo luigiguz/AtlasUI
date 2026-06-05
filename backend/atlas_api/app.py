@@ -35,6 +35,7 @@ from atlas_vpn.tunnel_client import (
     fetch_tunnel_diagnostics,
     fetch_tunnel_listener_status,
     request_tunnel_reconcile,
+    request_tunnel_restart,
     tunnels_service_url,
 )
 from atlas_core.env import atlas_env, atlas_env_flag
@@ -837,6 +838,31 @@ def create_app() -> FastAPI:
         _user: dict[str, Any] = Depends(current_user),
     ) -> dict[str, Any]:
         return _tunnels_diagnostics_payload()
+
+    @app.post("/api/tunnels/restart")
+    def post_tunnel_restart(
+        body: StartBody,
+        _op: dict[str, Any] = Depends(require_permission(PERM_VPN_OPERATE)),
+    ) -> dict[str, Any]:
+        site = body.site.strip()
+        if not site:
+            raise HTTPException(400, "Sitio requerido")
+        result = request_tunnel_restart(site, body.services)
+        if result is None:
+            raise HTTPException(
+                503,
+                detail="Servicio atlas-tunnels no disponible (ATLAS_TUNNELS_URL).",
+            )
+        if not result.get("ok"):
+            raise HTTPException(
+                502,
+                detail={
+                    "message": f"No se pudo reiniciar el túnel de «{site}»",
+                    "lines": result.get("lines") or [],
+                    "error": result.get("error"),
+                },
+            )
+        return result
 
     @app.post("/api/start")
     def post_start(

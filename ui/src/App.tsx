@@ -1,8 +1,10 @@
 import { motion } from "framer-motion";
 import {
   CheckCircle2,
+  Loader2,
   Pencil,
   PlusCircle,
+  RotateCcw,
   Terminal,
   Trash2,
 } from "lucide-react";
@@ -90,9 +92,22 @@ function siteTunnelSummary(s: SiteRow): {
     return { tone: "up", label: "UP", hint: "Túnel SSH activo — Terminal web disponible" };
   }
   if (s.sshStatus === "dead") {
-    return { tone: "down", label: "DOWN", hint: "Túnel SSH caído — se recuperará automáticamente" };
+    return {
+      tone: "down",
+      label: "DOWN",
+      hint: "Túnel SSH caído — usa «Reiniciar túnel» o espera el reconcile automático",
+    };
   }
   return { tone: "idle", label: "…", hint: "Túnel SSH arrancando" };
+}
+
+function tunnelRestartServices(s: SiteRow): "ssh" | "db" | "both" | null {
+  const sshDown = Boolean(s.ssh && s.sshStatus !== "active");
+  const dbDown = Boolean(s.db && s.dbStatus !== "active");
+  if (!sshDown && !dbDown) return null;
+  if (sshDown && dbDown) return "both";
+  if (dbDown) return "db";
+  return "ssh";
 }
 
 function siteTunnelRailClass(tone: "up" | "down" | "idle"): string {
@@ -157,6 +172,7 @@ export default function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [tunnelDiagLines, setTunnelDiagLines] = useState<string[]>([]);
   const [tunnelDiagUpdatedAt, setTunnelDiagUpdatedAt] = useState<string | null>(null);
+  const [restartingSiteId, setRestartingSiteId] = useState<string | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<{
     title: string;
     message: string;
@@ -359,6 +375,29 @@ export default function App() {
       setTunnelDiagUpdatedAt(null);
     }
   }, []);
+
+  const restartSiteTunnel = useCallback(
+    async (site: SiteRow, services: "ssh" | "db" | "both") => {
+      setRestartingSiteId(site.id);
+      try {
+        const r = await api<{ ok: boolean; lines?: string[] }>("/api/tunnels/restart", {
+          method: "POST",
+          body: JSON.stringify({ site: site.id, services }),
+        });
+        const notable = (r.lines ?? []).filter(
+          (ln) => ln.startsWith("ERROR") || ln.startsWith("[OK]") || ln.startsWith("Poda"),
+        );
+        appendLog([`Reinicio túnel: ${siteDisplayName(site)}`, ...notable]);
+        await loadSites();
+        void loadTunnelDiagnostics();
+      } catch (e) {
+        appendLog([`ERROR reinicio ${site.id}: ${String(e)}`]);
+      } finally {
+        setRestartingSiteId(null);
+      }
+    },
+    [appendLog, loadSites, loadTunnelDiagnostics],
+  );
 
   useEffect(() => {
     if (authPhase !== "app" || tab !== "conn") return;
@@ -726,6 +765,8 @@ export default function App() {
                 {connPageSlice.map((s) => {
                   const tun = siteTunnelSummary(s);
                   const sshReady = Boolean(s.ssh && s.sshStatus === "active");
+                  const restartSvc = tunnelRestartServices(s);
+                  const restarting = restartingSiteId === s.id;
                   return (
                     <motion.div
                       key={s.id}
@@ -805,6 +846,22 @@ export default function App() {
                           ) : (
                             <p className="text-xs text-zinc-500">Sin SSH en este sitio.</p>
                           )}
+                          {canOperate && restartSvc ? (
+                            <button
+                              type="button"
+                              disabled={restarting}
+                              title="Detener y volver a levantar el túnel en atlas-tunnels"
+                              onClick={() => void restartSiteTunnel(s, restartSvc)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/35 bg-rose-950/30 px-3 py-2 text-xs font-medium text-rose-200 hover:bg-rose-950/50 disabled:opacity-50 sm:text-sm"
+                            >
+                              {restarting ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <RotateCcw className="h-4 w-4" />
+                              )}
+                              Reiniciar túnel
+                            </button>
+                          ) : null}
                         </div>
                       </div>
                     </motion.div>

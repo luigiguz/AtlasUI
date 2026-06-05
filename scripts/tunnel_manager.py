@@ -332,6 +332,35 @@ def cmd_start(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def restart_site_tunnels(
+    site: str,
+    config_path: Path,
+    services: str = "both",
+) -> tuple[bool, list[str]]:
+    """Detiene y vuelve a levantar túneles de un sitio (reinicio forzado)."""
+    lines: list[str] = []
+    want_ssh = services in ("ssh", "both")
+    want_db = services in ("db", "both")
+    if want_ssh:
+        lines.extend(stop_tunnels(site, label="ssh"))
+    if want_db:
+        lines.extend(stop_tunnels(site, label="db"))
+    removed = prune_dead_processes()
+    if removed:
+        lines.append(f"Poda state: {removed} entrada(s) sin listener.")
+    if want_ssh and want_db:
+        svc = "both"
+    elif want_ssh:
+        svc = "ssh"
+    elif want_db:
+        svc = "db"
+    else:
+        return False, lines + ["Nada que reiniciar (services inválido)."]
+    ok, start_lines = start_site_services(site, svc, config_path)
+    lines.extend(start_lines)
+    return ok, lines
+
+
 def stop_tunnels(site: str | None, label: str | None = None) -> list[str]:
     """Detiene procesos registrados.
 
