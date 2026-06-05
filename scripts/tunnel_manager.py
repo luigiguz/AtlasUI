@@ -138,24 +138,38 @@ def _proc_for_site_label(state: dict, site: str, label: str) -> dict | None:
     return None
 
 
-def _label_alive(state: dict, site: str, label: str) -> bool:
+def _label_alive(state: dict, site: str, label: str, cfg: dict | None = None) -> bool:
+    """True solo si el puerto TCP del túnel acepta conexiones (no basta con PID vivo)."""
+    host = tunnel_probe_host()
     row = _proc_for_site_label(state, site, label)
-    if not row:
-        return False
-    if pid_alive(int(row["pid"])):
+    if row and tunnel_listener_alive(row, host=host):
         return True
-    return tunnel_listener_alive(row, host=tunnel_bind_host())
+    if cfg and isinstance((cfg.get("sites") or {}).get(site), dict):
+        entry = (cfg.get("sites") or {})[site]
+        spec = entry.get(label)
+        if isinstance(spec, dict):
+            try:
+                port = int(spec["local_port"])
+            except (KeyError, TypeError, ValueError):
+                port = 0
+            if port > 0 and tunnel_port_open(port, host=host):
+                return True
+    return False
 
 
 def prune_dead_processes() -> int:
-    """Elimina del state los procesos cuyo PID murió y el puerto ya no escucha."""
+    """Elimina del state entradas sin listener; mata PIDs huérfanos que ya no escuchan."""
     state = read_state()
     procs: list[dict] = list(state.get("processes", []))
     alive: list[dict] = []
+    host = tunnel_probe_host()
     for row in procs:
-        pid = int(row["pid"])
-        if pid_alive(pid) or tunnel_listener_alive(row, host=tunnel_bind_host()):
+        if tunnel_listener_alive(row, host=host):
             alive.append(row)
+            continue
+        pid = int(row.get("pid") or 0)
+        if pid > 0 and pid_alive(pid):
+            kill_pid(pid)
     removed = len(procs) - len(alive)
     if removed:
         write_state({"processes": alive})
@@ -166,12 +180,13 @@ def ensure_site_tunnels(
     site: str, config_path: Path, services: str = "both"
 ) -> tuple[bool, list[str]]:
     """Levanta túneles faltantes para un sitio (no duplica los ya activos)."""
+    cfg = load_config_optional(config_path)
     state = read_state()
     want_ssh = services in ("ssh", "both")
     want_db = services in ("db", "both")
-    if want_ssh and _label_alive(state, site, "ssh"):
+    if want_ssh and _label_alive(state, site, "ssh", cfg):
         want_ssh = False
-    if want_db and _label_alive(state, site, "db"):
+    if want_db and _label_alive(state, site, "db", cfg):
         want_db = False
     if not want_ssh and not want_db:
         return True, [f"[skip] {site}: túneles ya activos"]
@@ -355,12 +370,13 @@ def cmd_status(_args: argparse.Namespace) -> None:
     if not procs:
         print("Sin túneles registrados en state.")
         return
+    host = tunnel_probe_host()
     for row in procs:
         pid = int(row["pid"])
-        alive = pid_alive(pid) or tunnel_listener_alive(row, host=tunnel_bind_host())
+        alive = tunnel_listener_alive(row, host=host)
         print(
             f"{'vivo' if alive else 'muerto':4} pid={pid} site={row.get('site')} "
-            f"{row.get('label')} {row.get('hostname')} -> {tunnel_bind_host()}:{row.get('local_port')}"
+            f"{row.get('label')} {row.get('hostname')} -> {host}:{row.get('local_port')}"
         )
 
 
